@@ -1,0 +1,349 @@
+{
+  "schema_version": 1,
+  "project_id": "walker-jumpman",
+  "design_version": "0.2.0",
+  "status": "candidate_blockout_not_playtested",
+  "units": "logical_pixels",
+  "coordinate_system": "origin top-left; +x right; +y down; rectangles use x,y,width,height",
+  "world": {
+    "width": 1920,
+    "height": 384,
+    "fall_boundary_y": 512
+  },
+  "viewport": {
+    "width": 640,
+    "height": 360
+  },
+  "player": {
+    "spawn_feet": {
+      "x": 64,
+      "y": 320
+    },
+    "collider": {
+      "width": 18,
+      "height": 28,
+      "offset_from_feet": {
+        "x": 0,
+        "y": -14
+      }
+    }
+  },
+  "finish": {
+    "id": "GOAL-01",
+    "x": 1904,
+    "y": 288,
+    "width": 16,
+    "height": 32
+  },
+  "zones": [
+    {
+      "id": "ZONE-01",
+      "name": "Practice Yard",
+      "x0": 0,
+      "x1": 640,
+      "cherries": 4
+    },
+    {
+      "id": "ZONE-02",
+      "name": "Cherry Run",
+      "x0": 640,
+      "x1": 1280,
+      "cherries": 6
+    },
+    {
+      "id": "ZONE-03",
+      "name": "Home Stretch",
+      "x0": 1280,
+      "x1": 1920,
+      "cherries": 10
+    }
+  ],
+  "solids": [
+    {
+      "id": "SOLID-01",
+      "x": 0,
+      "y": 320,
+      "width": 640,
+      "height": 64,
+      "role": "safe continuous practice ground"
+    },
+    {
+      "id": "SOLID-02",
+      "x": 224,
+      "y": 304,
+      "width": 64,
+      "height": 16,
+      "role": "practice step"
+    },
+    {
+      "id": "SOLID-03",
+      "x": 384,
+      "y": 288,
+      "width": 64,
+      "height": 32,
+      "role": "practice step"
+    },
+    {
+      "id": "SOLID-04",
+      "x": 640,
+      "y": 320,
+      "width": 192,
+      "height": 64,
+      "role": "zone 2 approach"
+    },
+    {
+      "id": "SOLID-05",
+      "x": 896,
+      "y": 320,
+      "width": 192,
+      "height": 64,
+      "role": "zone 2 middle landing"
+    },
+    {
+      "id": "SOLID-06",
+      "x": 1152,
+      "y": 320,
+      "width": 128,
+      "height": 64,
+      "role": "zone 2 exit"
+    },
+    {
+      "id": "SOLID-07",
+      "x": 1280,
+      "y": 304,
+      "width": 160,
+      "height": 80,
+      "role": "zone 3 first landing"
+    },
+    {
+      "id": "SOLID-08",
+      "x": 1488,
+      "y": 288,
+      "width": 112,
+      "height": 96,
+      "role": "zone 3 higher landing"
+    },
+    {
+      "id": "SOLID-09",
+      "x": 1664,
+      "y": 320,
+      "width": 256,
+      "height": 64,
+      "role": "zone 3 final approach"
+    }
+  ],
+  "hazards": [
+    {
+      "id": "HAZARD-01",
+      "x": 704,
+      "y": 304,
+      "width": 32,
+      "height": 16,
+      "kind": "stationary_spikes",
+      "zone": "ZONE-02"
+    },
+    {
+      "id": "HAZARD-02",
+      "x": 1712,
+      "y": 304,
+      "width": 32,
+      "height": 16,
+      "kind": "stationary_spikes",
+      "zone": "ZONE-03"
+    }
+  ],
+  "required_gaps": [
+    {
+      "id": "GAP-01",
+      "left_surface": "SOLID-04",
+      "right_surface": "SOLID-05",
+      "width": 64,
+      "rise": 0
+    },
+    {
+      "id": "GAP-02",
+      "left_surface": "SOLID-05",
+      "right_surface": "SOLID-06",
+      "width": 64,
+      "rise": 0
+    },
+    {
+      "id": "GAP-03",
+      "left_surface": "SOLID-07",
+      "right_surface": "SOLID-08",
+      "width": 48,
+      "rise": 16
+    },
+    {
+      "id": "GAP-04",
+      "left_surface": "SOLID-08",
+      "right_surface": "SOLID-09",
+      "width": 64,
+      "rise": -32
+    }
+  ],
+  "cherries": [
+    {
+      "id": "CHERRY-01",
+      "zone": "ZONE-01",
+      "x": 160,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-02",
+      "zone": "ZONE-01",
+      "x": 256,
+      "y": 248,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-03",
+      "zone": "ZONE-01",
+      "x": 416,
+      "y": 232,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-04",
+      "zone": "ZONE-01",
+      "x": 576,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-05",
+      "zone": "ZONE-02",
+      "x": 656,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-06",
+      "zone": "ZONE-02",
+      "x": 792,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-07",
+      "zone": "ZONE-02",
+      "x": 928,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-08",
+      "zone": "ZONE-02",
+      "x": 1056,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-09",
+      "zone": "ZONE-02",
+      "x": 1184,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-10",
+      "zone": "ZONE-02",
+      "x": 1248,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-11",
+      "zone": "ZONE-03",
+      "x": 1296,
+      "y": 248,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-12",
+      "zone": "ZONE-03",
+      "x": 1344,
+      "y": 248,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-13",
+      "zone": "ZONE-03",
+      "x": 1392,
+      "y": 248,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-14",
+      "zone": "ZONE-03",
+      "x": 1504,
+      "y": 232,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-15",
+      "zone": "ZONE-03",
+      "x": 1552,
+      "y": 232,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-16",
+      "zone": "ZONE-03",
+      "x": 1784,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-17",
+      "zone": "ZONE-03",
+      "x": 1808,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-18",
+      "zone": "ZONE-03",
+      "x": 1832,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-19",
+      "zone": "ZONE-03",
+      "x": 1856,
+      "y": 264,
+      "radius": 6
+    },
+    {
+      "id": "CHERRY-20",
+      "zone": "ZONE-03",
+      "x": 1880,
+      "y": 264,
+      "radius": 6
+    }
+  ],
+  "tuning": {
+    "physics_ticks_per_second": 60,
+    "speed_px_s": 160,
+    "acceleration_px_s2": 1280,
+    "deceleration_px_s2": 1920,
+    "jump_velocity_px_s": -320,
+    "gravity_px_s2": 960,
+    "fall_cap_px_s": 480,
+    "coyote_ticks": 6,
+    "buffer_ticks": 6
+  },
+  "approvals": {
+    "layout": null,
+    "visual_direction": null
+  },
+  "limitations": [
+    "No Godot simulation or human route test performed.",
+    "These coordinates are starting candidates, not guaranteed reachable placements.",
+    "Zero-cherry and all-cherry routes must be tested before accepting this blockout.",
+    "No moving platform is included.",
+    "The map is design evidence, not gameplay evidence."
+  ]
+}

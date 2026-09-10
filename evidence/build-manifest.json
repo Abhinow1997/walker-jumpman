@@ -1,0 +1,61 @@
+{
+  "project": "walker-jumpman",
+  "build_id": "1f03828eef29e170b5132a831c43201a7b11978d2c2087fa15bd948d0f44488d",
+  "created_at": "2026-09-10T22:39:09.411Z",
+  "engine": "4.7.2.stable.official.ed1daf0bf",
+  "renderer": "Compatibility",
+  "scope": "First Steps local control/retry slice",
+  "source_sha256": {
+    "godot/.gitignore": "531d0d253cec1addb97b2cb2d144b6589ff934513eb9c9b8cf882cb49e4c0c32",
+    "godot/features/player/player.gd": "cb79bad716078657d25a0c15b2a03ddfa75b934497f3382418ca99004f992f96",
+    "godot/features/player/player.gd.uid": "be96c2e71cbd69482fa0d107dfb1500a0054d2b963e9ba312e265bef985f0454",
+    "godot/features/player/tuning.gd": "7a09e96ef11bfa3e1e3b00849e84ed15b453a2e2780b9c94c90c376aea62aa37",
+    "godot/features/player/tuning.gd.uid": "9411c240407f1c4afbb5e85649ef3215765190421bc3621a7457e065e036751a",
+    "godot/game/main.tscn": "017da6e141ad6f6199a9219208483c82cacd257210dbaa6b1184a27157a63a2f",
+    "godot/game/session.gd": "4b4fc42f56416806b8ad64c6c9da938165fb2f8c5b78bc2169ba68a2bf161276",
+    "godot/game/session.gd.uid": "cbd9b4dc192752918a54c94b364b7891028856b6de6a4391d924522985ffeb77",
+    "godot/levels/first_steps.json": "33b9b5c8dd0f0eaf162feed7533dd0d7774dd1e6cd9c9b6f353a849473a23d20",
+    "godot/project.godot": "4296d7e5e84ef36a7147c211a78b78eaca38252401fd38abb6b2d9460a1ac840",
+    "godot/tests/capture_game.gd": "5bc82d2360e3758fd8d2f187ee15ddef0cc9afb6da0a7f3b4f37d660d8cff79f",
+    "godot/tests/route_driver.gd": "21996742044648210c75c6ca56f45f9e2264a45b5d09f8fe214055c047476cb3",
+    "godot/tests/test_game.gd": "f41b7299da7cb1003653851749b25f464e48d0e26096e91015a270f83ae26cf4",
+    "godot/tests/test_keyboard.gd": "39b5d37039cee469aa6a87ab45acc852d1c55a7ebcebca5ec328d9d71413c6c9",
+    "godot/ui/hud.gd": "6cdf5b19f3b4684e8375c9db2c595031f76e862ccaa015098d4eb97ea2805e55",
+    "godot/ui/hud.gd.uid": "d2eaf3c885a55bcd31e9b2f36d3a5355f10105da426e96a9685434da00b28330",
+    "walker-jumpman.command": "4adbb8884b6c05bdba97f2b4919e97e7e351a0bd2446ac7e05d6d8b250041c79"
+  },
+  "tests": [
+    {
+      "file": "evidence/mechanics-1789079935.62795.json",
+      "checks": 25,
+      "failures": 0
+    },
+    {
+      "file": "evidence/keyboard-1789079926.01266.json",
+      "checks": 9,
+      "failures": 0
+    }
+  ],
+  "machine_checks_passed": 34,
+  "human_playtest_sessions": 0,
+  "exported": false,
+  "game_published": false,
+  "screenshots": [
+    {
+      "file": "evidence/screens/01-menu.png",
+      "sha256": "c05b5b81c05fa03e6eec9422f2867e7a0fd7b09704436290a5fcf27f5a5d972a"
+    },
+    {
+      "file": "evidence/screens/02-failure.png",
+      "sha256": "4807fda15f88216d458246c3724a3d0f5f100bf73bcee647782f1f018157c1b7"
+    },
+    {
+      "file": "evidence/screens/03-jump.png",
+      "sha256": "6c48b444cda58509e92154a9364c03d21258087a0e57b7a85f0e5fda9c2bcfa2"
+    },
+    {
+      "file": "evidence/screens/04-complete.png",
+      "sha256": "e10a8849fb0db21da92b6a7a771182dd3534d7b5a08e4c03e4275819df169701"
+    }
+  ]
+}

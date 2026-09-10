@@ -1,0 +1,24 @@
+# Engine caches and local editor state
+.godot/
+.DS_Store
+.idea/
+.vscode/
+
+# Video/audio and generated distribution packages stay outside source control.
+*.[mM][pP]3
+*.[mM][pP]4
+*.avi
+*.mov
+*.wav
+exports/
+builds/
+
+# Local credentials/configuration
+.env
+.env.*
+!.env.example
+credentials/
+*.p12
+*.pfx
+
+# Git cannot ignore by size: inspect staged files before committing (>25 MB).

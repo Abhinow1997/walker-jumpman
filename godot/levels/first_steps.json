@@ -1,0 +1,11 @@
+{
+  "id": "first-steps",
+  "title": "First Steps",
+  "scope": "Control/retry slice, not the proposed full three-zone course",
+  "width": 960,
+  "fall_y": 430,
+  "spawn": [64, 320],
+  "solids": [[0, 320, 448, 64], [512, 320, 224, 64], [784, 320, 176, 64], [160, 304, 48, 16], [576, 288, 48, 32]],
+  "hazards": [[320, 304, 24, 16]],
+  "finish": [916, 264, 24, 56]
+}

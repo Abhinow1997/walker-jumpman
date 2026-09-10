@@ -1,0 +1,324 @@
+{
+  "schema_version": 1,
+  "project_id": "walker-jumpman",
+  "project_name": "walker-jumpman",
+  "design_version": "0.2.0",
+  "updated_date": "2026-09-10",
+  "state": "first_slice_ready_for_human_playtest",
+  "documents": {
+    "brief": "GAME-BRIEF.md",
+    "gdd": "GDD.md",
+    "index": "README.md",
+    "production_plan": "PRODUCTION-PLAN.md",
+    "level_design": "LEVEL-DESIGN.md",
+    "level_data": "design/level-01.json",
+    "level_overview": "design/level-overview.svg",
+    "playtest_plan": "PLAYTEST-PLAN.md",
+    "asset_plan": "ASSET-PLAN.md",
+    "design_review": "DESIGN-REVIEW.md",
+    "level_preview": "design/level-overview.png"
+  },
+  "source_collection": "../jumping-man-godot",
+  "project_naming": {
+    "prefix": "walker-",
+    "confirmed_by": "Bear",
+    "confirmed_date": "2026-09-10",
+    "basis": "Explicit user instruction: all project names should start with walker, e.g. walker-jumpman."
+  },
+  "engine_profile": {
+    "engine": "Godot",
+    "major_version": 4,
+    "language": "typed GDScript",
+    "renderer": "Compatibility",
+    "exact_version": "4.7.2.stable.official.ed1daf0bf",
+    "status": "implemented_for_authorized_first_slice",
+    "approval": null
+  },
+  "gate_approvals": {
+    "vision": null,
+    "systems": null,
+    "world": null,
+    "scope": null
+  },
+  "build": {
+    "authorized": true,
+    "authorization_basis": "User: Build a simple level for walker-jumpman (2026-09-10).",
+    "implemented": true,
+    "scope": "First Steps control/retry slice only; full GDD MVP not complete",
+    "report": "BUILD-REPORT.md",
+    "source_manifest": "evidence/build-manifest.json",
+    "project_path": "godot",
+    "engine_verified": true,
+    "build_id": "1f03828eef29e170b5132a831c43201a7b11978d2c2087fa15bd948d0f44488d"
+  },
+  "playtest": {
+    "executed": true,
+    "scope": "Automated mechanics and synthetic keyboard checks plus actual rendered-viewport inspection, not human playtesting",
+    "human_sessions": 0,
+    "results": [
+      {"file": "evidence/mechanics-1789078842.10165.json", "scope": "First-slice mechanics", "checks": 25, "failures": 0},
+      {"file": "evidence/keyboard-1789078680.84209.json", "scope": "Synthetic keyboard events", "checks": 9, "failures": 0}
+    ]
+  },
+  "export": {
+    "produced": false,
+    "proposed_target": "Web served locally",
+    "package": null
+  },
+  "publication": {
+    "authorized": false,
+    "published": false
+  },
+  "educational_track": {
+    "active": false
+  },
+  "production_task_document": {
+    "requested": true,
+    "generated": true,
+    "authorization_basis": "Bear requested: build all the design work.",
+    "tasks_executed": 0
+  },
+  "paid_generation": {
+    "authorized": false,
+    "performed": false
+  },
+  "walker_command_adapter": {
+    "implemented": false
+  },
+  "source_inventory": {
+    "art_files": 115,
+    "unity_csharp_files": 11,
+    "source_files_modified": false
+  },
+  "features": [
+    {
+      "id": "FEAT-01",
+      "priority": "CORE",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-02",
+      "priority": "CORE",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-03",
+      "priority": "CORE",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-04",
+      "priority": "CORE",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-05",
+      "priority": "CORE",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-06",
+      "priority": "CORE",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-07",
+      "priority": "CORE",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-08",
+      "priority": "CORE",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-09",
+      "priority": "IMPORTANT",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-10",
+      "priority": "NICE-TO-HAVE",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-11",
+      "priority": "NICE-TO-HAVE",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    },
+    {
+      "id": "FEAT-12",
+      "priority": "EXPERIMENTAL",
+      "design": "proposed",
+      "approved": false,
+      "implemented": false,
+      "verified": false
+    }
+  ],
+  "acceptance_cases": [
+    {
+      "id": "CASE-001",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-002",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-003",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-004",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-005",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-006",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-007",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-008",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-009",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-010",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-011",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-012",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-013",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-014",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-015",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-016",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-017",
+      "status": "deferred_not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-018",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-019",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-020",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-021",
+      "status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CASE-022",
+      "status": "not_run",
+      "evidence": []
+    }
+  ],
+  "scope_warning": {
+    "core": 8,
+    "total": 12,
+    "core_percent": 66.7,
+    "warning_threshold_percent": 40,
+    "disposition": "pending_human_scope_review_not_automatic_failure"
+  },
+  "design_package": {
+    "draft_complete": true,
+    "human_review": "pending",
+    "level_geometry_status": "candidate_not_playtested",
+    "production_tasks": 22,
+    "deferred_tasks": 4
+  },
+  "design_validation": {
+    "performed": true,
+    "result": "pass",
+    "scope": "document_ids_links_counts_static_geometry_and_diagram_layout_only",
+    "gameplay_evidence": false,
+    "report": "DESIGN-REVIEW.md"
+  }
+}
