@@ -2,10 +2,11 @@
   "id": "first-steps",
   "title": "First Steps",
   "scope": "Control/retry slice, not the proposed full three-zone course",
-  "width": 960,
-  "fall_y": 430,
-  "spawn": [64, 320],
-  "solids": [[0, 320, 448, 64], [512, 320, 224, 64], [784, 320, 176, 64], [160, 304, 48, 16], [576, 288, 48, 32]],
-  "hazards": [[320, 304, 24, 16]],
-  "finish": [916, 264, 24, 56]
+  "note": "All coordinates rescaled x2 on 2026-09-13 for the taller character sprite.",
+  "width": 1920,
+  "fall_y": 860,
+  "spawn": [128, 640],
+  "solids": [[0, 640, 896, 128], [1024, 640, 448, 128], [1568, 640, 352, 128], [320, 608, 96, 32], [1152, 576, 96, 64]],
+  "hazards": [[640, 608, 48, 32]],
+  "finish": [1832, 528, 48, 112]
 }

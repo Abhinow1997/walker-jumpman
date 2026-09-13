@@ -1,1 +1,6 @@
 .godot/
+
+# features/player/art/ is deliberately NOT ignored. The sheets are committed so a
+# fresh clone is playable without the source pack, which lives outside this repo.
+# They are extracted from an unlicensed Little Fighter 2 fan mod and this remote
+# is public — see features/player/art/anti_davis/PROVENANCE.md before release.

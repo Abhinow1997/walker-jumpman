@@ -1,7 +1,12 @@
 extends CharacterBody2D
 
 const Tuning = preload("res://features/player/tuning.gd")
+# Swap this one line to change the protagonist's appearance.
+# player_sprite.gd is the Anti-Davis sprite; player_visual.gd is the original
+# procedural Wind-Up Knight rig, kept as a fallback that needs no art files.
+const Visual = preload("res://features/player/player_sprite.gd")
 var tuning = Tuning.new()
+var visual: Node2D
 var enabled: bool = false
 var tick: int = 0
 var last_floor_tick: int = -1000
@@ -19,13 +24,20 @@ func _ready() -> void:
 	name = "Player"
 	collision_layer = 2
 	collision_mask = 1
-	floor_snap_length = 1.0
+	floor_snap_length = 2.0
+	# Sized to the Anti-Davis body, not to a blanket x2 of the old box. He is drawn
+	# ~37 x 73 px, but most of that is swinging arms and hair spikes; torso and legs
+	# are about this box. A hitbox wider than the drawn body kills the player on
+	# spikes that visibly missed, so it stays inside the silhouette on purpose.
 	var shape := RectangleShape2D.new()
-	shape.size = Vector2(18, 28)
+	shape.size = Vector2(20, 56)
 	var collider := CollisionShape2D.new()
 	collider.shape = shape
-	collider.position = Vector2(0, -14)
+	collider.position = Vector2(0, -28)
 	add_child(collider)
+	visual = Visual.new()
+	visual.body = self
+	add_child(visual)
 
 func reset_at(spawn: Vector2) -> void:
 	position = spawn
@@ -36,7 +48,13 @@ func reset_at(spawn: Vector2) -> void:
 	require_jump_release = true
 	test_jump_pressed = false
 	jumps = 0
-	queue_redraw()
+	if is_instance_valid(visual):
+		visual.reset()
+
+func on_death() -> void:
+	## Appearance only; the session still owns the death state and retry timing.
+	if is_instance_valid(visual):
+		visual.on_death()
 
 func _physics_process(delta: float) -> void:
 	if not enabled:
@@ -64,17 +82,5 @@ func _physics_process(delta: float) -> void:
 		jump_request_tick = -1000
 		jumps += 1
 	move_and_slide()
-	position.x = maxf(position.x, 10.0)
-	queue_redraw()
-
-func _draw() -> void:
-	var ink := Color("25354a")
-	var blue := Color("287baf")
-	var stride := sin(float(tick) * 0.7) * 2.0 if is_on_floor() and absf(velocity.x) > 8 else 0.0
-	draw_rect(Rect2(-9, -27, 18, 24), ink)
-	draw_rect(Rect2(-7, -25, 14, 20), blue)
-	draw_rect(Rect2(-10, -18, 20, 4), Color("ef875f"))
-	draw_rect(Rect2(-6, -4, 5, 4 + stride), ink)
-	draw_rect(Rect2(2, -4, 5, 4 - stride), ink)
-	draw_rect(Rect2(1 if facing > 0 else -6, -24, 5, 5), Color("fff9e9"))
-	draw_rect(Rect2(4 if facing > 0 else -6, -23, 2, 3), ink)
+	position.x = maxf(position.x, 20.0)
+	visual.advance(delta)
