@@ -7,28 +7,15 @@ extends Node2D
 ## Drop-in replacement for player_visual.gd: same interface (`body`, reset,
 ## advance, on_death), so the protagonist swaps without touching movement code.
 ##
-## Adding another animation is a data edit. Put the strip in art/anti_davis and
-## add a row to SHEETS; anything not present falls back to idle automatically.
+## Reads state from `body` and owns no gameplay logic. In particular it does not
+## time the attacks: the player does, because the hitbox and the drawing have to
+## open on the same frame. Here that is just `body.attack` and `body.attack_frame`.
+##
+## Every animation, its per-frame timing and the cell geometry come from
+## moves.json. Adding a move is an edit to the extractor, not to this file.
 
+const Moveset = preload("res://features/player/moveset.gd")
 const ART := "res://features/player/art/anti_davis/"
-## LF2 cells are 79x79 with a per-frame origin. The extractor rebakes them into a
-## uniform 80x96 cell with the character's origin — feet, mid-body — at (40, 82),
-## so a single region size fits every pose and nothing jitters between frames.
-const CELL := Vector2i(80, 96)
-## Cell centre is (40, 48) and the origin is (40, 82), so the texture is lifted
-## 34 px to stand the feet on the node origin, where the collider's feet are.
-const PIVOT := Vector2(0, -34)
-
-## Frame counts must match the strips the extractor writes.
-const SHEETS := {
-	"idle":  {"file": "idle.png",  "frames": 4, "fps": 6.0,  "loop": true},
-	"walk":  {"file": "walk.png",  "frames": 4, "fps": 8.0,  "loop": true},
-	"run":   {"file": "run.png",   "frames": 3, "fps": 12.0, "loop": true},
-	"skid":  {"file": "skid.png",  "frames": 1, "fps": 10.0, "loop": false},
-	"rise":  {"file": "rise.png",  "frames": 1, "fps": 10.0, "loop": false},
-	"fall":  {"file": "fall.png",  "frames": 1, "fps": 10.0, "loop": false},
-	"death": {"file": "death.png", "frames": 5, "fps": 9.0,  "loop": false},
-}
 
 ## The sheets are drawn facing right, which is body.facing = 1. Flip this if a
 ## future character's art faces the other way.
@@ -64,6 +51,18 @@ var body: CharacterBody2D
 var sprite: AnimatedSprite2D
 var playing: String = ""
 
+## An object in his hand. LF2 never draws one into a character frame — it draws
+## the body, then stamps the object at that frame's weapon point — so the drink
+## frames are empty-handed and the bottle has to be put back here.
+##
+## Deliberately generic: set the texture and its offset and it appears on any
+## frame that has a weapon point, and vanishes on any frame that does not. A
+## future weapon is a different texture, not different code. Whoever starts the
+## action sets it; reset() clears it.
+var held_texture: Texture2D = null
+var held_offset: Vector2 = Vector2.ZERO
+var held: Sprite2D
+
 var squash: float = 1.0
 var squash_vel: float = 0.0
 var face_scale: float = 1.0
@@ -80,29 +79,43 @@ func _ready() -> void:
 	sprite = AnimatedSprite2D.new()
 	sprite.sprite_frames = _build_frames()
 	sprite.centered = true
-	sprite.offset = PIVOT
+	sprite.offset = Moveset.pivot()
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	add_child(sprite)
+	# Added after the body so it draws in front of it: the bottle is at his mouth,
+	# on the near side of his face.
+	held = Sprite2D.new()
+	held.centered = true
+	held.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	held.visible = false
+	add_child(held)
 	_play("idle")
 
 func _build_frames() -> SpriteFrames:
 	var frames := SpriteFrames.new()
 	frames.remove_animation("default")
-	for key in SHEETS:
-		var spec: Dictionary = SHEETS[key]
-		var path: String = ART + spec.file
+	var cell := Moveset.cell()
+	for key in Moveset.animations():
+		var spec: Dictionary = Moveset.animation(key)
+		var path: String = ART + str(spec.file)
 		if not ResourceLoader.exists(path):
 			push_warning("player_sprite: no sheet for '%s' at %s (run scripts/extract_anti_davis.py, then --import)" % [key, path])
 			continue
 		var sheet: Texture2D = load(path)
 		frames.add_animation(key)
-		frames.set_animation_speed(key, spec.fps)
-		frames.set_animation_loop(key, spec.loop)
-		for i in spec.frames:
+		frames.set_animation_loop(key, bool(spec.loop))
+		var durations: Array = spec.durations
+		for i in durations.size():
 			var atlas := AtlasTexture.new()
 			atlas.atlas = sheet
-			atlas.region = Rect2(i * CELL.x, 0, CELL.x, CELL.y)
-			frames.add_frame(key, atlas)
+			atlas.region = Rect2(i * cell.x, 0, cell.x, cell.y)
+			# SpriteFrames frame durations are relative to the animation speed,
+			# so the speed is pinned at 1 fps and each frame carries its own
+			# length in seconds. LF2 holds frames for uneven times and the
+			# attacks depend on that: the charge sits on its commit frame twice
+			# as long as anything around it.
+			frames.add_frame(key, atlas, float(durations[i]))
+		frames.set_animation_speed(key, 1.0)
 	return frames
 
 func _play(key: String) -> void:
@@ -116,6 +129,19 @@ func _play(key: String) -> void:
 	playing = wanted
 	sprite.play(wanted)
 
+func _show_frame(key: String, frame: int) -> void:
+	## Attacks are stepped by the player, not by the AnimatedSprite2D's own
+	## clock, so that the frame on screen is exactly the frame whose hitbox is
+	## live. Two clocks would drift and the hit would stop matching the drawing.
+	if not sprite.sprite_frames.has_animation(key):
+		_play("idle")
+		return
+	if playing != key:
+		playing = key
+		sprite.stop()
+		sprite.animation = key
+	sprite.frame = clampi(frame, 0, sprite.sprite_frames.get_frame_count(key) - 1)
+
 func reset() -> void:
 	squash = 1.0
 	squash_vel = 0.0
@@ -126,8 +152,13 @@ func reset() -> void:
 	dying = false
 	death_t = 0.0
 	motes.clear()
+	held_texture = null
+	held_offset = Vector2.ZERO
+	if is_instance_valid(held):
+		held.visible = false
 	if is_instance_valid(sprite):
 		sprite.modulate = Color.WHITE
+		playing = ""
 		_play("idle")
 	queue_redraw()
 
@@ -173,7 +204,11 @@ func advance(delta: float) -> void:
 
 	face_scale = move_toward(face_scale, body.facing * ART_FACES, delta * TURN_RATE)
 
-	if not grounded:
+	# An attack overrides the locomotion pose for its whole duration; the player
+	# has already decided which frame of it is showing.
+	if body.attack != "":
+		_show_frame(body.attack, body.attack_frame)
+	elif not grounded:
 		_play("rise" if body.velocity.y < 0.0 else "fall")
 	elif speed > 40.0 and signf(body.velocity.x) != signf(body.facing):
 		_play("skid")
@@ -185,8 +220,26 @@ func advance(delta: float) -> void:
 		_play("idle")
 
 	_apply_transform()
+	_update_held()
 	_update_motes(delta)
 	queue_redraw()
+
+func _update_held() -> void:
+	## Follows the weapon point of whatever frame is showing. The held sprite is
+	## a sibling of the body, not a child of it, so squash and the turn stretch
+	## do not deform the bottle; only the mirror is applied.
+	if not is_instance_valid(held):
+		return
+	var point = Moveset.wpoint(body.attack, body.attack_frame) if body.attack != "" else null
+	if held_texture == null or point == null:
+		held.visible = false
+		return
+	var side := -1.0 if face_scale < 0.0 else 1.0
+	held.texture = held_texture
+	held.offset = held_offset
+	held.position = Vector2(point.x * side, point.y)
+	held.scale = Vector2(side, 1.0)
+	held.visible = true
 
 func _apply_transform() -> void:
 	var stretch_y := squash if USE_SQUASH else 1.0

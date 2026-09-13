@@ -1,0 +1,20 @@
+extends "res://features/combat/prop.gd"
+## A breakable crate. Everything it does — being knocked into the air, tumbling,
+## landing, skidding, settling, shattering — is prop.gd; this is the numbers and
+## the art it does it with.
+##
+## The crate at rest is LF2's own box, and the tumble is the six angles LF2 drew
+## for a box in the air, ordered so they roll continuously. It shatters into
+## LF2's plank debris, four fragment sizes in the crate's palette with four
+## drawn rotations each. No part of it is invented art.
+
+func _configure() -> void:
+	max_health = 40  # two jabs, or any heavier blow plus a jab
+	# Matched to the drawn crate (56 x 50), kept just inside it so a punch that
+	# visibly grazes the edge does not miss.
+	body = Vector2(52, 48)
+	art_rest = "crate"
+	art_spin = "crate_spin"
+	art_debris = "crate_debris"
+	# Nine pieces, weighted toward the smaller fragments.
+	debris_types = [0, 1, 1, 2, 2, 3, 3, 3, 3]

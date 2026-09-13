@@ -22,3 +22,16 @@ credentials/
 *.pfx
 
 # Git cannot ignore by size: inspect staged files before committing (>25 MB).
+
+# Generated evidence. Every capture folder here is reproducible in one command
+# from godot/tests/capture_*.gd, and every timestamped report is written afresh
+# by the test suites, so none of it belongs in the repository — it accumulated
+# to 90 reports and 79 PNGs before this rule existed.
+#
+# Two things are NOT ignored, because they are referenced rather than
+# regenerated: build-manifest.json is the deliverable, and screens/ is linked
+# from README.md and hashed by the manifest. Committing evidence/screens is
+# what makes the README image render on GitHub.
+evidence/*
+!evidence/build-manifest.json
+!evidence/screens/

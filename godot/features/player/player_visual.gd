@@ -6,6 +6,11 @@ extends Node2D
 ## logic and never touches position, velocity, or collision, so the whole
 ## protagonist can be swapped by replacing this one node.
 ##
+## Predates the moveset and has no attack poses. Swap back to it and the attacks
+## still work — hitboxes, damage and timing all live in player.gd — but he goes
+## through the whole move drawn in his run or idle cycle. It is a movement
+## fallback for when the sprite sheets are unavailable, not a second character.
+##
 ## Styled from the reference animation sheet: oxidised copper over dark iron,
 ## near-black outlines, a toothed movement in the chest, a glass lens in a
 ## brimmed helm, and two-segment limbs so knees and elbows actually bend.

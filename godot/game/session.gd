@@ -2,6 +2,10 @@ extends Node2D
 
 const Player = preload("res://features/player/player.gd")
 const Hud = preload("res://ui/hud.gd")
+const Crate = preload("res://features/combat/crate.gd")
+const Blast = preload("res://features/combat/blast.gd")
+const Bottle = preload("res://features/combat/bottle.gd")
+const Items = preload("res://features/combat/items.gd")
 enum State { MENU, PLAYING, PAUSED, DYING, COMPLETE }
 var state: State = State.MENU
 var player: CharacterBody2D
@@ -9,6 +13,16 @@ var camera: Camera2D
 var hud: Control
 var level: Dictionary
 var hazard_areas: Array[Area2D] = []
+var crates: Array[Area2D] = []
+var bottles: Array[Area2D] = []
+## The bottle the player is currently standing near, or null. The HUD reads it
+## to know whether to prompt, and drink() reads it to know what to consume.
+var bottle_in_reach: Area2D = null
+## The bottle currently in his hand, for the six seconds a drink takes. Held
+## separately from bottle_in_reach because the two diverge the moment he steps
+## away mid-drink, which is exactly the case that has to be caught.
+var drinking_bottle: Area2D = null
+var blasts: Array[Node2D] = []
 var goal: Area2D
 var deaths: int = 0
 var elapsed: float = 0.0
@@ -30,7 +44,33 @@ func _ready() -> void:
 		hazard_areas.append(_add_area(Rect2(entry[0], entry[1], entry[2], entry[3]), 8, true))
 	var f: Array = level.finish
 	goal = _add_area(Rect2(f[0], f[1], f[2], f[3]), 16, false)
+	# Crates are added before the player so he draws over them, and they are
+	# Area2D with no collision mask: they are targets, never obstacles. Walking
+	# into one does nothing, so no crate can block or alter the platforming route.
+	for entry in level.get("crates", []):
+		var crate := Crate.new()
+		crate.position = Vector2(entry[0], entry[1])
+		# A crate is knocked about when hit, so it needs to know where the level
+		# gives up on anything that falls.
+		crate.fall_limit = float(level.fall_y)
+		crates.append(crate)
+		add_child(crate)
+	# [x, y] or [x, y, segments]. The third value is health-BAR SEGMENTS, not
+	# health points: [470, 640, 2] is a bottle worth two of the bar's five bars.
+	# It used to be raw points, so an old level file's 50 would now read as fifty
+	# bars — check any level authored before this changed.
+	for entry in level.get("bottles", []):
+		var bottle := Bottle.new()
+		bottle.position = Vector2(entry[0], entry[1])
+		# A bottle is knocked about when hit, same as a crate.
+		bottle.fall_limit = float(level.fall_y)
+		if entry.size() > 2:
+			bottle.heal_segments = int(entry[2])
+		bottles.append(bottle)
+		add_child(bottle)
 	player = Player.new()
+	player.blast_fired.connect(_on_blast_fired)
+	player.drink_ended.connect(_on_drink_ended)
 	add_child(player)
 	player.reset_at(Vector2(level.spawn[0], level.spawn[1]))
 	camera = Camera2D.new()
@@ -45,7 +85,7 @@ func _ready() -> void:
 	queue_redraw()
 
 func _setup_input() -> void:
-	var actions := {"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT], "jump": [KEY_SPACE], "pause": [KEY_ESCAPE, KEY_P], "restart": [KEY_R], "confirm": [KEY_ENTER], "menu": [KEY_M]}
+	var actions := {"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT], "jump": [KEY_SPACE], "drink": [KEY_E], "attack": [KEY_J, KEY_X], "blast": [KEY_K, KEY_C], "pause": [KEY_ESCAPE, KEY_P], "restart": [KEY_R], "confirm": [KEY_ENTER], "menu": [KEY_M]}
 	for action in actions:
 		if InputMap.has_action(action):
 			continue
@@ -103,6 +143,18 @@ func restart_attempt() -> void:
 	# Area2D overlaps are physics-step snapshots. Discard pre-teleport contacts
 	# until the broadphase has observed the reset, preventing a phantom second death.
 	contact_settle_ticks = 2
+	# A crate the player already broke has to come back, or every retry hands
+	# them a slightly emptier level than the one they died in.
+	for crate in crates:
+		crate.reset()
+	for bottle in bottles:
+		bottle.reset()
+	bottle_in_reach = null
+	drinking_bottle = null
+	for blast in blasts:
+		if is_instance_valid(blast):
+			blast.queue_free()
+	blasts.clear()
 	player.reset_at(Vector2(level.spawn[0], level.spawn[1]))
 	player.enabled = true
 	camera.position = Vector2(320, 500)
@@ -120,6 +172,72 @@ func set_paused(value: bool) -> void:
 func _on_focus_lost() -> void:
 	if not test_mode:
 		set_paused(true)
+
+func _on_blast_fired(at: Vector2, direction: float) -> void:
+	## The projectile belongs to the level, not to the player: once thrown it
+	## keeps its own heading and must not follow him if he turns or dies.
+	var blast := Blast.new()
+	blast.direction = direction
+	blast.position = at
+	blasts.append(blast)
+	add_child(blast)
+
+func drink() -> bool:
+	## Starts a six-second drink on the bottle in reach. Deliberately not
+	## automatic on touch: the tutorial is teaching that the action exists, which
+	## a silent pickup does not do. Drinking at full health is refused rather
+	## than wasting the bottle.
+	##
+	## Nothing is spent and nothing is restored here — see _on_drink_ended.
+	if state != State.PLAYING or bottle_in_reach == null:
+		return false
+	if not bottle_in_reach.available():
+		return false
+	if player.health >= player.MAX_HEALTH:
+		return false
+	if not player.begin_drink(bottle_in_reach.heal_segments, bottle_in_reach.contents):
+		return false
+	# The bottle leaves the ground the moment he raises it, and the one in his
+	# hand is drawn by the visual at the frame's weapon point, exactly as LF2
+	# composites a held object.
+	player.visual.held_texture = Items.frame("bottle_drink", 0)
+	player.visual.held_offset = Items.pivot("bottle_drink")
+	# Lifted, not consumed. Six seconds from now _on_drink_ended decides which
+	# it was, and an interrupted drink puts the bottle back on the floor.
+	bottle_in_reach.lift()
+	drinking_bottle = bottle_in_reach
+	return true
+
+func _on_drink_ended(_completed: bool, reason: String) -> void:
+	## The only place a bottle is ever spent, and it is spent by the mouthful.
+	## Whatever he swallowed comes out of the bottle; an empty one is gone, and
+	## anything left goes back on the floor to be finished later.
+	player.visual.held_texture = null
+	player.visual.held_offset = Vector2.ZERO
+	if not is_instance_valid(drinking_bottle):
+		drinking_bottle = null
+		return
+	var bottle: Area2D = drinking_bottle
+	drinking_bottle = null
+	bottle.set_contents(player.last_drink_left)
+	if bottle.consumed or bottle.broken:
+		return
+	if reason == player.DRINK_HIT:
+		# Struck mid-drink: it leaves his hand rather than being set down. From
+		# about mouth height and behind him, offset clear of his own sprite —
+		# dropped dead centre it spends its first frames hidden behind him and
+		# reads as having vanished rather than fallen.
+		bottle.drop_from(player.global_position + Vector2(-player.facing * 16.0, -34.0),
+			Vector2(-player.facing * 130.0, -190.0))
+	else:
+		bottle.lower()
+
+func crates_broken() -> int:
+	var count := 0
+	for crate in crates:
+		if crate.broken:
+			count += 1
+	return count
 
 func resolve_contacts(fatal: bool, finished: bool) -> void:
 	if state != State.PLAYING:
@@ -144,6 +262,24 @@ func _physics_process(delta: float) -> void:
 			restart_attempt()
 	elif state == State.PLAYING:
 		elapsed += delta
+		blasts = blasts.filter(func(b): return is_instance_valid(b))
+		bottle_in_reach = null
+		for bottle in bottles:
+			# A bottle the player smashed is no longer a drink, which in_reach
+			# accounts for along with one already drunk.
+			if bottle.in_reach(player):
+				bottle_in_reach = bottle
+				break
+		# Walking away mid-drink is the one interruption the player cannot see
+		# himself doing, because the drink plants him: it takes a knock, or a
+		# bottle skidding off, to separate them. Checked against the bottle he
+		# is actually drinking, not whatever happens to be nearest now.
+		if player.is_drinking() and (not is_instance_valid(drinking_bottle)
+				or not drinking_bottle.in_reach(player)):
+			player.interrupt_drink(player.DRINK_LEFT)
+		elif player.is_drinking():
+			# The bottle empties as he drinks, not when he stops.
+			drinking_bottle.set_contents(player.drink_fill_left())
 		var fatal := player.position.y > float(level.fall_y)
 		death_reason = "Missed the landing" if fatal else "Watch the spikes"
 		for hazard in hazard_areas:
@@ -168,6 +304,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			set_paused(false)
 	elif event.is_action_pressed("pause"):
 		set_paused(state != State.PAUSED)
+	elif event.is_action_pressed("drink"):
+		drink()
 	elif event.is_action_pressed("restart") and state in [State.PLAYING, State.PAUSED, State.DYING]:
 		restart_attempt()
 	elif event.is_action_pressed("menu") and state in [State.PAUSED, State.COMPLETE]:

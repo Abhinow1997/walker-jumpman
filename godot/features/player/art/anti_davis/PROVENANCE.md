@@ -25,9 +25,12 @@ written licence, or commissioned.
 
 ## Cell geometry
 
-Frames are rebaked from LF2's 79x79 cells into a uniform **80x96** cell with the
-character's origin (feet, mid-body) at **(40, 82)**. `player_sprite.gd` mirrors
-those numbers in `CELL` and `PIVOT`; change one and you must change the other.
+Frames are rebaked from LF2's 79x79 cells into a uniform **96x96** cell with the
+character's origin (feet, mid-body) at **(44, 82)**. The cell is wider than the
+body needs because the attacks reach much further forward than any locomotion
+pose. Both numbers live in `moves.json` and the game reads them from there;
+`extract_anti_davis.py` fails loudly rather than cropping if a frame outgrows
+the cell.
 
 | Strip | Frames | LF2 frame ids | Used for |
 |---|---|---|---|
@@ -38,3 +41,35 @@ those numbers in `CELL` and `PIVOT`; change one and you must change the other.
 | `rise.png` | 1 | 213 dash | ascending |
 | `fall.png` | 1 | 214 dash | descending |
 | `death.png` | 5 | 180–184 falling | death, holds on the last frame |
+| `drink.png` | 4 | 55–58 weapon_drink | drinking the milk bottle |
+| `punch_a.png` | 4 | 60–63 punch | jab, standing attack |
+| `punch_b.png` | 4 | 65–68 punch | cross, chains off the jab |
+| `kick.png` | 5 | 80–84 jump_attack | airborne attack |
+| `charge.png` | 7 | 85–89, 97, 98 run_attack | shoulder barge at full speed |
+| `blast.png` | 7 | 240–246 blast | throws the projectile |
+| `ball_fly.png` | 2 | ball 8–9 | projectile in flight |
+| `ball_hit.png` | 4 | ball 10–13 | projectile impact |
+
+## moves.json
+
+Generated alongside the strips and read at load by `moveset.gd`. Holds the cell
+geometry, per-frame durations, and the hit rectangles.
+
+Durations are LF2's own: it holds a frame for `wait + 1` ticks of a ~30 Hz
+clock, and the attacks depend on that unevenness — the shoulder charge sits on
+its commit frame twice as long as anything around it. A single frames-per-second
+number cannot express that, so each frame carries its own length. `RATE` in the
+extractor sharpens all attacks uniformly; it is 1.25, because LF2's timings are
+built for two players standing still rather than a platformer mid-stride.
+
+Hit rectangles are transcribed from LF2's `itr` blocks, relative to the origin,
+in the art's facing-right space. That is why a punch connects where the drawing
+shows it connecting. `itr` volumes with `injury: 0` are LF2's grab and wind-up
+boxes and are dropped.
+
+Weapon points come from LF2's `wpoint` blocks. LF2 never draws a held object
+into a character frame — it draws the body, then stamps the object at that
+point — which is why the drink frames are empty-handed in the sheet and the
+bottle is composited back on at run time. Only `drink` has them today.
+
+**Never hand-edit this file.** Rerun the extractor.

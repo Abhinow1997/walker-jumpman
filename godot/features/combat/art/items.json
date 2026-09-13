@@ -1,0 +1,90 @@
+{
+ "_generated_by": "scripts/extract_lf2_items.py",
+ "_source": "PC _ Computer - Little Fighter 2 - Miscellaneous - Items.png",
+ "items": {
+  "bottle": {
+   "cell": [
+    15,
+    25
+   ],
+   "file": "bottle.png",
+   "frames": 1,
+   "origin": [
+    7,
+    24
+   ]
+  },
+  "bottle_debris": {
+   "cell": [
+    27,
+    28
+   ],
+   "file": "bottle_debris.png",
+   "frames": 8,
+   "origin": [
+    13,
+    14
+   ]
+  },
+  "bottle_drink": {
+   "cell": [
+    26,
+    19
+   ],
+   "file": "bottle_drink.png",
+   "frames": 1,
+   "origin": [
+    13,
+    9
+   ]
+  },
+  "bottle_spin": {
+   "cell": [
+    48,
+    48
+   ],
+   "file": "bottle_spin.png",
+   "frames": 8,
+   "origin": [
+    24,
+    24
+   ]
+  },
+  "crate": {
+   "cell": [
+    58,
+    58
+   ],
+   "file": "crate.png",
+   "frames": 1,
+   "origin": [
+    29,
+    58
+   ]
+  },
+  "crate_debris": {
+   "cell": [
+    27,
+    28
+   ],
+   "file": "crate_debris.png",
+   "frames": 16,
+   "origin": [
+    13,
+    14
+   ]
+  },
+  "crate_spin": {
+   "cell": [
+    58,
+    58
+   ],
+   "file": "crate_spin.png",
+   "frames": 6,
+   "origin": [
+    29,
+    29
+   ]
+  }
+ }
+}
