@@ -181,6 +181,8 @@ func run() -> void:
 	game.player.position = Vector2(bottle.position.x - 34, bottle.position.y)
 	await steps(4)
 	await wide_shot("14-drink-prompt")
+	var _lift1: bool = game.pick_up()
+	await steps(26)
 	var _drank: bool = game.drink()
 	# A drink is six seconds of standing still, so the interesting shots are the
 	# countdown partway through and the bar afterwards, not the moment of asking.
@@ -199,6 +201,8 @@ func run() -> void:
 	bottle = game.bottles[0]
 	game.player.position = Vector2(bottle.position.x - 34, bottle.position.y)
 	await steps(4)
+	var _lift2: bool = game.pick_up()
+	await steps(26)
 	var _tried: bool = game.drink()
 	await steps(60)
 	await wide_shot("18-drink-interrupted-before")
@@ -215,6 +219,8 @@ func run() -> void:
 	game.player.position = Vector2(bottle.position.x - 34, bottle.position.y)
 	await steps(3)
 	await shot("20-before-drinking")
+	var _lift3: bool = game.pick_up()
+	await steps(26)
 	var _started: bool = game.drink()
 	for f in range(4):
 		await shot_at_frame("21-drink-f%d" % f, "drink", f)
@@ -254,6 +260,8 @@ func run() -> void:
 	bottle = game.bottles[0]
 	game.player.position = bottle.position
 	await steps(4)
+	var _lift4: bool = game.pick_up()
+	await steps(26)
 	var _hd: bool = game.drink()
 	await steps(60)
 	game.player.interrupt_drink(game.player.DRINK_HIT)
@@ -325,6 +333,50 @@ func run() -> void:
 		await steps(6)
 	await steps(30)
 	await shot("40-bandit-recovered")
+
+	# --- lifting and throwing ------------------------------------------------
+	await fresh()
+	var box: Area2D = game.crates[0]
+	var mark: Area2D = game.enemies[0]
+	box.position = Vector2(520, 640); box.home = box.position
+	mark.position = Vector2(640, 640); mark.home = mark.position; mark.target = null
+	game.player.position = Vector2(500, 640)
+	await steps(6)
+	await wide_shot("41-crate-at-his-feet")
+	var _lift5: bool = game.pick_up()
+	await steps(8)
+	await wide_shot("42-lifting")
+	await steps(24)
+	await wide_shot("43-carrying-it")
+	game.player.test_axis = 1
+	await steps(22)
+	game.player.test_axis = 0
+	await wide_shot("44-hauling-it")
+	game.player.facing = 1.0
+	game.player.test_attack_pressed = true
+	await steps(6)
+	await wide_shot("45-throwing")
+	var flight := 0
+	while not box.broken and flight < 200:
+		await steps(1)
+		flight += 1
+		if flight == 6:
+			await wide_shot("46-in-the-air")
+	await steps(3)
+	await wide_shot("47-it-connects")
+
+	# The bottle, lifted before it can be drunk.
+	await fresh()
+	var flask: Area2D = game.bottles[0]
+	game.player.position = flask.position
+	await steps(6)
+	await wide_shot("48-bottle-at-his-feet")
+	var _take: bool = game.pick_up()
+	await steps(26)
+	await wide_shot("49-holding-the-bottle")
+	var _sip2: bool = game.drink()
+	await steps(40)
+	await wide_shot("50-drinking-what-he-holds")
 
 	print("FIGHT SHEET: written to " + output)
 	game.queue_free()

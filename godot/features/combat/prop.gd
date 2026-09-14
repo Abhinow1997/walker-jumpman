@@ -93,6 +93,16 @@ var art_debris: String = ""
 ## it toward the smaller fragments or a break looks like the thing split into a
 ## few identical lumps.
 var debris_types: Array = [0]
+## Two-handed. A heavy prop is hoisted overhead, slows the carrier down and can
+## only be thrown; a light one rides in his hand and can still be used for what
+## it is. LF2's own distinction, and the reason it draws two pick-up poses.
+var heavy: bool = true
+## Where on the prop the carrier's hand goes, relative to its own origin. The
+## default is its base, which is right for something rested on both palms; a
+## small object held in one hand sets this to its middle.
+var carry_anchor: Vector2 = Vector2.ZERO
+## What it does to whatever it lands on when thrown.
+var throw_damage: int = 45
 ## How far above the origin the spin frames are drawn, and the half-height the
 ## debris bursts from. Defaults to half the hit box, which is right when the box
 ## matches the art. A prop whose box is deliberately taller than what is drawn —
@@ -118,6 +128,13 @@ var spin_rate: float = 0.0
 ## has to end somewhere; falling forever would leave a live target the player
 ## can never reach again.
 var fall_limit: float = INF
+
+## In his hands: physics is suspended and the carrier places it every frame.
+var carried: bool = false
+## In flight after being thrown, and what this throw has already hit — one throw
+## may not hit the same target twice on consecutive frames.
+var thrown: bool = false
+var throw_struck: Array = []
 
 var break_t: float = 0.0
 var debris: Array = []
@@ -191,10 +208,15 @@ func _ready() -> void:
 
 func reset() -> void:
 	## The session restarts the whole attempt on death, so a prop the player
-	## broke or knocked away has to come back, whole and where it started.
+	## broke, threw or carried off has to come back, whole and where it started.
 	position = home
+	z_index = 0
+	face_forward()
 	health = max_health
 	broken = false
+	carried = false
+	thrown = false
+	throw_struck.clear()
 	flash = 0.0
 	motion = Vector2.ZERO
 	at_rest = true
@@ -205,8 +227,80 @@ func reset() -> void:
 	_update_sprite()
 	queue_redraw()
 
+## True when the player could pick this up right now.
+func can_be_carried() -> bool:
+	return not broken and not carried and not thrown and at_rest and _hittable()
+
+func pick_up() -> void:
+	## Off the floor. Physics stops; the carrier owns its position from here.
+	##
+	## Props are spawned before the player so they draw behind him, which is
+	## right for something on the floor and wrong for something in his hand — a
+	## bottle held at his hip disappeared into his leg. In his hands it goes in
+	## front; launch() and reset() put it back.
+	z_index = 1
+	carried = true
+	thrown = false
+	at_rest = true
+	motion = Vector2.ZERO
+	spin_rate = 0.0
+	spin_phase = 0.0
+	_update_sprite()
+
+func face_forward() -> void:
+	## Back to its own orientation once it is out of his hands.
+	if is_instance_valid(sprite):
+		sprite.scale.x = 1.0
+
+func place_at(where: Vector2, side: float = 1.0) -> void:
+	## Driven every frame by the carrier's current weapon point. `side` mirrors
+	## it with him: a tipped bottle drawn facing right while he faces left
+	## points away from his own mouth.
+	position = where + Vector2(carry_anchor.x * side, carry_anchor.y)
+	if is_instance_valid(sprite):
+		sprite.scale.x = -1.0 if side < 0.0 else 1.0
+
+func launch(velocity: Vector2) -> void:
+	## Thrown. It re-enters the world on the same physics a punched prop uses,
+	## and until it lands it hurts whatever it catches.
+	z_index = 0
+	face_forward()
+	carried = false
+	thrown = true
+	throw_struck.clear()
+	at_rest = false
+	motion = velocity
+	var dir := signf(velocity.x)
+	spin_rate = (dir if not is_zero_approx(dir) else 1.0) * SPIN_MAX * 1.3
+	_update_sprite()
+
+func _strike_in_flight() -> void:
+	## Everything on the Hittable layer is fair game — crates, bottles and the
+	## bandits. The player is not on that layer, so his own throw cannot come
+	## back at him.
+	var query := PhysicsShapeQueryParameters2D.new()
+	var shape := RectangleShape2D.new()
+	shape.size = body
+	query.shape = shape
+	query.transform = Transform2D(0.0, global_position + Vector2(0, -body.y / 2.0))
+	query.collision_mask = HITTABLE
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+	for result in get_world_2d().direct_space_state.intersect_shape(query, 8):
+		var target = result.collider
+		if target == self or target == null or throw_struck.has(target):
+			continue
+		if not target.has_method("take_hit"):
+			continue
+		if target.take_hit(throw_damage, global_position):
+			throw_struck.append(target)
+			# It connected, so it is spent. A box that hits something and stays
+			# whole reads as weightless.
+			_shatter()
+			return
+
 func take_hit(damage: int, from: Vector2) -> bool:
-	if broken or not _hittable():
+	if broken or carried or not _hittable():
 		return false
 	var intact := health >= max_health
 	health -= damage
@@ -255,6 +349,10 @@ func _integrate(delta: float) -> void:
 		return
 
 	position.y = floor_y
+	if thrown:
+		# A thrown prop does not bounce; it lands and comes apart.
+		_shatter()
+		return
 	if motion.y > BOUNCE_MIN:
 		motion.y = -motion.y * BOUNCE
 		motion.x *= SKID
@@ -335,8 +433,14 @@ func _physics_process(delta: float) -> void:
 	if broken:
 		_update_debris(delta)
 		return
+	if carried:
+		# In his hands. The carrier places it; gravity and the floor do not.
+		_update_sprite()
+		return
 	if not at_rest:
 		_integrate(delta)
+		if thrown and not broken:
+			_strike_in_flight()
 	_update_sprite()
 	_prop_process(delta)
 

@@ -104,6 +104,10 @@ LOCOMOTION = {
     # dizzy loop (226-229) and two stagger-backward pairs (222-225); this is the
     # one that reads as a single blow landing rather than as a daze.
     "hurt":  {"ids": [220, 221],        "fps": 9.0,  "loop": False},
+    # Carrying something heavy: held overhead, and he walks rather than runs.
+    # LF2 uses the same four frames standing still and moving, so this doubles
+    # as the carry idle by holding its first frame.
+    "carry": {"ids": [12, 13, 14, 15],  "fps": 8.0,  "loop": True},
     "death": {"ids": [180, 181, 182, 183, 184], "fps": 9.0, "loop": False},
 }
 
@@ -116,6 +120,15 @@ RATE = 1.25
 # own table because what they mean is different, not how they are built.
 ACTIONS = {
     "drink": [55, 56, 57, 58],  # weapon_drink; the bottle rides on the wpoint
+    # Bending to the floor. LF2 draws one pose for both and distinguishes them
+    # by where the weapon point puts the object: beside him, or over his head.
+    "pick_light": [115],
+    "pick_heavy": [116, 117],
+    # Throwing. The wpoint leaps forward on the release frame — (15,30) to
+    # (107,60) for the light throw, (33,23) to (104,36) for the heavy one — and
+    # that jump is how the release frame was identified rather than guessed.
+    "throw_light": [45, 46, 47],
+    "throw_heavy": [50, 51],
 }
 
 ATTACKS = {
@@ -309,9 +322,14 @@ def main():
             "file": key + ".png", "loop": spec["loop"],
             "durations": [round(hold, 5)] * len(spec["ids"]),
             "hits": [[] for _ in spec["ids"]],
-            "wpoints": [[] for _ in spec["ids"]],
+            # Kept, not discarded: carrying a light object is ordinary
+            # locomotion with the object drawn at each frame's weapon point,
+            # which is exactly how LF2 does it.
+            "wpoints": [sc(table[f]["wpoint"]) for f in spec["ids"]],
         }
-        print("%-8s %d frame(s)" % (key, len(spec["ids"])))
+        print("%-8s %d frame(s), %d with a weapon point"
+              % (key, len(spec["ids"]),
+                 sum(1 for f in spec["ids"] if table[f]["wpoint"])))
 
     # Actions keep LF2's own pacing: RATE exists to sharpen combat, and a drink
     # is not combat.

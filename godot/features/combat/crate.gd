@@ -13,6 +13,9 @@ func _configure() -> void:
 	# Matched to the drawn crate, kept just inside it so a punch that visibly
 	# grazes the edge does not miss. Scaled with the art (x0.75) from 52 x 48.
 	body = Vector2(39, 36)
+	# Two-handed: hoisted overhead, and all he can do with it is throw it.
+	heavy = true
+	throw_damage = 45  # more than a jab, less than a flying kick
 	art_rest = "crate"
 	art_spin = "crate_spin"
 	art_debris = "crate_debris"

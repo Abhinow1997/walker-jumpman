@@ -51,17 +51,9 @@ var body: CharacterBody2D
 var sprite: AnimatedSprite2D
 var playing: String = ""
 
-## An object in his hand. LF2 never draws one into a character frame — it draws
-## the body, then stamps the object at that frame's weapon point — so the drink
-## frames are empty-handed and the bottle has to be put back here.
-##
-## Deliberately generic: set the texture and its offset and it appears on any
-## frame that has a weapon point, and vanishes on any frame that does not. A
-## future weapon is a different texture, not different code. Whoever starts the
-## action sets it; reset() clears it.
-var held_texture: Texture2D = null
-var held_offset: Vector2 = Vector2.ZERO
-var held: Sprite2D
+## LF2 never draws a held object into a character frame — it draws the body,
+## then stamps the object at that frame's weapon point. This does the same, but
+## with the real prop rather than a copy of its texture: see _update_held.
 
 var squash: float = 1.0
 var squash_vel: float = 0.0
@@ -86,13 +78,6 @@ func _ready() -> void:
 	sprite.offset = Moveset.pivot()
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	add_child(sprite)
-	# Added after the body so it draws in front of it: the bottle is at his mouth,
-	# on the near side of his face.
-	held = Sprite2D.new()
-	held.centered = true
-	held.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	held.visible = false
-	add_child(held)
 	_play("idle")
 
 func _build_frames() -> SpriteFrames:
@@ -157,10 +142,6 @@ func reset() -> void:
 	death_t = 0.0
 	hurt_t = 0.0
 	motes.clear()
-	held_texture = null
-	held_offset = Vector2.ZERO
-	if is_instance_valid(held):
-		held.visible = false
 	if is_instance_valid(sprite):
 		sprite.modulate = Color.WHITE
 		playing = ""
@@ -225,6 +206,13 @@ func advance(delta: float) -> void:
 		_show_frame("hurt", Moveset.frame_at("hurt", body.hurt_clock))
 	elif body.attack != "":
 		_show_frame(body.attack, body.attack_frame)
+	elif body.is_carrying() and body.carry_heavy and grounded:
+		# Hoisted overhead. LF2 draws the same four frames standing and walking,
+		# so standing still holds the first one rather than marching on the spot.
+		if speed > WALK_SPEED:
+			_play("carry")
+		else:
+			_show_frame("carry", 0)
 	elif not grounded:
 		_play("rise" if body.velocity.y < 0.0 else "fall")
 	elif speed > 40.0 and signf(body.velocity.x) != signf(body.facing):
@@ -241,22 +229,32 @@ func advance(delta: float) -> void:
 	_update_motes(delta)
 	queue_redraw()
 
-func _update_held() -> void:
-	## Follows the weapon point of whatever frame is showing. The held sprite is
-	## a sibling of the body, not a child of it, so squash and the turn stretch
-	## do not deform the bottle; only the mirror is applied.
-	if not is_instance_valid(held):
-		return
-	var point = Moveset.wpoint(body.attack, body.attack_frame) if body.attack != "" else null
-	if held_texture == null or point == null:
-		held.visible = false
-		return
+func carry_point():
+	## Where a held object sits this frame, in world space, or null if the frame
+	## has no weapon point. Read from the frame actually on screen rather than
+	## from the player, because only this node knows which locomotion frame is
+	## showing — and carrying a light object is ordinary locomotion.
+	if not is_instance_valid(sprite) or playing == "":
+		return null
+	var point = Moveset.wpoint(playing, sprite.frame)
+	if point == null:
+		return null
 	var side := -1.0 if face_scale < 0.0 else 1.0
-	held.texture = held_texture
-	held.offset = held_offset
-	held.position = Vector2(point.x * side, point.y)
-	held.scale = Vector2(side, 1.0)
-	held.visible = true
+	return global_position + Vector2(point.x * side, point.y)
+
+func _update_held() -> void:
+	## Drives the carried prop's position from the weapon point of whatever
+	## frame is showing. The prop is a real object in the world, not a texture
+	## on a sprite, so a throw is just handing it back its own physics.
+	##
+	## It is deliberately not parented to this node: squash and the turn stretch
+	## would deform a box on his shoulders, and a thrown object would inherit a
+	## transform it should never have had.
+	if not is_instance_valid(body) or not body.is_carrying():
+		return
+	var at = carry_point()
+	if at != null:
+		body.carrying.place_at(at, -1.0 if face_scale < 0.0 else 1.0)
 
 func _apply_transform() -> void:
 	var stretch_y := squash if USE_SQUASH else 1.0

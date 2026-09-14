@@ -19,17 +19,14 @@ extends "res://features/combat/prop.gd"
 ## broken by a hit knocks it out of his hand, and it falls and bounces on the
 ## same physics a punched bottle uses.
 ##
-## Two areas, because the two jobs need different sizes. This node is the hit
-## box; a child area is the much larger "am I near enough to drink" reach.
-
-const PICKUP_LAYER := 128  # physics layer 8
-## Generous on purpose: this is "am I near the bottle", not "am I touching it".
-## The drawn bottle is tiny, far smaller than anything a player expects to have
-## to stand on. Deliberately NOT scaled with the art: this is a distance in the
-## level, and the level did not shrink when the cast did.
-const REACH := Vector2(72, 88)
+## It no longer keeps a reach area of its own. "Am I near enough" is the same
+## question for a crate as for a bottle, so the session asks it once for every
+## prop — see carryable_in_reach() — instead of the bottle answering privately.
 
 const GLOW := Color("f2e6c8")
+## How far below the weapon point an upright bottle hangs: roughly its middle,
+## since a hand closes around it there rather than under its base.
+const UPRIGHT_ANCHOR := Vector2(0, 9.0)
 
 ## How much one bottle is worth, counted in health-bar segments rather than
 ## points, so "two bars" stays two bars whatever MAX_HEALTH is. The session
@@ -38,15 +35,15 @@ const GLOW := Color("f2e6c8")
 var heal_segments: int = 2
 ## How full it is, 0 to 1, in units of a whole bottle.
 var contents: float = 1.0
+## Tipped to his mouth. LF2 draws a separate sprite for this rather than
+## rotating the upright one, and the pack ships it.
+var drinking: bool = false
+var drink_frame: Texture2D
 ## What a blow spills. Glass survives one hit and smashes on the second, so a
 ## cracked bottle is worth three quarters of a whole one.
 const SPILL_PER_HIT := 0.25
 var consumed: bool = false
-## Raised to his mouth, mid-drink. Not spent: only a drink that runs its whole
-## six seconds consumes the bottle.
-var lifted: bool = false
 var clock: float = 0.0
-var reach: Area2D
 
 func _configure() -> void:
 	max_health = 20  # glass: anything breaks it in two hits
@@ -57,34 +54,18 @@ func _configure() -> void:
 	# changing where the bottle is drawn — see spin_lift below.
 	body = Vector2(16, 27)
 	spin_lift = 9.0
+	# Light: carried in one hand, and drinking it is the point of carrying it.
+	heavy = false
+	throw_damage = 20
+	carry_anchor = UPRIGHT_ANCHOR
 	art_rest = "bottle"
 	art_spin = "bottle_spin"
 	art_debris = "bottle_debris"
 	# Six pieces: two of the capped body, four of the small shards.
 	debris_types = [0, 0, 1, 1, 1, 1]
 
-func _on_ready() -> void:
-	reach = Area2D.new()
-	reach.collision_layer = PICKUP_LAYER
-	# Detects the player (layer 2) so the session can ask what is in reach.
-	reach.collision_mask = 2
-	var shape := RectangleShape2D.new()
-	shape.size = REACH
-	var collider := CollisionShape2D.new()
-	collider.shape = shape
-	collider.position = Vector2(0, -REACH.y / 2.0)
-	reach.add_child(collider)
-	add_child(reach)
-
-## True when the given body is close enough to be offered a drink. False once
-## the bottle is gone, whether it was drunk or smashed.
-func in_reach(target: Node2D) -> bool:
-	if consumed or broken or not is_instance_valid(reach):
-		return false
-	return reach.overlaps_body(target)
-
 func available() -> bool:
-	return not consumed and not broken and not lifted and contents > 0.001
+	return not consumed and not broken and contents > 0.001
 
 ## Seconds it would take to finish from here, for the prompt.
 func drink_seconds(player: Node) -> float:
@@ -105,45 +86,29 @@ func take_hit(damage: int, from: Vector2) -> bool:
 		contents = maxf(0.0, contents - SPILL_PER_HIT)
 	return landed
 
-func drop_from(at: Vector2, push: Vector2) -> void:
-	## Knocked out of his hand. It re-enters the world where he was standing and
-	## falls under the same physics a punched bottle uses, so a dropped bottle
-	## and a struck one behave identically rather than being two special cases.
-	lifted = false
-	position = at
-	at_rest = false
-	motion = push
-	var dir := signf(push.x)
-	if is_zero_approx(dir):
-		dir = 1.0
-	spin_rate = dir * SPIN_MAX * 0.8
-	_update_sprite()
-	queue_redraw()
+func _on_ready() -> void:
+	drink_frame = Items.frame("bottle_drink", 0)
 
-func lift() -> void:
-	## Off the floor and into his hand for the duration of the drink. The world
-	## copy has to disappear — the drink animation holds the same bottle — but
-	## nothing is spent yet.
-	lifted = true
+func set_drinking(on: bool) -> void:
+	drinking = on
+	# The tipped sprite is drawn around its middle, so the weapon point is where
+	# its centre goes; the upright one stands on its base and hangs from a hand.
+	carry_anchor = Vector2.ZERO if on else UPRIGHT_ANCHOR
 	_update_sprite()
-	queue_redraw()
 
-func lower() -> void:
-	## The drink was interrupted. Back it goes, exactly where it was.
-	lifted = false
-	_update_sprite()
-	queue_redraw()
-
-## The base shows the sprite whenever the prop is intact, which would undo both
-## lift() and consume() on the next step.
 func _update_sprite() -> void:
 	super._update_sprite()
-	if (consumed or lifted) and is_instance_valid(sprite):
+	if consumed and is_instance_valid(sprite):
 		sprite.visible = false
+		return
+	if drinking and is_instance_valid(sprite) and drink_frame != null:
+		sprite.texture = drink_frame
+		sprite.offset = Items.pivot("bottle_drink")
 
-## A bottle already drunk, or currently in his hand, is not there to be hit.
+## A bottle already drunk is not there to be hit. Being carried is handled by
+## prop.gd, which refuses a hit on anything in his hands.
 func _hittable() -> bool:
-	return not consumed and not lifted
+	return not consumed
 
 func _rest_offset() -> Vector2:
 	# A slow bob. Rounded to whole pixels: a pixel-art sprite sliding on
@@ -153,11 +118,10 @@ func _rest_offset() -> Vector2:
 func reset() -> void:
 	super.reset()
 	consumed = false
-	lifted = false
+	drinking = false
+	carry_anchor = UPRIGHT_ANCHOR
 	contents = 1.0
 	clock = 0.0
-	if is_instance_valid(reach):
-		reach.monitoring = true
 
 func consume() -> void:
 	## Vanishes on the spot rather than fading away. The drink animation puts the
@@ -166,21 +130,14 @@ func consume() -> void:
 	if consumed:
 		return
 	consumed = true
-	lifted = false
-	if is_instance_valid(reach):
-		reach.monitoring = false
+	carried = false
+	drinking = false
 	if is_instance_valid(sprite):
 		sprite.visible = false
 	queue_redraw()
 
-func _shatter() -> void:
-	super._shatter()
-	# Smashed glass is no longer a drink, and the prompt must clear at once.
-	if is_instance_valid(reach):
-		reach.monitoring = false
-
 func _prop_process(_delta: float) -> void:
-	if consumed or lifted:
+	if consumed or carried:
 		if is_instance_valid(sprite):
 			sprite.visible = false
 		return
@@ -189,7 +146,7 @@ func _prop_process(_delta: float) -> void:
 
 func _draw() -> void:
 	super._draw()
-	if consumed or broken or lifted or not at_rest:
+	if consumed or broken or carried or not at_rest:
 		return
 	## Halo behind the bottle. Drawn here rather than as a sprite so it stays
 	## under the art: a parent CanvasItem draws before its children. Only while

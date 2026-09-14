@@ -6,7 +6,6 @@ const Crate = preload("res://features/combat/crate.gd")
 const Blast = preload("res://features/combat/blast.gd")
 const Bottle = preload("res://features/combat/bottle.gd")
 const Enemy = preload("res://features/combat/enemy.gd")
-const Items = preload("res://features/combat/items.gd")
 enum State { MENU, PLAYING, PAUSED, DYING, COMPLETE }
 var state: State = State.MENU
 var player: CharacterBody2D
@@ -17,9 +16,6 @@ var hazard_areas: Array[Area2D] = []
 var crates: Array[Area2D] = []
 var bottles: Array[Area2D] = []
 var enemies: Array[Area2D] = []
-## The bottle the player is currently standing near, or null. The HUD reads it
-## to know whether to prompt, and drink() reads it to know what to consume.
-var bottle_in_reach: Area2D = null
 ## The bottle currently in his hand, for the six seconds a drink takes. Held
 ## separately from bottle_in_reach because the two diverge the moment he steps
 ## away mid-drink, which is exactly the case that has to be caught.
@@ -83,6 +79,7 @@ func _ready() -> void:
 	player = Player.new()
 	player.blast_fired.connect(_on_blast_fired)
 	player.drink_ended.connect(_on_drink_ended)
+	player.threw.connect(_on_threw)
 	add_child(player)
 	player.reset_at(Vector2(level.spawn[0], level.spawn[1]))
 	camera = Camera2D.new()
@@ -164,7 +161,6 @@ func restart_attempt() -> void:
 	for foe in enemies:
 		foe.reset()
 		foe.target = player
-	bottle_in_reach = null
 	drinking_bottle = null
 	for blast in blasts:
 		if is_instance_valid(blast):
@@ -211,6 +207,52 @@ func _on_blast_fired(at: Vector2, direction: float) -> void:
 	blasts.append(blast)
 	add_child(blast)
 
+## How close he has to be to pick something up. Generous, like the bottle's
+## drink reach: this is "am I standing at it", not "am I touching it".
+const PICKUP_RANGE := Vector2(54.0, 70.0)
+
+func carryable_in_reach() -> Node2D:
+	## The nearest thing he could pick up, or null. Crates and bottles are the
+	## same question, so they are asked it the same way rather than the bottle
+	## keeping its own private answer.
+	var best: Node2D = null
+	var best_gap := INF
+	for prop in (crates + bottles):
+		if not is_instance_valid(prop) or not prop.can_be_carried():
+			continue
+		var gap: Vector2 = prop.global_position - player.global_position
+		if absf(gap.x) > PICKUP_RANGE.x or absf(gap.y) > PICKUP_RANGE.y:
+			continue
+		if absf(gap.x) < best_gap:
+			best_gap = absf(gap.x)
+			best = prop
+	return best
+
+func pick_up() -> bool:
+	## Lifts whatever is at his feet. Deliberately not automatic on contact: the
+	## tutorial is teaching that picking things up is an action, the same reason
+	## drinking is not automatic.
+	if state != State.PLAYING or player.is_carrying():
+		return false
+	var prop := carryable_in_reach()
+	if prop == null:
+		return false
+	return player.begin_pickup(prop, bool(prop.heavy))
+
+func bottle_being_carried() -> Node2D:
+	## The bottle in his hands, or null. The HUD asks so it can prompt to drink
+	## rather than to pick up.
+	if not player.is_carrying():
+		return null
+	return player.carrying if bottles.has(player.carrying) else null
+
+func _on_threw(object: Node2D, velocity: Vector2) -> void:
+	## The object leaves his hands and becomes a live thing again. Everything
+	## after this is prop.gd: it flies, it hits what is on the Hittable layer,
+	## and it comes apart on whatever it reaches first.
+	if is_instance_valid(object):
+		object.launch(velocity)
+
 func drink() -> bool:
 	## Starts a six-second drink on the bottle in reach. Deliberately not
 	## automatic on touch: the tutorial is teaching that the action exists, which
@@ -218,49 +260,42 @@ func drink() -> bool:
 	## than wasting the bottle.
 	##
 	## Nothing is spent and nothing is restored here — see _on_drink_ended.
-	if state != State.PLAYING or bottle_in_reach == null:
+	## He has to be holding it. Picking it up is its own beat now, so the bottle
+	## is lifted first and drunk second.
+	if state != State.PLAYING or not player.is_carrying():
 		return false
-	if not bottle_in_reach.available():
+	var held: Node2D = player.carrying
+	if not bottles.has(held) or not held.available():
 		return false
 	if player.health >= player.MAX_HEALTH:
 		return false
-	if not player.begin_drink(bottle_in_reach.heal_segments, bottle_in_reach.contents):
+	if not player.begin_drink(held.heal_segments, held.contents):
 		return false
 	# The bottle leaves the ground the moment he raises it, and the one in his
 	# hand is drawn by the visual at the frame's weapon point, exactly as LF2
 	# composites a held object.
-	player.visual.held_texture = Items.frame("bottle_drink", 0)
-	player.visual.held_offset = Items.pivot("bottle_drink")
-	# Lifted, not consumed. Six seconds from now _on_drink_ended decides which
-	# it was, and an interrupted drink puts the bottle back on the floor.
-	bottle_in_reach.lift()
-	drinking_bottle = bottle_in_reach
+	# Already in his hands, so nothing is lifted here. Six seconds from now
+	# _on_drink_ended decides whether it was spent.
+	held.set_drinking(true)
+	drinking_bottle = held
 	return true
 
 func _on_drink_ended(_completed: bool, reason: String) -> void:
 	## The only place a bottle is ever spent, and it is spent by the mouthful.
 	## Whatever he swallowed comes out of the bottle; an empty one is gone, and
 	## anything left goes back on the floor to be finished later.
-	player.visual.held_texture = null
-	player.visual.held_offset = Vector2.ZERO
 	if not is_instance_valid(drinking_bottle):
 		drinking_bottle = null
 		return
 	var bottle: Area2D = drinking_bottle
 	drinking_bottle = null
+	bottle.set_drinking(false)
 	bottle.set_contents(player.last_drink_left)
-	if bottle.consumed or bottle.broken:
-		return
-	if reason == player.DRINK_HIT:
-		# Struck mid-drink: it leaves his hand rather than being set down. From
-		# about mouth height and behind him, offset clear of his own sprite —
-		# dropped dead centre it spends its first frames hidden behind him and
-		# reads as having vanished rather than fallen.
-		# Offsets and impulse are character-scale and scaled with the art (x0.75).
-		bottle.drop_from(player.global_position + Vector2(-player.facing * 12.0, -25.5),
-			Vector2(-player.facing * 97.5, -142.5))
-	else:
-		bottle.lower()
+	# He is still holding it, whatever stopped him — a drink interrupted is a
+	# bottle lowered from his mouth, not dropped, so he can start again without
+	# bending down for it. Only draining it takes it off his hands.
+	if bottle.consumed and player.carrying == bottle:
+		player.drop_carried()
 
 func crates_broken() -> int:
 	var count := 0
@@ -293,19 +328,12 @@ func _physics_process(delta: float) -> void:
 	elif state == State.PLAYING:
 		elapsed += delta
 		blasts = blasts.filter(func(b): return is_instance_valid(b))
-		bottle_in_reach = null
-		for bottle in bottles:
-			# A bottle the player smashed is no longer a drink, which in_reach
-			# accounts for along with one already drunk.
-			if bottle.in_reach(player):
-				bottle_in_reach = bottle
-				break
-		# Walking away mid-drink is the one interruption the player cannot see
-		# himself doing, because the drink plants him: it takes a knock, or a
-		# bottle skidding off, to separate them. Checked against the bottle he
-		# is actually drinking, not whatever happens to be nearest now.
+		# He carries the bottle now, so he cannot walk away from it — the old
+		# out-of-reach interruption is gone with the reach. What can still
+		# happen is losing hold of it: knocked out of his hands, or smashed
+		# while he drinks.
 		if player.is_drinking() and (not is_instance_valid(drinking_bottle)
-				or not drinking_bottle.in_reach(player)):
+				or player.carrying != drinking_bottle):
 			player.interrupt_drink(player.DRINK_LEFT)
 		elif player.is_drinking():
 			# The bottle empties as he drinks, not when he stops.
@@ -341,7 +369,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("pause"):
 		set_paused(state != State.PAUSED)
 	elif event.is_action_pressed("drink"):
-		drink()
+		# One key for both beats: drink what you are already holding, or lift
+		# what is at your feet.
+		if not drink():
+			pick_up()
 	elif event.is_action_pressed("restart") and state in [State.PLAYING, State.PAUSED, State.DYING]:
 		restart_attempt()
 	elif event.is_action_pressed("menu") and state in [State.PAUSED, State.COMPLETE]:

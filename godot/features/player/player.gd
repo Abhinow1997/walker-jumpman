@@ -26,6 +26,7 @@ const HITTABLE := 64
 ##   drive    forced forward speed, for moves that carry you
 ##   ends_on_land  an air move that is cut short by touching down
 ##   loops         the animation repeats; the move's length is decided elsewhere
+##   throw_frame   frame on which a carried object leaves his hands
 ##
 ## Not every entry is an attack. `drink` runs on exactly the same machinery and
 ## simply has no hit frames, which is the point: one clock, one set of rules for
@@ -39,6 +40,15 @@ const MOVES := {
 	"charge":  {"ground": true,  "chain": "",        "planted": false, "drive": 300.0},
 	"blast":   {"ground": true,  "chain": "",        "planted": true,  "spawn_frame": 4},
 	"drink":   {"ground": true,  "chain": "",        "planted": true,  "loops": true},
+	# Picking up and throwing. LF2 draws one bending pose for both weights and
+	# tells them apart by where the weapon point puts the object, so the object
+	# is attached on the first frame and rides the point up into his hands.
+	"pick_light":  {"ground": true, "chain": "", "planted": true},
+	"pick_heavy":  {"ground": true, "chain": "", "planted": true},
+	# The release frame is not a guess: the weapon point leaps forward on it,
+	# from (15,30) to (107,60) light and from (33,23) to (104,36) heavy.
+	"throw_light": {"ground": true, "chain": "", "planted": true, "throw_frame": 2},
+	"throw_heavy": {"ground": true, "chain": "", "planted": true, "throw_frame": 1},
 }
 
 ## Attacking at or above this speed becomes the shoulder charge instead of a
@@ -66,6 +76,17 @@ const HURT_INVULNERABLE := 0.6
 ## Gravity is untouched by it — a stun that froze him in mid-air over a pit would
 ## turn one punch into a death — and it is short enough not to be a sentence.
 const HURT_STUN := 0.25
+
+## Carrying something heavy costs him speed. He can still outrun a bandit, but
+## only just, so hauling a crate across the level is a decision.
+const CARRY_SPEED := 0.55
+## How hard a throw leaves his hands. The heavy throw is flatter and faster; a
+## light object is lobbed.
+const THROW_HEAVY := Vector2(430.0, -150.0)
+const THROW_LIGHT := Vector2(330.0, -210.0)
+
+## Emitted when a carried object leaves his hands, with the velocity to give it.
+signal threw(object: Node2D, velocity: Vector2)
 ## The health bar draws five slots (ui/art/healthbar.json), so health is counted
 ## in segments and "a bottle is worth two bars" stays true whatever MAX_HEALTH is.
 const HEALTH_SEGMENTS := 5
@@ -134,6 +155,13 @@ var hurt_cooldown: float = 0.0
 ## clocks because the stun can be re-tuned without the animation changing speed.
 var hurt_stun: float = 0.0
 var hurt_clock: float = 0.0
+## What he is holding, and whether it is the two-handed kind. The object is a
+## real prop in the world, not a texture: the visual drives its position from
+## the current frame's weapon point, so throwing it is just handing it back its
+## own physics.
+var carrying: Node2D = null
+var carry_heavy: bool = false
+var thrown_this_move: bool = false
 ## Fraction of a full bottle drunk by the drink that just ended, and how much
 ## was left in it. The session reads these to settle up with the bottle.
 var last_drink_consumed: float = 0.0
@@ -178,6 +206,9 @@ func reset_at(spawn: Vector2) -> void:
 	hurt_cooldown = 0.0
 	hurt_stun = 0.0
 	hurt_clock = 0.0
+	carrying = null
+	carry_heavy = false
+	thrown_this_move = false
 	_finish_drink(false, "retry")
 	_end_attack()
 	test_attack_pressed = false
@@ -222,14 +253,54 @@ func take_damage(amount: int, from: Vector2) -> bool:
 	# bottle is knocked out of his hand rather than set down, and he keeps only
 	# the mouthfuls he had already swallowed.
 	_finish_drink(false, DRINK_HIT)
-	# Whatever he was swinging is over. Taking a punch interrupts a punch.
+	# Whatever he was swinging is over. Taking a punch interrupts a punch, and
+	# knocks anything he was holding out of his hands.
 	_end_attack()
+	if is_carrying():
+		var dropped := drop_carried()
+		if is_instance_valid(dropped):
+			threw.emit(dropped, Vector2(-facing * 70.0, -120.0))
 	if is_instance_valid(visual) and visual.has_method("on_hurt"):
 		visual.on_hurt()
 	return true
 
 func is_hurt() -> bool:
 	return hurt_stun > 0.0
+
+# --- carrying ---------------------------------------------------------------
+
+func is_carrying() -> bool:
+	return is_instance_valid(carrying)
+
+func begin_pickup(prop: Node2D, is_heavy: bool) -> bool:
+	## Bends down and takes it. The object is attached immediately rather than
+	## at the end of the animation, because LF2's pick-up frames carry a weapon
+	## point that rises from the floor into his hands — attaching late would
+	## leave it sitting on the ground for the whole lift.
+	if not can_attack() or not is_on_floor() or is_carrying() or is_hurt():
+		return false
+	if not begin_attack("pick_heavy" if is_heavy else "pick_light"):
+		return false
+	carrying = prop
+	carry_heavy = is_heavy
+	prop.pick_up()
+	return true
+
+func begin_throw() -> bool:
+	if not is_carrying() or not can_attack() or not is_on_floor() or is_hurt():
+		return false
+	if not begin_attack("throw_heavy" if carry_heavy else "throw_light"):
+		return false
+	thrown_this_move = false
+	return true
+
+func drop_carried() -> Node2D:
+	## Hands it back to the world without throwing it. Used when he is hit, or
+	## dies, or the attempt restarts.
+	var held := carrying
+	carrying = null
+	carry_heavy = false
+	return held
 
 func segment_health() -> int:
 	## One slot of the health bar, in points.
@@ -381,6 +452,12 @@ func _advance_attack(delta: float) -> void:
 		# No hit frames, no chain, and its own clock decides when it ends.
 		_advance_drink(delta)
 		return
+	if rules.has("throw_frame") and not thrown_this_move and attack_frame >= int(rules.throw_frame):
+		thrown_this_move = true
+		var object := drop_carried()
+		if is_instance_valid(object):
+			var speed: Vector2 = THROW_HEAVY if attack == "throw_heavy" else THROW_LIGHT
+			threw.emit(object, Vector2(speed.x * facing, speed.y))
 	if rules.has("spawn_frame") and not blast_released and attack_frame >= int(rules.spawn_frame):
 		blast_released = true
 		blast_fired.emit(global_position + Vector2(BLAST_MUZZLE.x * facing, BLAST_MUZZLE.y), facing)
@@ -468,7 +545,12 @@ func _physics_process(delta: float) -> void:
 			_finish_drink(false, DRINK_ATTACKED)
 
 	if attack == "":
-		if blast_pressed:
+		if is_carrying():
+			# Both hands are full. The attack button throws what he is holding
+			# rather than swinging through it.
+			if attack_pressed or blast_pressed:
+				begin_throw()
+		elif blast_pressed:
 			begin_attack("blast")
 		elif attack_pressed:
 			begin_attack(_choose_attack())
@@ -497,7 +579,8 @@ func _physics_process(delta: float) -> void:
 		velocity.x = move_toward(velocity.x, facing * float(rules.drive), tuning.acceleration * delta)
 	else:
 		var rate: float = tuning.acceleration if not is_zero_approx(axis) else tuning.deceleration
-		velocity.x = move_toward(velocity.x, axis * tuning.speed, rate * delta)
+		var top: float = tuning.speed * (CARRY_SPEED if (is_carrying() and carry_heavy) else 1.0)
+		velocity.x = move_toward(velocity.x, axis * top, rate * delta)
 	# Facing is frozen mid-move, otherwise the hitbox could flip away from the
 	# fist between the wind-up and the contact frame.
 	if not is_zero_approx(axis) and attack == "":

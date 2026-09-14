@@ -72,22 +72,30 @@ func _health(at: Vector2) -> void:
 	text_at("%d" % game.player.health, Vector2(at.x + hb_size.x * HB_SCALE + 10, 353), 12)
 
 func _drink_prompt() -> void:
-	## Only while a bottle is in reach. The bottle is not picked up on contact
-	## because the point of it here is to teach that drinking is an action.
+	## One key, three different jobs, so the prompt has to say which one is on
+	## offer. Nothing is picked up on contact: the point of the tutorial is that
+	## lifting and drinking are both actions you take.
 	if game.player.is_drinking():
 		_drink_progress()
 		return
-	if game.bottle_in_reach == null:
+	var label := ""
+	var dim := false
+	var held: Node2D = game.bottle_being_carried()
+	if held != null:
+		# Holding the bottle: the wait is whatever is left in that one, not a
+		# flat six seconds, or a part-drunk bottle looks unchanged.
+		dim = game.player.health >= game.player.MAX_HEALTH
+		label = "ALREADY FULL" if dim else "HOLD E  /  DRINK  %0.1fs" % held.drink_seconds(game.player)
+	elif game.player.is_carrying():
+		label = "J  /  THROW"
+	elif game.carryable_in_reach() != null:
+		label = "E  /  LIFT"
+	else:
 		return
-	var full: bool = game.player.health >= game.player.MAX_HEALTH
-	# The wait is whatever is left in that bottle, not a flat six seconds, so the
-	# prompt has to quote the real figure or a part-drunk bottle looks unchanged.
-	var wait: float = game.bottle_in_reach.drink_seconds(game.player)
-	var label := "ALREADY FULL" if full else "HOLD E  /  DRINK  %0.1fs" % wait
 	# Clear of the ground line, so it never sits on top of the level geometry.
 	draw_rect(Rect2(245,256,150,26), Color("fffdf7"))
 	draw_rect(Rect2(245,256,150,3), Color("ef875f"))
-	centered(label, 275, 13, Color("daddd6") if full else INK)
+	centered(label, 275, 13, Color("daddd6") if dim else INK)
 
 func _drink_progress() -> void:
 	## Seconds of a looping animation and nothing else reads as the game having
@@ -108,7 +116,7 @@ func _draw() -> void:
 	draw_rect(Rect2(0,0,640,74), Color("f6f3ec"))
 	text_at("WALKER / JUMPMAN", Vector2(22,27), 18)
 	text_at("FIRST STEPS", Vector2(497,27), 14)
-	text_at("A/D: move  Space: jump  J: attack  K: blast  E: drink  R: retry  Esc: pause", Vector2(22,50), 12)
+	text_at("A/D: move  Space: jump  J: attack / throw  K: blast  E: lift / drink  R: retry  Esc: pause", Vector2(22,50), 12)
 	draw_rect(Rect2(22,63,596,3), Color("daddd6"))
 	var progress: float = clampf((game.player.position.x-128)/1704, 0, 1)
 	draw_rect(Rect2(22,63,596*progress,3), Color("287c68"))

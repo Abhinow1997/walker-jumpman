@@ -94,11 +94,24 @@ func finish_attack(cap: int = 90) -> int:
 		ticks += 1
 	return ticks
 
-## Drinks and stands still for the whole six seconds. Nothing is restored and
-## nothing is spent until it finishes, so a test that checks straight after
-## game.drink() reads the value from before he ever raised the bottle.
+## Picks the bottle up and waits for the lift to finish. Drinking is a second
+## beat now — he has to be holding it — so every drink test goes through here.
+func take_bottle(limit: int = 60) -> bool:
+	if not game.pick_up():
+		return false
+	var waited := 0
+	while game.player.attack != "" and waited < limit:
+		await steps(1)
+		waited += 1
+	return game.player.is_carrying()
+
+## Lifts the bottle, drinks it, and stands still for the whole six seconds.
+## Nothing is restored and nothing is spent until it finishes, so a test that
+## checks straight after game.drink() reads the value from before he raised it.
 ## The cap is generous: six seconds is 360 physics ticks.
 func finish_drink(cap: int = 480) -> bool:
+	if not await take_bottle():
+		return false
 	if not game.drink():
 		return false
 	var ticks := 0
@@ -408,7 +421,8 @@ func run() -> void:
 	# Far from it: no prompt, and drinking does nothing.
 	game.player.position = Vector2(bottle.position.x - 400, bottle.position.y)
 	await steps(3)
-	check("no-prompt-when-away", game.bottle_in_reach == null, {"in_reach": game.bottle_in_reach != null})
+	check("no-prompt-when-away", game.carryable_in_reach() == null,
+		{"in_reach": game.carryable_in_reach()})
 	var health_before: int = game.player.health
 	check("drink-refused-when-away", not game.drink() and game.player.health == health_before,
 		{"health": game.player.health})
@@ -416,7 +430,8 @@ func run() -> void:
 	# Standing on it: prompt appears, drinking restores and consumes.
 	game.player.position = Vector2(bottle.position.x, bottle.position.y)
 	await steps(3)
-	check("prompt-when-near", game.bottle_in_reach == bottle, {"in_reach": game.bottle_in_reach != null})
+	check("prompt-when-near", game.carryable_in_reach() == bottle,
+		{"in_reach": game.carryable_in_reach()})
 	# Checked before he raises it: the bottle starts emptying on the first frame
 	# of the drink, so a moment later this is legitimately a frame short of six.
 	check("full-bottle-quotes-six-seconds",
@@ -426,19 +441,20 @@ func run() -> void:
 
 	# Drinking is an animation, not an instant effect: he plays LF2's own
 	# weapon_drink frames, with the bottle stamped on each frame's weapon point.
+	var _lifted1: bool = await take_bottle()
 	var drank: bool = game.drink()
 	await steps(1)
 	check("drink-plays-animation", drank and game.player.attack == "drink",
 		{"attack": game.player.attack})
 	check("bottle-appears-in-hand",
-		game.player.visual.held.visible
+		game.player.carrying == bottle and bottle.carried
 		and Moveset.wpoint("drink", game.player.attack_frame) != null,
-		{"visible": game.player.visual.held.visible,
+		{"carrying": game.player.carrying == bottle,
 		 "wpoint": str(Moveset.wpoint("drink", game.player.attack_frame))})
 	check("health-not-granted-on-keypress", game.player.health == health_before,
 		{"health": game.player.health, "before": health_before})
-	check("bottle-not-spent-on-keypress", not bottle.consumed and bottle.lifted,
-		{"consumed": bottle.consumed, "lifted": bottle.lifted})
+	check("bottle-not-spent-on-keypress", not bottle.consumed and bottle.carried,
+		{"consumed": bottle.consumed, "carried": bottle.carried})
 	var two_bars: int = bottle.heal_segments * game.player.segment_health()
 	check("a-bottle-is-worth-two-bars", two_bars == 40, {"points": two_bars})
 
@@ -459,9 +475,9 @@ func run() -> void:
 		{"before": health_before, "after": game.player.health, "restored": two_bars})
 	check("drink-animation-ends", game.player.attack == "" and drink_ticks < 480,
 		{"attack": game.player.attack, "ticks": drink_ticks})
-	check("hand-empties-after-drinking", not game.player.visual.held.visible,
-		{"visible": game.player.visual.held.visible})
-	check("drink-consumes-bottle", bottle.consumed and game.bottle_in_reach == null,
+	check("hand-empties-after-drinking", not game.player.is_carrying(),
+		{"carrying": game.player.carrying})
+	check("drink-consumes-bottle", bottle.consumed and game.carryable_in_reach() == null,
 		{"consumed": bottle.consumed})
 	check("consumed-bottle-cannot-be-drunk-twice", not game.drink(), {"health": game.player.health})
 
@@ -473,6 +489,7 @@ func run() -> void:
 	game.player.position = bottle.position
 	await steps(3)
 	health_before = game.player.health
+	var _lifted2: bool = await take_bottle()
 	var _sip: bool = game.drink()
 	await steps(180)  # three seconds: half of it
 	check("health-arrives-while-drinking",
@@ -496,6 +513,7 @@ func run() -> void:
 		{"seconds": bottle.drink_seconds(game.player)})
 	var second_started: float = game.elapsed
 	var second_ticks := 0
+	var _relift: bool = await take_bottle()
 	var _resume: bool = game.drink()
 	while game.player.is_drinking() and second_ticks < 480:
 		await steps(1)
@@ -516,6 +534,7 @@ func run() -> void:
 	health_before = game.player.health
 	var half_started: float = game.elapsed
 	var half_ticks := 0
+	var _lifted3: bool = await take_bottle()
 	var _halfdrink: bool = game.drink()
 	while game.player.is_drinking() and half_ticks < 480:
 		await steps(1)
@@ -542,17 +561,20 @@ func run() -> void:
 	# --- interrupting a drink ----------------------------------------------
 	# None of these may spend the bottle. He keeps his mouthful and the bottle
 	# keeps the rest, so stopping is a decision rather than a punishment.
+	# Walking out of reach is not in this list any more: he carries the bottle,
+	# so there is no reach to leave. Losing hold of it is covered by the hit
+	# tests below.
 	for case in [
 		{"id": "moving", "act": "axis"},
 		{"id": "jumping", "act": "jump"},
 		{"id": "attacking", "act": "attack"},
-		{"id": "walking-out-of-reach", "act": "teleport"},
 	]:
 		await fresh()
 		bottle = game.bottles[0]
 		game.player.position = bottle.position
 		await steps(3)
 		health_before = game.player.health
+		var _lift: bool = await take_bottle()
 		var started: bool = game.drink()
 		await steps(60)  # a full second in
 		match case.act:
@@ -566,9 +588,6 @@ func run() -> void:
 			"attack":
 				game.player.test_attack_pressed = true
 				await steps(2)
-			"teleport":
-				game.player.position.x = bottle.position.x + 400
-				await steps(3)
 		await steps(3)
 		check("%s-stops-the-drink" % case.id,
 			started and not game.player.is_drinking(),
@@ -578,49 +597,51 @@ func run() -> void:
 			and game.player.health < health_before + two_bars,
 			{"health": game.player.health, "before": health_before})
 		check("%s-leaves-the-rest-in-the-bottle" % case.id,
-			not bottle.consumed and not bottle.lifted and bottle.available()
-			and bottle.contents < 1.0,
+			not bottle.consumed and bottle.available() and bottle.contents < 1.0,
 			{"consumed": bottle.consumed, "contents": bottle.contents})
-		check("%s-empties-the-hand" % case.id, not game.player.visual.held.visible,
-			{"visible": game.player.visual.held.visible})
+		# He lowers it from his mouth rather than dropping it, so the next drink
+		# does not start with bending down for it again.
+		check("%s-still-holds-the-bottle" % case.id,
+			game.player.carrying == bottle,
+			{"carrying": game.player.carrying == bottle})
 
 	# --- a hit knocks it out of his hand -------------------------------------
-	# The one interruption that does not set the bottle down. It falls from
-	# about mouth height and bounces on the same physics a punched bottle uses.
+	# Every other interruption leaves him holding it; a blow throws it clear, on
+	# the same launch a thrown crate uses.
 	await fresh()
 	bottle = game.bottles[0]
 	var floor_y: float = bottle.position.y
 	game.player.position = bottle.position
 	await steps(3)
 	health_before = game.player.health
+	var _lifted4: bool = await take_bottle()
 	var _hitdrink: bool = game.drink()
 	await steps(60)
-	game.player.interrupt_drink(game.player.DRINK_HIT)
+	var _struck: bool = game.player.take_damage(20, game.player.global_position + Vector2(40, 0))
 	await steps(1)
 	check("a-hit-stops-the-drink", not game.player.is_drinking(), {"attack": game.player.attack})
-	check("a-hit-drops-the-bottle",
-		not bottle.lifted and not bottle.at_rest and bottle.available(),
-		{"lifted": bottle.lifted, "at_rest": bottle.at_rest})
+	check("a-hit-empties-his-hands", not game.player.is_carrying(),
+		{"carrying": game.player.carrying})
+	check("a-hit-throws-the-bottle-clear",
+		bottle.thrown and not bottle.carried and not bottle.at_rest,
+		{"thrown": bottle.thrown, "at_rest": bottle.at_rest})
 	check("a-dropped-bottle-starts-above-the-floor", bottle.position.y < floor_y - 8.0,
 		{"y": bottle.position.y, "floor": floor_y})
 	var fall_ticks := 0
-	var bounces := 0
-	var rising := false
-	while not bottle.at_rest and fall_ticks < 300:
-		var was_rising := rising
-		rising = bottle.motion.y < 0.0
-		if rising and not was_rising and fall_ticks > 2:
-			bounces += 1
+	while not bottle.broken and fall_ticks < 300:
 		await steps(1)
 		fall_ticks += 1
-	check("a-dropped-bottle-bounces", bounces >= 1,
-		{"bounces": bounces, "ticks": fall_ticks})
-	check("a-dropped-bottle-settles-on-the-floor",
-		bottle.at_rest and absf(bottle.position.y - floor_y) < 1.0,
-		{"y": bottle.position.y, "floor": floor_y, "ticks": fall_ticks})
-	check("a-dropped-bottle-can-still-be-drunk",
-		bottle.available() and bottle.contents > 0.0 and bottle.contents < 1.0,
-		{"contents": bottle.contents})
+	check("a-dropped-bottle-falls-and-comes-apart",
+		bottle.broken and fall_ticks > 2,
+		{"broken": bottle.broken, "ticks": fall_ticks, "y": bottle.position.y,
+		 "floor": floor_y})
+	# The blow costs a whole bar, which is more than a second of drinking was
+	# worth — so the mouthful shows up as him being better off than a bar down,
+	# not as a net gain.
+	check("what-he-drank-before-the-blow-still-counted",
+		game.player.health > health_before - 20,
+		{"health": game.player.health, "before": health_before,
+		 "bar_down_would_be": health_before - 20})
 
 	# At full health the bottle is refused rather than wasted.
 	await fresh()
@@ -685,13 +706,13 @@ func run() -> void:
 	await steps(2)
 	check("second-blow-smashes-the-bottle", bottle.broken, {"health": bottle.health})
 	check("smashed-bottle-cannot-be-drunk",
-		not bottle.available() and not bottle.in_reach(game.player),
+		not bottle.available() and game.carryable_in_reach() != bottle,
 		{"available": bottle.available()})
 	game.player.position = bottle.position
 	await steps(3)
 	check("no-prompt-over-a-smashed-bottle",
-		game.bottle_in_reach == null and not game.drink(),
-		{"in_reach": game.bottle_in_reach != null})
+		game.carryable_in_reach() == null and not game.drink(),
+		{"in_reach": game.carryable_in_reach()})
 
 	# Retry brings it back, whole and drinkable.
 	game.restart_attempt()
@@ -789,6 +810,7 @@ func run() -> void:
 	game.player.health = game.player.MAX_HEALTH - 20
 	await steps(3)
 	var pre_drink: int = game.player.health
+	var _lifted5: bool = await take_bottle()
 	var _started2: bool = game.drink()
 	await steps(60)
 	check("drinking-before-the-punch", game.player.is_drinking(), {"attack": game.player.attack})
@@ -796,9 +818,10 @@ func run() -> void:
 	await steps(3)
 	check("a-punch-breaks-the-drink", not game.player.is_drinking(),
 		{"attack": game.player.attack})
-	check("a-punch-drops-the-bottle",
-		not drink_bottle.lifted and not drink_bottle.consumed and not drink_bottle.at_rest,
-		{"lifted": drink_bottle.lifted, "at_rest": drink_bottle.at_rest})
+	check("a-punch-knocks-the-bottle-out-of-his-hands",
+		not game.player.is_carrying() and drink_bottle.thrown
+		and not drink_bottle.consumed,
+		{"carrying": game.player.is_carrying(), "thrown": drink_bottle.thrown})
 	check("the-mouthful-still-counted", game.player.health > pre_drink - 20,
 		{"health": game.player.health, "before": pre_drink})
 
@@ -852,6 +875,139 @@ func run() -> void:
 	game.player.test_axis = 0
 	check("walks-through-the-bandit", game.player.position.x > bandit.position.x + 10,
 		{"player_x": game.player.position.x, "bandit_x": bandit.position.x})
+
+	# --- lifting and throwing ------------------------------------------------
+	# LF2's own two-beat handling: you pick a thing up before you use it, and
+	# what you can do with it depends on its weight. A bottle rides in one hand
+	# and gets drunk; a crate goes overhead and the only thing to do with it is
+	# throw it at someone.
+	await fresh()
+	var box: Area2D = game.crates[0]
+	var flask: Area2D = game.bottles[0]
+	check("a-crate-is-heavy", bool(box.heavy), {"heavy": box.heavy})
+	check("a-bottle-is-light", not bool(flask.heavy), {"heavy": flask.heavy})
+
+	# Out of reach, nothing is lifted.
+	game.player.position = Vector2(box.position.x - 300, box.position.y)
+	await steps(3)
+	check("nothing-to-lift-from-across-the-room",
+		game.carryable_in_reach() == null and not game.pick_up(),
+		{"in_reach": game.carryable_in_reach()})
+
+	# At its feet, he bends and takes it.
+	game.player.position = Vector2(box.position.x - 20, box.position.y)
+	await steps(3)
+	check("the-crate-is-in-reach", game.carryable_in_reach() == box, {})
+	var lifted_it: bool = game.pick_up()
+	check("lifting-plays-the-heavy-pick-up",
+		lifted_it and game.player.attack == "pick_heavy",
+		{"attack": game.player.attack})
+	check("it-is-in-his-hands-from-the-first-frame",
+		game.player.carrying == box and box.carried and game.player.carry_heavy,
+		{"carrying": game.player.carrying == box, "carried": box.carried})
+
+	var lift_wait := 0
+	while game.player.attack != "" and lift_wait < 60:
+		await steps(1)
+		lift_wait += 1
+	# Carried, not dropped: it rides the weapon point above his head rather than
+	# falling back to the floor when the pick-up animation ends.
+	check("a-carried-crate-rides-above-him",
+		box.carried and box.position.y < game.player.position.y - 20.0,
+		{"crate_y": box.position.y, "player_y": game.player.position.y})
+	check("a-carried-crate-cannot-be-hit",
+		not box.take_hit(20, game.player.global_position),
+		{"health": box.health})
+	check("hands-full-means-nothing-else-to-lift",
+		not game.pick_up(), {"carrying": game.player.carrying})
+
+	# It slows him, and it follows him.
+	var carry_from: float = game.player.position.x
+	game.player.test_axis = 1
+	await steps(30)
+	game.player.test_axis = 0
+	check("carrying-something-heavy-slows-him",
+		absf(game.player.velocity.x) <= game.player.tuning.speed * game.player.CARRY_SPEED + 1.0,
+		{"speed": absf(game.player.velocity.x),
+		 "cap": game.player.tuning.speed * game.player.CARRY_SPEED})
+	check("the-crate-comes-with-him",
+		game.player.position.x > carry_from + 20.0
+		and absf(box.position.x - game.player.position.x) < 30.0,
+		{"crate_x": box.position.x, "player_x": game.player.position.x})
+
+	# Thrown, it flies, and it hurts what it lands on.
+	await fresh()
+	box = game.crates[0]
+	var mark: Area2D = game.enemies[0]
+	# Clear flat ground: the opening run is solid from 0 to 896 except a
+	# platform at x 320..416, and a crate dropped on that lands on top of it.
+	box.position = Vector2(520, 640)
+	box.home = box.position
+	mark.position = Vector2(615, 640)
+	mark.home = mark.position
+	mark.target = null
+	game.player.position = Vector2(500, 640)
+	await steps(6)
+	var _got: bool = game.pick_up()
+	await steps(30)
+	game.player.facing = 1.0
+	var mark_full: int = mark.health
+	game.player.test_attack_pressed = true
+	await steps(4)
+	check("a-full-handed-attack-throws-instead-of-punching",
+		game.player.attack == "throw_heavy", {"attack": game.player.attack})
+	var flight := 0
+	while not box.broken and flight < 200:
+		await steps(1)
+		flight += 1
+	check("the-throw-leaves-his-hands",
+		not game.player.is_carrying(), {"carrying": game.player.carrying})
+	check("a-thrown-crate-hits-what-it-reaches",
+		mark.health == mark_full - box.throw_damage,
+		{"health": mark.health, "was": mark_full, "damage": box.throw_damage})
+	check("a-thrown-crate-comes-apart-on-impact",
+		box.broken and flight > 2, {"broken": box.broken, "ticks": flight})
+
+	# A throw that reaches nobody still lands and breaks, rather than sliding on
+	# for ever as a live hazard.
+	await fresh()
+	box = game.crates[0]
+	box.position = Vector2(520, 640)
+	box.home = box.position
+	game.enemies[0].position = Vector2(2000, 640)
+	game.player.position = Vector2(500, 640)
+	await steps(6)
+	var _got2: bool = game.pick_up()
+	await steps(30)
+	game.player.facing = 1.0
+	game.player.test_attack_pressed = true
+	var empty_flight := 0
+	while not box.broken and empty_flight < 200:
+		await steps(1)
+		empty_flight += 1
+	check("a-throw-that-hits-nothing-still-lands-and-breaks",
+		box.broken and box.position.x > 560.0,
+		{"x": box.position.x, "ticks": empty_flight})
+
+	# The bottle is the other half of the rule: lifted first, drunk second.
+	await fresh()
+	flask = game.bottles[0]
+	game.player.position = flask.position
+	await steps(3)
+	check("drinking-is-refused-with-empty-hands",
+		not game.drink() and not game.player.is_drinking(),
+		{"carrying": game.player.carrying})
+	var took: bool = game.pick_up()
+	check("lifting-a-bottle-plays-the-light-pick-up",
+		took and game.player.attack == "pick_light" and not game.player.carry_heavy,
+		{"attack": game.player.attack, "heavy": game.player.carry_heavy})
+	var bwait := 0
+	while game.player.attack != "" and bwait < 60:
+		await steps(1)
+		bwait += 1
+	check("a-light-carry-does-not-slow-him", not game.player.carry_heavy, {})
+	check("now-it-can-be-drunk", game.drink() and game.player.is_drinking(),
+		{"attack": game.player.attack})
 
 	# --- hit reactions, both sides -------------------------------------------
 	# Both packs draw a recoil and both use it. A blow that only moved a number
