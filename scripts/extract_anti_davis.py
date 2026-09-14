@@ -56,6 +56,21 @@ OUT_DIR = os.path.normpath(os.path.join(
 
 # --- LF2 pack layout --------------------------------------------------------
 
+# Davis is drawn 73 px tall in the pack, and the CC0 street enemies are 50 px.
+# Side by side at native size he towers over them, so everything he and the
+# props are made of is resampled by this factor on the way out: 73 -> 55, a head
+# taller than an enemy, which is the relationship a protagonist wants.
+#
+# Only the cast scales. The level geometry and the movement tuning are left
+# alone deliberately, so the jump arc and every gap stay exactly as tuned and
+# the level simply reads as roomier around a smaller cast — which is the space
+# walking enemies need anyway.
+#
+# LANCZOS because LF2's art is painted and already anti-aliased (145 colours in
+# one idle frame), so it resamples like a small photograph. Crisp indie pixel
+# art would not survive this and must never be put through it.
+SCALE = 0.75
+
 CELL_W = CELL_H = 79
 GUTTER = 1
 COLS = 10
@@ -85,6 +100,10 @@ LOCOMOTION = {
     "skid":  {"ids": [218],             "fps": 10.0, "loop": False},
     "rise":  {"ids": [213],             "fps": 10.0, "loop": False},
     "fall":  {"ids": [214],             "fps": 10.0, "loop": False},
+    # LF2 frames 220-221: struck, doubled over. The pack also has a longer
+    # dizzy loop (226-229) and two stagger-backward pairs (222-225); this is the
+    # one that reads as a single blow landing rather than as a daze.
+    "hurt":  {"ids": [220, 221],        "fps": 9.0,  "loop": False},
     "death": {"ids": [180, 181, 182, 183, 184], "fps": 9.0, "loop": False},
 }
 
@@ -210,10 +229,38 @@ def ball_cell(pic):
     return image.crop((x, y, x + w, y + h))
 
 
+def sc(value):
+    """Scale one number, a point, or a rect from the pack's pixels to the
+    game's. Everything the manifest publishes goes through here, so the hit
+    boxes and weapon points cannot drift out of step with the art."""
+    if isinstance(value, dict):
+        return {k: sc(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [sc(v) for v in value]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    return round(value * SCALE, 3)
+
+
+def sc_hits(hits):
+    """A hit box scales with the art. The damage written on it does NOT — that
+    is a game number, and quietly multiplying it by 0.75 turned the two-jab
+    combo into a three-jab one without anything saying so."""
+    return [{"damage": h["damage"], "rect": sc(h["rect"])} for h in hits]
+
+
+def scaled_cell(out_size):
+    return (round(out_size[0] * SCALE), round(out_size[1] * SCALE))
+
+
 def write_strip(path, tiles, out_size):
     strip = Image.new("RGBA", (out_size[0] * len(tiles), out_size[1]), (0, 0, 0, 0))
     for i, (src, dx, dy) in enumerate(tiles):
         strip.paste(src, (i * out_size[0] + dx, dy), src)
+    # Resized as one strip rather than per cell: resampling each frame alone
+    # rounds its edges independently and the character jitters between frames.
+    cw, ch = scaled_cell(out_size)
+    strip = strip.resize((cw * len(tiles), ch), Image.LANCZOS)
     strip.save(path)
 
 
@@ -238,8 +285,8 @@ def main():
     table = frames_table()
     manifest = {
         "_generated_by": "scripts/extract_anti_davis.py",
-        "cell": list(OUT), "origin": list(ORIGIN),
-        "ball_cell": list(BALL_OUT), "ball_origin": list(BALL_ORIGIN),
+        "cell": list(scaled_cell(OUT)), "origin": sc(list(ORIGIN)),
+        "ball_cell": list(scaled_cell(BALL_OUT)), "ball_origin": sc(list(BALL_ORIGIN)),
         "animations": {}, "ball": {},
     }
 
@@ -276,7 +323,7 @@ def main():
             "file": key + ".png", "loop": False,
             "durations": [round(table[f]["hold"], 5) for f in ids],
             "hits": [[] for _ in ids],
-            "wpoints": [table[f]["wpoint"] for f in ids],
+            "wpoints": [sc(table[f]["wpoint"]) for f in ids],
         }
         print("%-8s %d frame(s), %d with a weapon point"
               % (key, len(ids), sum(1 for f in ids if table[f]["wpoint"])))
@@ -288,8 +335,8 @@ def main():
         manifest["animations"][key] = {
             "file": key + ".png", "loop": False,
             "durations": [round(table[f]["hold"] / RATE, 5) for f in ids],
-            "hits": [table[f]["hits"] for f in ids],
-            "wpoints": [table[f]["wpoint"] for f in ids],
+            "hits": [sc_hits(table[f]["hits"]) for f in ids],
+            "wpoints": [sc(table[f]["wpoint"]) for f in ids],
         }
         hitting = sum(1 for f in ids if table[f]["hits"])
         print("%-8s %d frame(s), %d with a hitbox" % (key, len(ids), hitting))
@@ -310,7 +357,8 @@ def main():
         }
         print("ball_%-3s %d frame(s)" % (key, len(spec["ids"])))
     # Every flying frame carries the same box; frame 0's is the canonical one.
-    manifest["ball"]["hit_rect"] = ball_table[0]["hits"][0]["rect"]
+    # The rect scales with the art; the damage is a game number and must not.
+    manifest["ball"]["hit_rect"] = sc(ball_table[0]["hits"][0]["rect"])
     manifest["ball"]["damage"] = ball_table[0]["hits"][0]["damage"]
 
     path = os.path.join(OUT_DIR, "moves.json")

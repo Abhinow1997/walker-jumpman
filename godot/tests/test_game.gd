@@ -86,8 +86,10 @@ func run() -> void:
 	for i in range(45):
 		await steps(1)
 		min_y = minf(min_y,game.player.position.y)
-	# Ceiling underside 544 + the 56 px body = the highest the feet can reach.
-	check("low-ceiling", min_y >= 600-0.2 and game.player.jumps == 1 and game.player.is_on_floor(), {"minimum_feet_y":min_y,"jumps":game.player.jumps})
+	# Ceiling underside 544 + the body height = the highest the feet can reach.
+	# The body is 42 px since the cast was resampled to 0.75 to stand alongside
+	# the CC0 street enemies; it was 56, and this read 600.
+	check("low-ceiling", min_y >= 586-0.2 and game.player.jumps == 1 and game.player.is_on_floor(), {"minimum_feet_y":min_y,"jumps":game.player.jumps})
 	await fresh()
 	game.player.test_jump_pressed = true
 	await steps(5)

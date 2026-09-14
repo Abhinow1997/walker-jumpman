@@ -4,86 +4,86 @@
  "items": {
   "bottle": {
    "cell": [
-    15,
-    25
+    11,
+    19
    ],
    "file": "bottle.png",
    "frames": 1,
    "origin": [
-    7,
-    24
+    5.25,
+    18.0
    ]
   },
   "bottle_debris": {
    "cell": [
-    27,
-    28
+    20,
+    21
    ],
    "file": "bottle_debris.png",
    "frames": 8,
    "origin": [
-    13,
-    14
+    9.75,
+    10.5
    ]
   },
   "bottle_drink": {
    "cell": [
-    26,
-    19
+    20,
+    14
    ],
    "file": "bottle_drink.png",
    "frames": 1,
    "origin": [
-    13,
-    9
+    9.75,
+    6.75
    ]
   },
   "bottle_spin": {
    "cell": [
-    48,
-    48
+    36,
+    36
    ],
    "file": "bottle_spin.png",
    "frames": 8,
    "origin": [
-    24,
-    24
+    18.0,
+    18.0
    ]
   },
   "crate": {
    "cell": [
-    58,
-    58
+    44,
+    44
    ],
    "file": "crate.png",
    "frames": 1,
    "origin": [
-    29,
-    58
+    21.75,
+    43.5
    ]
   },
   "crate_debris": {
    "cell": [
-    27,
-    28
+    20,
+    21
    ],
    "file": "crate_debris.png",
    "frames": 16,
    "origin": [
-    13,
-    14
+    9.75,
+    10.5
    ]
   },
   "crate_spin": {
    "cell": [
-    58,
-    58
+    44,
+    44
    ],
    "file": "crate_spin.png",
    "frames": 6,
    "origin": [
-    29,
-    29
+    21.75,
+    21.75
    ]
   }
  }

@@ -25,8 +25,22 @@ written licence, or commissioned.
 
 ## Cell geometry
 
-Frames are rebaked from LF2's 79x79 cells into a uniform **96x96** cell with the
-character's origin (feet, mid-body) at **(44, 82)**. The cell is wider than the
+Frames are rebaked from LF2's 79x79 cells into a uniform cell with the
+character's origin (feet, mid-body) at a fixed point inside it, then the whole
+strip is resampled by `SCALE` (currently **0.75**, giving a **72x72** cell with
+the origin at **(33, 61.5)**).
+
+The rescale exists because Davis is drawn 73 px tall in the pack and the CC0
+street enemies are 50 px; at native size he towered over them. At 0.75 he stands
+a head taller, which is the relationship a protagonist wants. LANCZOS is used
+because LF2's art is painted and already anti-aliased — 145 colours in one idle
+frame — so it resamples like a small photograph. **Crisp indie pixel art must
+never be put through this.**
+
+Only the cast and the props scale. The level geometry and movement tuning are
+deliberately untouched, so the jump arc and every gap stay exactly as tuned and
+the level simply reads as roomier around a smaller cast. Hit boxes and weapon
+points scale with the art; the damage written on a hit box does not. The cell is wider than the
 body needs because the attacks reach much further forward than any locomotion
 pose. Both numbers live in `moves.json` and the game reads them from there;
 `extract_anti_davis.py` fails loudly rather than cropping if a frame outgrows
@@ -40,6 +54,7 @@ the cell.
 | `skid.png` | 1 | 218 stop_running | turning against momentum |
 | `rise.png` | 1 | 213 dash | ascending |
 | `fall.png` | 1 | 214 dash | descending |
+| `hurt.png` | 2 | 220–221 injured | struck: doubled over, 0.25 s of hitstun |
 | `death.png` | 5 | 180–184 falling | death, holds on the last frame |
 | `drink.png` | 4 | 55–58 weapon_drink | drinking the milk bottle |
 | `punch_a.png` | 4 | 60–63 punch | jab, standing attack |
@@ -50,6 +65,10 @@ the cell.
 | `ball_fly.png` | 2 | ball 8–9 | projectile in flight |
 | `ball_hit.png` | 4 | ball 10–13 | projectile impact |
 
+
+The pack also draws a longer dizzy loop (226-229) and two stagger-backward pairs
+(222-225). 220-221 was chosen because it reads as one blow landing rather than
+as a daze, which is what a 0.25 s reaction needs.
 ## moves.json
 
 Generated alongside the strips and read at load by `moveset.gd`. Holds the cell

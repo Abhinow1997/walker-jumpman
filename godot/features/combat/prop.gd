@@ -31,9 +31,20 @@ const WORLD := 1      # physics layer 1: what it lands on
 
 # --- being knocked about ----------------------------------------------------
 
+## The cast and the props were resampled to 0.75 so they stand alongside the
+## 50 px CC0 street enemies, and their physics has to come with them. A box
+## two-thirds the size thrown the same distance flies clean out of punching
+## range — which silently broke the jab-into-cross combo, because the cross
+## arrived after the jab had knocked the crate past the end of his fist.
+##
+## Lengths and speeds scale. Ratios (BOUNCE, SKID), rates (SPIN_MAX), times
+## (BREAK_TIME) and game numbers (KNOCK_REFERENCE) must not: they are already
+## independent of size. Set this back to 1.0 if the art ever returns to native.
+const ART_SCALE := 0.75
+
 ## Heavier than the player's own gravity. A prop that hangs in the air reads as
 ## cardboard; these are meant to have weight.
-const GRAVITY := 1600.0
+const GRAVITY := 1600.0 * ART_SCALE
 ## Knock from a blow of KNOCK_REFERENCE damage, scaled by the real damage. Tuned
 ## against gravity rather than guessed: a jab is 20, so it lifts a prop about
 ## 14 px and skids it roughly half its own width — plainly knocked, but still
@@ -44,13 +55,13 @@ const GRAVITY := 1600.0
 ## Deliberately not scaled by health: how hard something is thrown is a property
 ## of the blow, not of how much punishment the thing happens to take.
 const KNOCK_REFERENCE := 40.0
-const KNOCK_X := 170.0
-const KNOCK_Y := 420.0
+const KNOCK_X := 170.0 * ART_SCALE
+const KNOCK_Y := 420.0 * ART_SCALE
 const BOUNCE := 0.38       # vertical speed surviving a landing
 const SKID := 0.62         # horizontal speed kept through a bounce
-const FRICTION := 620.0    # ground drag once it stops bouncing
-const BOUNCE_MIN := 55.0   # below this it stops bouncing and starts sliding
-const REST_SPEED := 10.0   # below this it is done moving
+const FRICTION := 620.0 * ART_SCALE    # ground drag once it stops bouncing
+const BOUNCE_MIN := 55.0 * ART_SCALE   # below this it slides instead of bouncing
+const REST_SPEED := 10.0 * ART_SCALE   # below this it is done moving
 const SPIN_MAX := 18.0     # tumble frames per second at a full-weight blow
 
 ## A prop is never destroyed by the blow that first lands on it. A shoulder
@@ -281,8 +292,8 @@ func _shatter() -> void:
 		debris.append({
 			"type": debris_types[i],
 			"pos": Vector2(sx * body.x * 0.8, -sy * spin_lift * 1.8 - 4.0),
-			"vel": Vector2(sx * 150.0 + shake_dir * 70.0 + motion.x * 0.4,
-						   -60.0 - sy * 270.0 + motion.y * 0.3),
+			"vel": Vector2((sx * 150.0 + shake_dir * 70.0) * ART_SCALE + motion.x * 0.4,
+						   (-60.0 - sy * 270.0) * ART_SCALE + motion.y * 0.3),
 			"spin": (0.4 + _noise(debris_seed * 7)) * 26.0 * (1.0 if sx > 0.0 else -1.0),
 			"phase": _noise(debris_seed * 11) * float(DEBRIS_SPINS),
 			"rest": false,
@@ -300,13 +311,13 @@ func _update_debris(delta: float) -> void:
 	for piece in debris:
 		if piece.rest:
 			continue
-		piece.vel.y += 1150.0 * delta
+		piece.vel.y += 1150.0 * ART_SCALE * delta
 		piece.vel.x *= 0.985
 		piece.pos += piece.vel * delta
 		piece.phase += piece.spin * delta
 		if piece.pos.y >= debris_floor:
 			piece.pos.y = debris_floor
-			if absf(piece.vel.y) < 60.0:
+			if absf(piece.vel.y) < 60.0 * ART_SCALE:
 				piece.rest = true
 				piece.vel = Vector2.ZERO
 			else:

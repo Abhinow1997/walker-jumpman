@@ -39,6 +39,11 @@ OUT_DIR = os.path.normpath(os.path.join(
 
 KEY_COLOUR = (0, 0, 0)
 
+# The props are scaled with the character, or a crate drawn for a 73 px Davis
+# stands chest-high to a 55 px one. Same factor and same reasoning as
+# scripts/extract_anti_davis.py — see the note on SCALE there.
+SCALE = 0.75
+
 # Block origins and pitches, measured from the sheet. "cell" and "pitch" may be
 # a single number for square blocks, or (w, h) where the two differ.
 CRATE = {"x": 5, "y": 476, "cell": 58, "pitch": 59}
@@ -152,6 +157,12 @@ def main():
                 origin = [cell[0] // 2, cell[1] // 2]
             else:
                 origin = [cell[0] // 2, cell[1]]
+
+        # Scaled last, as one strip. Resampling each frame on its own rounds its
+        # edges independently and a spinning prop jitters between angles.
+        cell = (max(1, round(cell[0] * SCALE)), max(1, round(cell[1] * SCALE)))
+        origin = [round(origin[0] * SCALE, 3), round(origin[1] * SCALE, 3)]
+        strip = strip.resize((cell[0] * len(tiles), cell[1]), Image.LANCZOS)
 
         path = os.path.join(OUT_DIR, name + ".png")
         strip.save(path)

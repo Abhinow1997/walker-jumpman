@@ -5,6 +5,7 @@ const Hud = preload("res://ui/hud.gd")
 const Crate = preload("res://features/combat/crate.gd")
 const Blast = preload("res://features/combat/blast.gd")
 const Bottle = preload("res://features/combat/bottle.gd")
+const Enemy = preload("res://features/combat/enemy.gd")
 const Items = preload("res://features/combat/items.gd")
 enum State { MENU, PLAYING, PAUSED, DYING, COMPLETE }
 var state: State = State.MENU
@@ -15,6 +16,7 @@ var level: Dictionary
 var hazard_areas: Array[Area2D] = []
 var crates: Array[Area2D] = []
 var bottles: Array[Area2D] = []
+var enemies: Array[Area2D] = []
 ## The bottle the player is currently standing near, or null. The HUD reads it
 ## to know whether to prompt, and drink() reads it to know what to consume.
 var bottle_in_reach: Area2D = null
@@ -68,6 +70,16 @@ func _ready() -> void:
 			bottle.heal_segments = int(entry[2])
 		bottles.append(bottle)
 		add_child(bottle)
+	# Spawned before the player so he draws in front of them, and so `target`
+	# can be handed over the moment he exists.
+	# [x, y] per punk. More is another entry, not more code.
+	for entry in level.get("enemies", []):
+		var foe := Enemy.new()
+		foe.position = Vector2(entry[0], entry[1])
+		foe.fall_limit = float(level.fall_y)
+		foe.struck_player.connect(_on_player_struck)
+		enemies.append(foe)
+		add_child(foe)
 	player = Player.new()
 	player.blast_fired.connect(_on_blast_fired)
 	player.drink_ended.connect(_on_drink_ended)
@@ -149,6 +161,9 @@ func restart_attempt() -> void:
 		crate.reset()
 	for bottle in bottles:
 		bottle.reset()
+	for foe in enemies:
+		foe.reset()
+		foe.target = player
 	bottle_in_reach = null
 	drinking_bottle = null
 	for blast in blasts:
@@ -172,6 +187,20 @@ func set_paused(value: bool) -> void:
 func _on_focus_lost() -> void:
 	if not test_mode:
 		set_paused(true)
+
+func _on_player_struck(damage: int, from: Vector2) -> void:
+	## A punk landed one. He decides he hit; the player decides whether the blow
+	## counts, because only the player knows about its own invulnerable window.
+	if state != State.PLAYING:
+		return
+	var _landed: bool = player.take_damage(damage, from)
+
+func enemies_down() -> int:
+	var n := 0
+	for foe in enemies:
+		if not foe.alive():
+			n += 1
+	return n
 
 func _on_blast_fired(at: Vector2, direction: float) -> void:
 	## The projectile belongs to the level, not to the player: once thrown it
@@ -227,8 +256,9 @@ func _on_drink_ended(_completed: bool, reason: String) -> void:
 		# about mouth height and behind him, offset clear of his own sprite —
 		# dropped dead centre it spends its first frames hidden behind him and
 		# reads as having vanished rather than fallen.
-		bottle.drop_from(player.global_position + Vector2(-player.facing * 16.0, -34.0),
-			Vector2(-player.facing * 130.0, -190.0))
+		# Offsets and impulse are character-scale and scaled with the art (x0.75).
+		bottle.drop_from(player.global_position + Vector2(-player.facing * 12.0, -25.5),
+			Vector2(-player.facing * 97.5, -142.5))
 	else:
 		bottle.lower()
 
@@ -282,6 +312,12 @@ func _physics_process(delta: float) -> void:
 			drinking_bottle.set_contents(player.drink_fill_left())
 		var fatal := player.position.y > float(level.fall_y)
 		death_reason = "Missed the landing" if fatal else "Watch the spikes"
+		# An empty bar is fatal on the same terms as a pit: the session decides,
+		# the player only spends the health. Checked before the hazards so the
+		# reason names what actually finished him.
+		if not fatal and player.health <= 0:
+			fatal = true
+			death_reason = "Beaten by the bandits"
 		for hazard in hazard_areas:
 			fatal = fatal or hazard.overlaps_body(player)
 		if contact_settle_ticks > 0:

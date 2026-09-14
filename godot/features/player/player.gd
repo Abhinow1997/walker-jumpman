@@ -46,15 +46,26 @@ const MOVES := {
 ## already in when the button goes down.
 const CHARGE_FROM := 150.0
 ## Where the projectile leaves his hand, relative to his feet. Read off the
-## blast animation's release frame.
-const BLAST_MUZZLE := Vector2(30.0, -46.0)
+## blast animation's release frame, then scaled with the art (x0.75).
+const BLAST_MUZZLE := Vector2(22.5, -34.5)
 
-## Health starts low so the bottle has something to do. Nothing takes health
-## away yet: spikes and falls are still instant death, which is this game's
-## existing rule and not something a health bar should quietly replace. So for
-## now it only goes up, and it is the hook damage will hang off later.
+## Health starts low so the bottle has something to do, and the punks take it
+## away a bar at a time. Spikes and falls remain instant death — that rule is
+## the game's, and a health bar does not get to quietly replace it — so health
+## is what enemies spend and hazards still ignore.
 const MAX_HEALTH := 100
 const START_HEALTH := 25
+## No two blows may land inside this window. Without it a punk standing inside
+## the player lands on consecutive frames and empties the whole bar in a third
+## of a second, which reads as a bug rather than a fight.
+const HURT_INVULNERABLE := 0.6
+## How long a blow takes him out of his own hands. Shorter than the invulnerable
+## window on purpose: he recovers and can move again well before he can be hit
+## again, so a hit costs him a beat rather than stacking into a stun-lock.
+##
+## Gravity is untouched by it — a stun that froze him in mid-air over a pit would
+## turn one punch into a death — and it is short enough not to be a sentence.
+const HURT_STUN := 0.25
 ## The health bar draws five slots (ui/art/healthbar.json), so health is counted
 ## in segments and "a bottle is worth two bars" stays true whatever MAX_HEALTH is.
 const HEALTH_SEGMENTS := 5
@@ -117,6 +128,12 @@ var drink_t: float = 0.0
 var drink_fill: float = 1.0
 var drink_segments: int = 0
 var drink_pool: float = 0.0
+## Time left on the window above.
+var hurt_cooldown: float = 0.0
+## Time left on the stun, and how far into the hurt animation he is. Separate
+## clocks because the stun can be re-tuned without the animation changing speed.
+var hurt_stun: float = 0.0
+var hurt_clock: float = 0.0
 ## Fraction of a full bottle drunk by the drink that just ended, and how much
 ## was left in it. The session reads these to settle up with the bottle.
 var last_drink_consumed: float = 0.0
@@ -131,15 +148,17 @@ func _ready() -> void:
 	collision_layer = 2
 	collision_mask = 1
 	floor_snap_length = 2.0
-	# Sized to the Anti-Davis body, not to a blanket x2 of the old box. He is drawn
-	# ~37 x 73 px, but most of that is swinging arms and hair spikes; torso and legs
-	# are about this box. A hitbox wider than the drawn body kills the player on
-	# spikes that visibly missed, so it stays inside the silhouette on purpose.
+	# Sized to the Anti-Davis body. He is drawn ~28 x 55 px, but most of that is
+	# swinging arms and hair spikes; torso and legs are about this box. A hitbox
+	# wider than the drawn body kills the player on spikes that visibly missed,
+	# so it stays inside the silhouette on purpose. This is the old 20 x 56
+	# scaled with the art, which went to 0.75 so the cast stands alongside the
+	# 50 px CC0 street enemies.
 	var shape := RectangleShape2D.new()
-	shape.size = Vector2(20, 56)
+	shape.size = Vector2(15, 42)
 	var collider := CollisionShape2D.new()
 	collider.shape = shape
-	collider.position = Vector2(0, -28)
+	collider.position = Vector2(0, -21)
 	add_child(collider)
 	visual = Visual.new()
 	visual.body = self
@@ -156,6 +175,9 @@ func reset_at(spawn: Vector2) -> void:
 	jumps = 0
 	health = START_HEALTH
 	drink_pool = 0.0
+	hurt_cooldown = 0.0
+	hurt_stun = 0.0
+	hurt_clock = 0.0
 	_finish_drink(false, "retry")
 	_end_attack()
 	test_attack_pressed = false
@@ -182,6 +204,32 @@ func heal(amount: int) -> int:
 
 func health_fraction() -> float:
 	return float(health) / float(MAX_HEALTH)
+
+func take_damage(amount: int, from: Vector2) -> bool:
+	## Spends health and breaks whatever he was concentrating on. Returns true
+	## only when the blow actually landed, so an attacker can tell a hit from a
+	## swing that arrived inside the invulnerable window.
+	##
+	## Deliberately does NOT decide what an empty bar means. The session owns
+	## death and retry timing, exactly as it does for spikes and pits.
+	if not enabled or amount <= 0 or hurt_cooldown > 0.0:
+		return false
+	hurt_cooldown = HURT_INVULNERABLE
+	hurt_stun = HURT_STUN
+	hurt_clock = 0.0
+	health = maxi(0, health - amount)
+	# A drink cannot survive a punch. This is what DRINK_HIT was built for: the
+	# bottle is knocked out of his hand rather than set down, and he keeps only
+	# the mouthfuls he had already swallowed.
+	_finish_drink(false, DRINK_HIT)
+	# Whatever he was swinging is over. Taking a punch interrupts a punch.
+	_end_attack()
+	if is_instance_valid(visual) and visual.has_method("on_hurt"):
+		visual.on_hurt()
+	return true
+
+func is_hurt() -> bool:
+	return hurt_stun > 0.0
 
 func segment_health() -> int:
 	## One slot of the health bar, in points.
@@ -386,6 +434,11 @@ func _physics_process(delta: float) -> void:
 	if not enabled:
 		return
 	tick += 1
+	if hurt_cooldown > 0.0:
+		hurt_cooldown = maxf(0.0, hurt_cooldown - delta)
+	if hurt_stun > 0.0:
+		hurt_stun = maxf(0.0, hurt_stun - delta)
+		hurt_clock += delta
 	var axis := test_axis if test_control else Input.get_axis("move_left", "move_right")
 	var held := test_jump_held if test_control else Input.is_action_pressed("jump")
 	var pressed := test_jump_pressed if test_control else Input.is_action_just_pressed("jump")
@@ -394,6 +447,14 @@ func _physics_process(delta: float) -> void:
 	test_jump_pressed = false
 	test_attack_pressed = false
 	test_blast_pressed = false
+
+	if is_hurt():
+		# Reeling. He keeps falling if he was falling, but he does not walk,
+		# jump or swing out of it.
+		axis = 0.0
+		pressed = false
+		attack_pressed = false
+		blast_pressed = false
 
 	if attack == "drink":
 		# Read before `planted` zeroes the axis, so this sees the movement key

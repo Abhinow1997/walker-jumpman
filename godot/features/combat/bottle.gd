@@ -24,8 +24,9 @@ extends "res://features/combat/prop.gd"
 
 const PICKUP_LAYER := 128  # physics layer 8
 ## Generous on purpose: this is "am I near the bottle", not "am I touching it".
-## The drawn bottle is 13 x 23 px, far smaller than anything a player expects to
-## have to stand on.
+## The drawn bottle is tiny, far smaller than anything a player expects to have
+## to stand on. Deliberately NOT scaled with the art: this is a distance in the
+## level, and the level did not shrink when the cast did.
 const REACH := Vector2(72, 88)
 
 const GLOW := Color("f2e6c8")
@@ -54,8 +55,8 @@ func _configure() -> void:
 	# the art would sit entirely underneath all of them and only the flying kick
 	# and the blast could ever touch it. This lifts the box into reach without
 	# changing where the bottle is drawn — see spin_lift below.
-	body = Vector2(22, 36)
-	spin_lift = 12.0
+	body = Vector2(16, 27)
+	spin_lift = 9.0
 	art_rest = "bottle"
 	art_spin = "bottle_spin"
 	art_debris = "bottle_debris"

@@ -10,9 +10,9 @@ extends "res://features/combat/prop.gd"
 
 func _configure() -> void:
 	max_health = 40  # two jabs, or any heavier blow plus a jab
-	# Matched to the drawn crate (56 x 50), kept just inside it so a punch that
-	# visibly grazes the edge does not miss.
-	body = Vector2(52, 48)
+	# Matched to the drawn crate, kept just inside it so a punch that visibly
+	# grazes the edge does not miss. Scaled with the art (x0.75) from 52 x 48.
+	body = Vector2(39, 36)
 	art_rest = "crate"
 	art_spin = "crate_spin"
 	art_debris = "crate_debris"

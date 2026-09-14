@@ -266,6 +266,66 @@ func run() -> void:
 		dropped_settle += 1
 	await shot("28-bottle-dropped-settled")
 
+	# --- the enemy bandit -----------------------------------------------------
+	# The whole loop in one pass: he closes, he swings, it costs a bar, and the
+	# player answers. Whole viewport, because the health bar is HUD.
+	await fresh()
+	var bandit: Area2D = game.enemies[0]
+	game.player.position = Vector2(bandit.position.x - 190, bandit.position.y)
+	game.player.health = game.player.MAX_HEALTH
+	await steps(4)
+	await wide_shot("29-bandit-spots-him")
+	await steps(40)
+	await wide_shot("30-bandit-closing")
+	# Run on until the blow actually lands, so the shot is the hit and not a
+	# guess at which frame it happens on.
+	var hp: int = game.player.health
+	var waited := 0
+	while game.player.health == hp and waited < 300:
+		await steps(1)
+		waited += 1
+	await wide_shot("31-bandit-lands-one")
+	await steps(20)
+	await wide_shot("32-a-bar-gone")
+
+	# The player answers. Five jabs put him down; this catches the last one.
+	game.player.facing = 1.0
+	while bandit.health > 20 and waited < 600:
+		bandit.take_hit(20, game.player.global_position)
+		await steps(12)
+		waited += 1
+	await shot("33-bandit-on-his-last-bar")
+	bandit.take_hit(20, game.player.global_position)
+	for gap in [2, 8, 20]:
+		await steps(gap)
+		await shot("34-bandit-down-%d" % gap)
+
+	# --- hit reactions, both sides -------------------------------------------
+	# Both packs draw a recoil; these are the frames of each, side by side.
+	await fresh()
+	game.player.position = Vector2(400, 640)
+	game.player.health = game.player.MAX_HEALTH
+	await steps(4)
+	await shot("35-player-before-the-blow")
+	var _b: bool = game.player.take_damage(20, game.player.global_position + Vector2(40, 0))
+	for i in range(3):
+		await shot("36-player-hurt-%d" % i)
+		await steps(6)
+	await steps(30)
+	await shot("37-player-recovered")
+
+	await fresh()
+	var foe: Area2D = game.enemies[0]
+	game.player.position = Vector2(foe.position.x - 60, foe.position.y)
+	await steps(4)
+	await shot("38-bandit-before-the-blow")
+	var _fb: bool = foe.take_hit(20, game.player.global_position)
+	for i in range(3):
+		await shot("39-bandit-hurt-%d" % i)
+		await steps(6)
+	await steps(30)
+	await shot("40-bandit-recovered")
+
 	print("FIGHT SHEET: written to " + output)
 	game.queue_free()
 	await process_frame

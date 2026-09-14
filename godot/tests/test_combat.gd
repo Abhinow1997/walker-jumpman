@@ -37,9 +37,42 @@ func fresh() -> void:
 	root.add_child(game)
 	game.start_session()
 	game.player.test_control = true
+	# Enemies are parked by default. A bandit who walks over mid-test and lands a
+	# punch is correct game behaviour and ruins every check that is not about
+	# him — he broke the whole drink section the moment he was added. Tests that
+	# want him arm him with arm_enemies().
+	for bandit in game.enemies:
+		bandit.target = null
 	await steps(3)
 
+## Point the bandits at the player. Only for tests that are about the bandits.
+func arm_enemies() -> void:
+	for bandit in game.enemies:
+		bandit.target = game.player
+	await steps(1)
+
 ## Put him on the ground a given distance from a crate, facing it.
+## How far the jab reaches from the player's origin, read from the moveset.
+func jab_reach() -> float:
+	var reach := 0.0
+	for hit in Moveset.hits("punch_a", 1):
+		reach = maxf(reach, hit.rect.position.x + hit.rect.size.x)
+	return reach
+
+## Stand just close enough to `target` that a jab lands solidly on it, overlapping
+## its near edge by half the reach so the knock-back does not immediately carry it
+## out of range of the follow-up.
+##
+## Derived rather than hard-coded: every one of these used to be -40, which had
+## plenty of slack at the original art size and went marginal all at once when
+## the cast was resampled to 0.75. A number that has to be re-tuned whenever the
+## art changes does not belong in a test.
+func punching_distance(target: Area2D) -> float:
+	return -(target.body.x * 0.5 + jab_reach() * 0.5)
+
+func stand_to_punch(target: Area2D) -> void:
+	await stand_near(target, punching_distance(target))
+
 func stand_near(crate: Area2D, offset: float) -> void:
 	game.player.position = Vector2(crate.position.x + offset, crate.position.y)
 	game.player.velocity = Vector2.ZERO
@@ -93,7 +126,7 @@ func run() -> void:
 
 	# --- ground punch -------------------------------------------------------
 	var crate: Area2D = crates[0]
-	await stand_near(crate, -40.0)
+	await stand_to_punch(crate)
 	var full: int = crate.health
 	game.player.test_attack_pressed = true
 	await steps(1)
@@ -106,7 +139,7 @@ func run() -> void:
 	# One swing, one hit: several frames of a move must not stack damage.
 	await fresh()
 	crate = game.crates[0]
-	await stand_near(crate, -40.0)
+	await stand_to_punch(crate)
 	var before: int = crate.health
 	game.player.test_attack_pressed = true
 	await finish_attack()
@@ -120,7 +153,7 @@ func run() -> void:
 	# what catches a hitbox that was not mirrored with the sprite.
 	await fresh()
 	crate = game.crates[0]
-	await stand_near(crate, -40.0)
+	await stand_to_punch(crate)
 	game.player.facing = -1.0  # crate is to his right; he faces away
 	game.player.test_attack_pressed = true
 	await finish_attack()
@@ -137,7 +170,7 @@ func run() -> void:
 	# --- combo --------------------------------------------------------------
 	await fresh()
 	crate = game.crates[0]
-	await stand_near(crate, -40.0)
+	await stand_to_punch(crate)
 	game.player.test_attack_pressed = true
 	await steps(2)
 	game.player.test_attack_pressed = true  # queued during the jab
@@ -186,8 +219,14 @@ func run() -> void:
 	crate = game.crates[0]
 	var charge_home: Vector2 = crate.position
 	game.player.position = Vector2(crate.position.x - 260, crate.position.y)
+	# Run in until he is a stride short of it rather than for a fixed number of
+	# ticks. The charge's reach scales with the art, and a hard-coded run-up left
+	# him starting the move an inch too far out the moment it did.
 	game.player.test_axis = 1
-	await steps(20)
+	var run_in := 0
+	while game.player.position.x < crate.position.x - 90.0 and run_in < 120:
+		await steps(1)
+		run_in += 1
 	game.player.test_attack_pressed = true
 	await steps(1)
 	check("charge-starts-against-crate", game.player.attack == "charge",
@@ -208,7 +247,7 @@ func run() -> void:
 
 	# A grounded punch plants him; the charge does not.
 	await fresh()
-	await stand_near(game.crates[0], -40.0)
+	await stand_to_punch(game.crates[0])
 	game.player.test_axis = 1
 	game.player.test_attack_pressed = true
 	await steps(4)
@@ -267,7 +306,7 @@ func run() -> void:
 	# --- retry restores targets --------------------------------------------
 	await fresh()
 	crate = game.crates[0]
-	await stand_near(crate, -40.0)
+	await stand_to_punch(crate)
 	game.player.test_attack_pressed = true
 	await finish_attack()
 	var damaged: int = crate.health
@@ -299,7 +338,7 @@ func run() -> void:
 	await fresh()
 	crate = game.crates[0]
 	var home: Vector2 = crate.position
-	await stand_near(crate, -40.0)
+	await stand_to_punch(crate)
 	game.player.test_attack_pressed = true
 	# Track the whole flight rather than sampling the end of it: the hop is over
 	# in a quarter of a second, well before the punch animation finishes, so a
@@ -403,14 +442,18 @@ func run() -> void:
 	var two_bars: int = bottle.heal_segments * game.player.segment_health()
 	check("a-bottle-is-worth-two-bars", two_bars == 40, {"points": two_bars})
 
+	# Measured in game seconds, not loop iterations. steps() awaits a physics
+	# frame and a process frame, and those do not run one-for-one, so counting
+	# iterations drifts by several percent and reads as a timing bug that is not
+	# there. game.elapsed accumulates the same delta the drink does.
+	var drink_started: float = game.elapsed
 	var drink_ticks := 0
 	while game.player.attack == "drink" and drink_ticks < 480:
 		await steps(1)
 		drink_ticks += 1
-	# Six seconds at 60 Hz is 360 ticks. A little slack for the frame the
-	# threshold is crossed on, but it must not be a third of a second out.
-	check("drink-takes-six-seconds", absi(drink_ticks - 360) <= 6,
-		{"ticks": drink_ticks, "expected": 360})
+	var drink_took: float = game.elapsed - drink_started
+	check("drink-takes-six-seconds", absf(drink_took - 6.0) < 0.2,
+		{"seconds": snappedf(drink_took, 0.01), "expected": 6.0})
 	check("drink-restores-two-bars",
 		game.player.health == health_before + two_bars,
 		{"before": health_before, "after": game.player.health, "restored": two_bars})
@@ -451,13 +494,15 @@ func run() -> void:
 	check("part-bottle-quotes-a-shorter-wait",
 		absf(bottle.drink_seconds(game.player) - 3.0) < 0.3,
 		{"seconds": bottle.drink_seconds(game.player)})
+	var second_started: float = game.elapsed
 	var second_ticks := 0
 	var _resume: bool = game.drink()
 	while game.player.is_drinking() and second_ticks < 480:
 		await steps(1)
 		second_ticks += 1
-	check("second-sitting-takes-only-what-is-left", absi(second_ticks - 180) <= 8,
-		{"ticks": second_ticks, "expected": 180})
+	var second_took: float = game.elapsed - second_started
+	check("second-sitting-takes-only-what-is-left", absf(second_took - 3.0) < 0.25,
+		{"seconds": snappedf(second_took, 0.01), "expected": 3.0})
 	check("two-sittings-restore-the-whole-bottle",
 		game.player.health == health_before + two_bars and bottle.consumed,
 		{"health": game.player.health, "expected": health_before + two_bars})
@@ -469,13 +514,15 @@ func run() -> void:
 	game.player.position = bottle.position
 	await steps(3)
 	health_before = game.player.health
+	var half_started: float = game.elapsed
 	var half_ticks := 0
 	var _halfdrink: bool = game.drink()
 	while game.player.is_drinking() and half_ticks < 480:
 		await steps(1)
 		half_ticks += 1
-	check("half-bottle-takes-half-the-time", absi(half_ticks - 180) <= 8,
-		{"ticks": half_ticks, "expected": 180})
+	var half_took: float = game.elapsed - half_started
+	check("half-bottle-takes-half-the-time", absf(half_took - 3.0) < 0.2,
+		{"seconds": snappedf(half_took, 0.01), "expected": 3.0})
 	check("half-bottle-is-worth-half", absi(game.player.health - (health_before + two_bars / 2)) <= 2,
 		{"health": game.player.health, "expected": health_before + two_bars / 2})
 
@@ -607,10 +654,10 @@ func run() -> void:
 	check("bottle-is-hittable", bottle.get_collision_layer() & 64 != 0,
 		{"layer": bottle.get_collision_layer()})
 
-	# Every punch in the game lands between y -55 and -25 measured from the feet,
-	# so a hit box matching the 23 px art would sit under all of them. This pins
-	# that a plain jab can actually reach it.
-	game.player.position = Vector2(bottle.position.x - 40, bottle.position.y)
+	# Every punch in the game lands well above the bottle's drawn height, so a hit
+	# box matching the art would sit under all of them. This pins that a plain jab
+	# can actually reach it.
+	await stand_to_punch(bottle)
 	game.player.facing = 1.0
 	await steps(2)
 	game.player.test_attack_pressed = true
@@ -681,8 +728,226 @@ func run() -> void:
 	while game.state == Game.State.PLAYING and death_ticks < 60:
 		await steps(1)
 		death_ticks += 1
+
 	check("full-health-does-not-survive-spikes", game.state == Game.State.DYING,
 		{"state": game.state})
+
+	# --- the enemy bandit -----------------------------------------------------
+	# He is the first thing in the level that can take health off the player, so
+	# these pin the whole loop: he closes, he swings, the swing costs exactly one
+	# bar, and an empty bar kills on the same terms a pit does.
+	await fresh()
+	check("level-has-a-bandit", game.enemies.size() > 0, {"enemies": game.enemies.size()})
+	var bandit: Area2D = game.enemies[0]
+	await arm_enemies()
+	check("bandit-has-the-players-energy", bandit.MAX_HEALTH == game.player.MAX_HEALTH,
+		{"bandit": bandit.MAX_HEALTH, "player": game.player.MAX_HEALTH})
+	check("bandit-is-outrunnable", bandit.WALK_SPEED < game.player.tuning.speed,
+		{"bandit": bandit.WALK_SPEED, "player": game.player.tuning.speed})
+	check("bandit-is-on-the-hittable-layer", bandit.get_collision_layer() & 64 != 0,
+		{"layer": bandit.get_collision_layer()})
+
+	# Closes the distance rather than waiting to be walked into.
+	game.player.position = Vector2(bandit.position.x - 200, bandit.position.y)
+	game.player.health = game.player.MAX_HEALTH
+	await steps(3)
+	var bandit_start: float = bandit.position.x
+	await steps(45)
+	check("bandit-walks-toward-the-player", bandit.position.x < bandit_start - 20.0,
+		{"from": bandit_start, "to": bandit.position.x})
+
+	# Closes, swings, and the swing costs exactly one bar of five.
+	var before_hit: int = game.player.health
+	var swung := 0
+	while game.player.health == before_hit and swung < 300:
+		await steps(1)
+		swung += 1
+	check("bandit-lands-a-punch", game.player.health < before_hit and swung < 300,
+		{"health": game.player.health, "ticks": swung})
+	check("bandit-hit-costs-exactly-one-bar",
+		before_hit - game.player.health == game.player.segment_health(),
+		{"lost": before_hit - game.player.health, "bar": game.player.segment_health()})
+
+	# He may not empty the bar in a burst: a second blow inside the invulnerable
+	# window is refused, which is what stops a bandit stood inside the player from
+	# draining five bars in a third of a second.
+	var after_one: int = game.player.health
+	check("a-second-blow-is-refused-at-once",
+		not game.player.take_damage(20, bandit.global_position)
+		and game.player.health == after_one,
+		{"health": game.player.health})
+	await steps(int(game.player.HURT_INVULNERABLE * 60.0) + 6)
+	check("a-blow-lands-again-once-the-window-passes",
+		game.player.take_damage(20, bandit.global_position)
+		and game.player.health == after_one - 20,
+		{"health": game.player.health})
+
+	# --- a punch breaks a drink and drops the bottle -------------------------
+	await fresh()
+	var drink_bottle: Area2D = game.bottles[0]
+	game.player.position = drink_bottle.position
+	game.player.health = game.player.MAX_HEALTH - 20
+	await steps(3)
+	var pre_drink: int = game.player.health
+	var _started2: bool = game.drink()
+	await steps(60)
+	check("drinking-before-the-punch", game.player.is_drinking(), {"attack": game.player.attack})
+	var _hurt: bool = game.player.take_damage(20, game.player.global_position + Vector2(40, 0))
+	await steps(3)
+	check("a-punch-breaks-the-drink", not game.player.is_drinking(),
+		{"attack": game.player.attack})
+	check("a-punch-drops-the-bottle",
+		not drink_bottle.lifted and not drink_bottle.consumed and not drink_bottle.at_rest,
+		{"lifted": drink_bottle.lifted, "at_rest": drink_bottle.at_rest})
+	check("the-mouthful-still-counted", game.player.health > pre_drink - 20,
+		{"health": game.player.health, "before": pre_drink})
+
+	# --- an empty bar is fatal ----------------------------------------------
+	await fresh()
+	game.player.health = 20
+	await steps(2)
+	var _fatal: bool = game.player.take_damage(20, game.player.global_position + Vector2(40, 0))
+	await steps(4)
+	check("an-empty-bar-kills", game.state == Game.State.DYING and game.player.health == 0,
+		{"state": game.state, "health": game.player.health})
+	check("death-names-the-bandits", game.death_reason.to_lower().contains("bandit"),
+		{"reason": game.death_reason})
+
+	# --- the bandit takes what the player throws ------------------------------
+	await fresh()
+	bandit = game.enemies[0]
+	await arm_enemies()
+	var bandit_home: Vector2 = bandit.position
+	var bandit_full: int = bandit.health
+	check("jab-hurts-the-bandit", bandit.take_hit(20, bandit.position - Vector2(40, 0))
+		and bandit.health == bandit_full - 20,
+		{"health": bandit.health})
+	var jabs := 1
+	while bandit.alive() and jabs < 12:
+		bandit.take_hit(20, bandit.position - Vector2(40, 0))
+		jabs += 1
+	check("five-jabs-put-him-down", not bandit.alive() and jabs == 5,
+		{"jabs": jabs, "health": bandit.health})
+	check("a-downed-bandit-cannot-be-hit",
+		not bandit.take_hit(20, bandit.position - Vector2(40, 0)),
+		{"health": bandit.health})
+	await steps(3)
+	check("a-downed-bandit-stops-attacking", bandit.state == bandit.State.DEAD,
+		{"state": bandit.state})
+
+	# Retry brings him back, whole and where he started.
+	game.restart_attempt()
+	await steps(3)
+	check("retry-restores-the-bandit",
+		bandit.alive() and bandit.health == bandit.MAX_HEALTH and bandit.position == bandit_home,
+		{"health": bandit.health, "position": str(bandit.position)})
+
+	# He is a target, not a wall: the level is too narrow to be pinned in.
+	await fresh()
+	bandit = game.enemies[0]
+	game.player.position = Vector2(bandit.position.x - 90, bandit.position.y)
+	game.player.health = game.player.MAX_HEALTH
+	game.player.test_axis = 1
+	await steps(60)
+	game.player.test_axis = 0
+	check("walks-through-the-bandit", game.player.position.x > bandit.position.x + 10,
+		{"player_x": game.player.position.x, "bandit_x": bandit.position.x})
+
+	# --- hit reactions, both sides -------------------------------------------
+	# Both packs draw a recoil and both use it. A blow that only moved a number
+	# on the HUD would not read as a blow at all.
+	await fresh()
+	check("the-player-has-a-hurt-animation", Moveset.has("hurt"),
+		{"animations": Moveset.animations().keys()})
+	check("the-stun-is-shorter-than-the-invulnerable-window",
+		game.player.HURT_STUN < game.player.HURT_INVULNERABLE,
+		{"stun": game.player.HURT_STUN, "window": game.player.HURT_INVULNERABLE})
+
+	game.player.position = Vector2(400, 640)
+	game.player.health = game.player.MAX_HEALTH
+	await steps(3)
+	var _blow: bool = game.player.take_damage(20, game.player.global_position + Vector2(40, 0))
+	await steps(2)
+	check("a-blow-stuns-him", game.player.is_hurt(), {"stun": game.player.hurt_stun})
+	check("a-blow-plays-the-hurt-animation",
+		game.player.visual.sprite.animation == "hurt",
+		{"playing": game.player.visual.sprite.animation})
+
+	# Stunned, the controls do nothing.
+	var held_x: float = game.player.position.x
+	game.player.test_axis = 1
+	game.player.test_jump_pressed = true
+	await steps(6)
+	check("the-stun-takes-the-controls",
+		absf(game.player.position.x - held_x) < 2.0 and game.player.jumps == 0,
+		{"moved": game.player.position.x - held_x, "jumps": game.player.jumps})
+
+	# And gives them back. A stun that outlasted its welcome would be a sentence.
+	var waited := 0
+	while game.player.is_hurt() and waited < 120:
+		await steps(1)
+		waited += 1
+	await steps(8)
+	check("the-stun-wears-off",
+		not game.player.is_hurt() and game.player.position.x > held_x + 10.0,
+		{"moved": game.player.position.x - held_x, "ticks": waited})
+	game.player.test_axis = 0
+	check("the-hurt-pose-is-dropped-afterwards",
+		game.player.visual.sprite.animation != "hurt",
+		{"playing": game.player.visual.sprite.animation})
+
+	# Being hit cancels whatever he was throwing.
+	await fresh()
+	await stand_to_punch(game.crates[0])
+	game.player.test_attack_pressed = true
+	await steps(2)
+	check("swinging-before-the-blow", game.player.attack != "", {"attack": game.player.attack})
+	var _blow2: bool = game.player.take_damage(20, game.player.global_position + Vector2(40, 0))
+	await steps(1)
+	check("a-blow-cancels-his-attack", game.player.attack == "" and game.player.is_hurt(),
+		{"attack": game.player.attack})
+
+	# Falling is not part of the stun: freezing him in mid-air over a pit would
+	# turn one punch into a death.
+	await fresh()
+	game.player.position = Vector2(950, 400)
+	await steps(2)
+	var fell_from: float = game.player.position.y
+	var _blow3: bool = game.player.take_damage(20, game.player.global_position + Vector2(40, 0))
+	await steps(6)
+	check("gravity-survives-the-stun",
+		game.player.is_hurt() and game.player.position.y > fell_from + 8.0,
+		{"fell": game.player.position.y - fell_from})
+
+	# The bandit's recoil is his own pack's, on the same terms.
+	await fresh()
+	bandit = game.enemies[0]
+	await arm_enemies()
+	var _bhit: bool = bandit.take_hit(20, bandit.global_position - Vector2(40, 0))
+	await steps(2)
+	check("a-struck-bandit-recoils",
+		bandit.state == bandit.State.HURT and bandit.sprite.animation == "hurt",
+		{"state": bandit.state, "playing": bandit.sprite.animation})
+	check("a-struck-bandit-uses-the-recoil-frames-only", bandit.sprite.frame <= 1,
+		{"frame": bandit.sprite.frame})
+	var recovering := 0
+	while bandit.state == bandit.State.HURT and recovering < 120:
+		await steps(1)
+		recovering += 1
+	check("the-bandit-recovers", bandit.alive() and bandit.state != bandit.State.HURT,
+		{"state": bandit.state, "ticks": recovering})
+
+	# Down, the same strip runs on into the collapse and stays there.
+	while bandit.alive():
+		bandit.take_hit(20, bandit.global_position - Vector2(40, 0))
+		await steps(2)
+	await steps(40)
+	var hurt_frames: int = Moveset.frame_count("hurt")
+	check("a-downed-bandit-holds-the-collapse",
+		bandit.sprite.animation == "hurt"
+		and bandit.sprite.frame == bandit.sprite.sprite_frames.get_frame_count("hurt") - 1,
+		{"playing": bandit.sprite.animation, "frame": bandit.sprite.frame,
+		 "player_hurt_frames": hurt_frames})
 
 	var report := {
 		"scope": "Anti-Davis moveset: hit geometry, move selection, projectile lifetime, health pickup",

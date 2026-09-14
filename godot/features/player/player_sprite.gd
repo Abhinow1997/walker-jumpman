@@ -71,6 +71,10 @@ var prev_vy: float = 0.0
 var last_jumps: int = 0
 var dying: bool = false
 var death_t: float = 0.0
+## Counts down after a blow lands. A hit that only moves a HUD bar at the bottom
+## of the screen is not felt; this puts it on the character.
+var hurt_t: float = 0.0
+const HURT_FLASH := 0.35
 
 var motes: Array = []
 var mote_seed: int = 0
@@ -151,6 +155,7 @@ func reset() -> void:
 	last_jumps = body.jumps if is_instance_valid(body) else 0
 	dying = false
 	death_t = 0.0
+	hurt_t = 0.0
 	motes.clear()
 	held_texture = null
 	held_offset = Vector2.ZERO
@@ -162,13 +167,16 @@ func reset() -> void:
 		_play("idle")
 	queue_redraw()
 
+func on_hurt() -> void:
+	hurt_t = HURT_FLASH
+
 func on_death() -> void:
 	if dying:
 		return
 	dying = true
 	death_t = 0.0
 	_play("death")
-	_burst(Vector2(0, -20), 10, 1.4)
+	_burst(Vector2(0, -15), 10, 1.4)
 
 func _physics_process(delta: float) -> void:
 	# Death must keep animating while control is off; pausing must not.
@@ -202,11 +210,20 @@ func advance(delta: float) -> void:
 	squash += squash_vel * delta
 	squash = clampf(squash, SQUASH_MIN, SQUASH_MAX)
 
+	if hurt_t > 0.0:
+		hurt_t = maxf(0.0, hurt_t - delta)
+		sprite.modulate = Color.WHITE.lerp(Color(1.0, 0.42, 0.38), hurt_t / HURT_FLASH)
+	elif not dying:
+		sprite.modulate = Color.WHITE
+
 	face_scale = move_toward(face_scale, body.facing * ART_FACES, delta * TURN_RATE)
 
 	# An attack overrides the locomotion pose for its whole duration; the player
-	# has already decided which frame of it is showing.
-	if body.attack != "":
+	# has already decided which frame of it is showing. Being hit outranks both:
+	# the blow has already cancelled whatever he was doing.
+	if body.is_hurt():
+		_show_frame("hurt", Moveset.frame_at("hurt", body.hurt_clock))
+	elif body.attack != "":
 		_show_frame(body.attack, body.attack_frame)
 	elif not grounded:
 		_play("rise" if body.velocity.y < 0.0 else "fall")
