@@ -35,7 +35,7 @@ func run() -> void:
 	check("launch-grounded", game.player.is_on_floor() and game.state == Game.State.PLAYING, {"position": str(game.player.position), "engine": Engine.get_version_info().string})
 	game.player.test_axis = 1
 	await steps(8)
-	check("speed-cap", is_equal_approx(game.player.velocity.x,160), {"velocity_x": game.player.velocity.x})
+	check("speed-cap", is_equal_approx(game.player.velocity.x,320), {"velocity_x": game.player.velocity.x})
 	game.player.test_axis = 0
 	await steps(5)
 	check("neutral-stop", is_zero_approx(game.player.velocity.x), {"velocity_x": game.player.velocity.x})
@@ -49,7 +49,7 @@ func run() -> void:
 	game.player.test_control = true
 	game.player.test_axis = -1
 	await steps(70)
-	check("left-wall", game.player.position.x >= 9 and game.player.position.x <= 11, {"x": game.player.position.x})
+	check("left-wall", game.player.position.x >= 19 and game.player.position.x <= 21, {"x": game.player.position.x})
 	await fresh()
 	game.player.test_jump_pressed = true
 	game.player.test_jump_held = true
@@ -59,13 +59,14 @@ func run() -> void:
 		min_y = minf(min_y, game.player.position.y)
 		if i == 12:
 			game.player.test_jump_pressed = true
-	check("fixed-jump-and-no-double", game.player.jumps == 1 and absf((320-min_y)-53.3333) < 5, {"rise_px":320-min_y, "jumps":game.player.jumps})
+	# Rise and tolerance both scale with the world; apex time is unchanged at 0.333 s.
+	check("fixed-jump-and-no-double", game.player.jumps == 1 and absf((640-min_y)-106.6667) < 10, {"rise_px":640-min_y, "jumps":game.player.jumps})
 	await steps(30)
 	check("held-jump-no-bounce", game.player.jumps == 1 and game.player.is_on_floor(), {"jumps":game.player.jumps})
 	# Actual geometry fixtures at a ledge; tick ages exercise inclusive 6 / expired 7.
 	for age in [5,6,7]:
 		await fresh()
-		game.player.position = Vector2(478, 285)
+		game.player.position = Vector2(956, 570)
 		await steps(2)
 		game.player.last_floor_tick = game.player.tick + 1 - age
 		game.player.opportunity_consumed = false
@@ -78,14 +79,17 @@ func run() -> void:
 		await steps(1)
 		check("buffer-%d" % age, (game.player.jumps == 1) == (age <= 6), {"age":age, "jumps":game.player.jumps})
 	await fresh()
-	game._add_solid(Rect2(32,260,64,12))
+	game._add_solid(Rect2(64,520,128,24))
 	await steps(2)
 	game.player.test_jump_pressed = true
-	min_y = 320
+	min_y = 640
 	for i in range(45):
 		await steps(1)
 		min_y = minf(min_y,game.player.position.y)
-	check("low-ceiling", min_y >= 300-0.2 and game.player.jumps == 1 and game.player.is_on_floor(), {"minimum_feet_y":min_y,"jumps":game.player.jumps})
+	# Ceiling underside 544 + the body height = the highest the feet can reach.
+	# The body is 42 px since the cast was resampled to 0.75 to stand alongside
+	# the CC0 street enemies; it was 56, and this read 600.
+	check("low-ceiling", min_y >= 586-0.2 and game.player.jumps == 1 and game.player.is_on_floor(), {"minimum_feet_y":min_y,"jumps":game.player.jumps})
 	await fresh()
 	game.player.test_jump_pressed = true
 	await steps(5)
@@ -100,13 +104,13 @@ func run() -> void:
 	check("focus-loss-pauses", game.state == Game.State.PAUSED, {"state":game.state})
 	game.test_mode = true
 	await fresh()
-	game.player.position = Vector2(330,310)
+	game.player.position = Vector2(660,620)
 	await steps(4)
 	check("actual-spike-collision", game.state == Game.State.DYING and game.deaths == 1, {"state":game.state,"deaths":game.deaths})
 	game.resolve_contacts(true,true)
 	check("duplicate-death-ignored", game.deaths == 1, {"deaths":game.deaths})
 	await steps(38)
-	check("respawn", game.state == Game.State.PLAYING and game.player.position.distance_to(Vector2(64,320)) < 1, {"state":game.state,"position":str(game.player.position)})
+	check("respawn", game.state == Game.State.PLAYING and game.player.position.distance_to(Vector2(128,640)) < 1, {"state":game.state,"position":str(game.player.position)})
 	game.restart_attempt()
 	check("manual-restart-not-death", game.deaths == 1, {"deaths":game.deaths})
 	var largest_retry_ticks: int = 0
@@ -122,7 +126,7 @@ func run() -> void:
 	game.resolve_contacts(true,true)
 	check("death-before-finish", game.state == Game.State.DYING, {"state":game.state})
 	await fresh()
-	game.player.position = Vector2(415,432)
+	game.player.position = Vector2(830,864)
 	await steps(1)
 	check("fall-boundary", game.state == Game.State.DYING, {"state":game.state})
 	await fresh()

@@ -1,7 +1,120 @@
 extends CharacterBody2D
 
 const Tuning = preload("res://features/player/tuning.gd")
+const Moveset = preload("res://features/player/moveset.gd")
+# Swap this one line to change the protagonist's appearance.
+# player_sprite.gd is the Anti-Davis sprite; player_visual.gd is the original
+# procedural Wind-Up Knight rig, kept as a fallback that needs no art files.
+const Visual = preload("res://features/player/player_sprite.gd")
+
+## Fired when the blast animation reaches the frame that releases the projectile.
+## The session spawns it, not the player: once thrown it must not move with him.
+signal blast_fired(at: Vector2, direction: float)
+
+## Physics layer 7. The strike is a shape query against this and nothing else,
+## so anything that wants to be hittable has to be on it. See combat/crate.gd.
+const HITTABLE := 64
+
+## How each move behaves. What it looks like, how long each frame lasts and
+## where it hits all come from moves.json, which the extractor generates from
+## the pack; this table is only about how a move interacts with input and
+## movement, which is a game design decision and not in the pack.
+##
+##   ground   must be standing on the floor to start it
+##   chain    move this one buffers into when attack is pressed again
+##   planted  ignores the movement axis for its duration
+##   drive    forced forward speed, for moves that carry you
+##   ends_on_land  an air move that is cut short by touching down
+##   loops         the animation repeats; the move's length is decided elsewhere
+##   throw_frame   frame on which a carried object leaves his hands
+##
+## Not every entry is an attack. `drink` runs on exactly the same machinery and
+## simply has no hit frames, which is the point: one clock, one set of rules for
+## "the character is committed to an animation", rather than a second system.
+## It is the only looping entry: LF2 drew four drink frames, and six seconds of
+## drinking is those four frames over and over.
+const MOVES := {
+	"punch_a": {"ground": true,  "chain": "punch_b", "planted": true},
+	"punch_b": {"ground": true,  "chain": "",        "planted": true},
+	"kick":    {"ground": false, "chain": "",        "planted": false, "ends_on_land": true},
+	"charge":  {"ground": true,  "chain": "",        "planted": false, "drive": 300.0},
+	"blast":   {"ground": true,  "chain": "",        "planted": true,  "spawn_frame": 4},
+	"drink":   {"ground": true,  "chain": "",        "planted": true,  "loops": true},
+	# Picking up and throwing. LF2 draws one bending pose for both weights and
+	# tells them apart by where the weapon point puts the object, so the object
+	# is attached on the first frame and rides the point up into his hands.
+	"pick_light":  {"ground": true, "chain": "", "planted": true},
+	"pick_heavy":  {"ground": true, "chain": "", "planted": true},
+	# The release frame is not a guess: the weapon point leaps forward on it,
+	# from (15,30) to (107,60) light and from (33,23) to (104,36) heavy.
+	"throw_light": {"ground": true, "chain": "", "planted": true, "throw_frame": 2},
+	"throw_heavy": {"ground": true, "chain": "", "planted": true, "throw_frame": 1},
+}
+
+## Attacking at or above this speed becomes the shoulder charge instead of a
+## jab. Matches player_sprite.gd's RUN_SPEED so the move matches the pose he is
+## already in when the button goes down.
+const CHARGE_FROM := 150.0
+## Where the projectile leaves his hand, relative to his feet. Read off the
+## blast animation's release frame, then scaled with the art (x0.75).
+const BLAST_MUZZLE := Vector2(22.5, -34.5)
+
+## Health starts low so the bottle has something to do, and the punks take it
+## away a bar at a time. Spikes and falls remain instant death — that rule is
+## the game's, and a health bar does not get to quietly replace it — so health
+## is what enemies spend and hazards still ignore.
+const MAX_HEALTH := 100
+const START_HEALTH := 25
+## No two blows may land inside this window. Without it a punk standing inside
+## the player lands on consecutive frames and empties the whole bar in a third
+## of a second, which reads as a bug rather than a fight.
+const HURT_INVULNERABLE := 0.6
+## How long a blow takes him out of his own hands. Shorter than the invulnerable
+## window on purpose: he recovers and can move again well before he can be hit
+## again, so a hit costs him a beat rather than stacking into a stun-lock.
+##
+## Gravity is untouched by it — a stun that froze him in mid-air over a pit would
+## turn one punch into a death — and it is short enough not to be a sentence.
+const HURT_STUN := 0.25
+
+## Carrying something heavy costs him speed. He can still outrun a bandit, but
+## only just, so hauling a crate across the level is a decision.
+const CARRY_SPEED := 0.55
+## How hard a throw leaves his hands. The heavy throw is flatter and faster; a
+## light object is lobbed.
+const THROW_HEAVY := Vector2(430.0, -150.0)
+const THROW_LIGHT := Vector2(330.0, -210.0)
+
+## Emitted when a carried object leaves his hands, with the velocity to give it.
+signal threw(object: Node2D, velocity: Vector2)
+## The health bar draws five slots (ui/art/healthbar.json), so health is counted
+## in segments and "a bottle is worth two bars" stays true whatever MAX_HEALTH is.
+const HEALTH_SEGMENTS := 5
+
+## Seconds to drink a completely full bottle. A part-full one takes its share:
+## a bottle half drunk, or cracked by a punch, is half the wait and half the
+## health. Nothing here is all-or-nothing — he keeps whatever he swallowed and
+## the bottle keeps the rest — so stopping is a decision about how long to stand
+## still, not a gamble on losing the lot.
+const FULL_DRINK_TIME := 6.0
+
+## Why a drink stopped. The session cares about the difference: a drink he
+## walked out of leaves the bottle standing, a drink he was hit during drops it.
+const DRINK_HIT := "hit"
+const DRINK_MOVED := "moved"
+const DRINK_JUMPED := "jumped"
+const DRINK_ATTACKED := "attacked"
+const DRINK_KNOCKED := "knocked off his feet"
+const DRINK_LEFT := "moved away"
+const DRINK_EMPTY := "emptied the bottle"
+const DRINK_FULL := "already full"
+
+## Emitted whenever a drink stops. `reason` is one of the DRINK_* constants, and
+## `last_drink_consumed` says how much of a full bottle went with it.
+signal drink_ended(completed: bool, reason: String)
+
 var tuning = Tuning.new()
+var visual: Node2D
 var enabled: bool = false
 var tick: int = 0
 var last_floor_tick: int = -1000
@@ -10,22 +123,74 @@ var opportunity_consumed: bool = false
 var require_jump_release: bool = true
 var facing: float = 1.0
 var jumps: int = 0
+var health: int = START_HEALTH
 var test_control: bool = false
 var test_axis: float = 0.0
 var test_jump_pressed: bool = false
 var test_jump_held: bool = false
 
+## Attack state. `attack` is "" whenever he is not mid-move, and the visual
+## reads these three to decide what to draw; it owns none of them.
+var attack: String = ""
+var attack_frame: int = 0
+var attack_clock: float = 0.0
+var chain_queued: bool = false
+## Targets this swing has already connected with. One swing hits a given target
+## once, however many frames of it overlap.
+var struck: Array = []
+var blast_released: bool = false
+## How much the bottle currently being drunk is worth, and whether it has been
+## applied yet. Health lands partway through the animation rather than on the
+## key press, so the bar moves when he actually tips the bottle back.
+## Seconds into the current drink; how full the bottle was when he raised it;
+## what a whole bottle of it is worth; and fractional health carried between
+## frames, because health is an integer and a sip is not.
+var drink_t: float = 0.0
+var drink_fill: float = 1.0
+var drink_segments: int = 0
+var drink_pool: float = 0.0
+## Time left on the window above.
+var hurt_cooldown: float = 0.0
+## Time left on the stun, and how far into the hurt animation he is. Separate
+## clocks because the stun can be re-tuned without the animation changing speed.
+var hurt_stun: float = 0.0
+var hurt_clock: float = 0.0
+## What he is holding, and whether it is the two-handed kind. The object is a
+## real prop in the world, not a texture: the visual drives its position from
+## the current frame's weapon point, so throwing it is just handing it back its
+## own physics.
+var carrying: Node2D = null
+var carry_heavy: bool = false
+var thrown_this_move: bool = false
+## Fraction of a full bottle drunk by the drink that just ended, and how much
+## was left in it. The session reads these to settle up with the bottle.
+var last_drink_consumed: float = 0.0
+var last_drink_left: float = 0.0
+var hits_landed: int = 0
+var attacks_thrown: int = 0
+var test_attack_pressed: bool = false
+var test_blast_pressed: bool = false
+
 func _ready() -> void:
 	name = "Player"
 	collision_layer = 2
 	collision_mask = 1
-	floor_snap_length = 1.0
+	floor_snap_length = 2.0
+	# Sized to the Anti-Davis body. He is drawn ~28 x 55 px, but most of that is
+	# swinging arms and hair spikes; torso and legs are about this box. A hitbox
+	# wider than the drawn body kills the player on spikes that visibly missed,
+	# so it stays inside the silhouette on purpose. This is the old 20 x 56
+	# scaled with the art, which went to 0.75 so the cast stands alongside the
+	# 50 px CC0 street enemies.
 	var shape := RectangleShape2D.new()
-	shape.size = Vector2(18, 28)
+	shape.size = Vector2(15, 42)
 	var collider := CollisionShape2D.new()
 	collider.shape = shape
-	collider.position = Vector2(0, -14)
+	collider.position = Vector2(0, -21)
 	add_child(collider)
+	visual = Visual.new()
+	visual.body = self
+	add_child(visual)
 
 func reset_at(spawn: Vector2) -> void:
 	position = spawn
@@ -36,16 +201,373 @@ func reset_at(spawn: Vector2) -> void:
 	require_jump_release = true
 	test_jump_pressed = false
 	jumps = 0
-	queue_redraw()
+	health = START_HEALTH
+	drink_pool = 0.0
+	hurt_cooldown = 0.0
+	hurt_stun = 0.0
+	hurt_clock = 0.0
+	carrying = null
+	carry_heavy = false
+	thrown_this_move = false
+	_finish_drink(false, "retry")
+	_end_attack()
+	test_attack_pressed = false
+	test_blast_pressed = false
+	if is_instance_valid(visual):
+		visual.reset()
+
+func on_death() -> void:
+	## Appearance only; the session still owns the death state and retry timing.
+	_finish_drink(false, "died")
+	_end_attack()
+	if is_instance_valid(visual):
+		visual.on_death()
+
+# --- health ----------------------------------------------------------------
+
+func heal(amount: int) -> int:
+	## Returns how much was actually restored, which is zero at full health.
+	## The caller decides whether a drink that heals nothing should still be
+	## spent; this only reports.
+	var before := health
+	health = clampi(health + amount, 0, MAX_HEALTH)
+	return health - before
+
+func health_fraction() -> float:
+	return float(health) / float(MAX_HEALTH)
+
+func take_damage(amount: int, from: Vector2) -> bool:
+	## Spends health and breaks whatever he was concentrating on. Returns true
+	## only when the blow actually landed, so an attacker can tell a hit from a
+	## swing that arrived inside the invulnerable window.
+	##
+	## Deliberately does NOT decide what an empty bar means. The session owns
+	## death and retry timing, exactly as it does for spikes and pits.
+	if not enabled or amount <= 0 or hurt_cooldown > 0.0:
+		return false
+	hurt_cooldown = HURT_INVULNERABLE
+	hurt_stun = HURT_STUN
+	hurt_clock = 0.0
+	health = maxi(0, health - amount)
+	# A drink cannot survive a punch. This is what DRINK_HIT was built for: the
+	# bottle is knocked out of his hand rather than set down, and he keeps only
+	# the mouthfuls he had already swallowed.
+	_finish_drink(false, DRINK_HIT)
+	# Whatever he was swinging is over. Taking a punch interrupts a punch, and
+	# knocks anything he was holding out of his hands.
+	_end_attack()
+	if is_carrying():
+		var dropped := drop_carried()
+		if is_instance_valid(dropped):
+			threw.emit(dropped, Vector2(-facing * 70.0, -120.0))
+	if is_instance_valid(visual) and visual.has_method("on_hurt"):
+		visual.on_hurt()
+	return true
+
+func is_hurt() -> bool:
+	return hurt_stun > 0.0
+
+# --- carrying ---------------------------------------------------------------
+
+func is_carrying() -> bool:
+	return is_instance_valid(carrying)
+
+func begin_pickup(prop: Node2D, is_heavy: bool) -> bool:
+	## Bends down and takes it. The object is attached immediately rather than
+	## at the end of the animation, because LF2's pick-up frames carry a weapon
+	## point that rises from the floor into his hands — attaching late would
+	## leave it sitting on the ground for the whole lift.
+	if not can_attack() or not is_on_floor() or is_carrying() or is_hurt():
+		return false
+	if not begin_attack("pick_heavy" if is_heavy else "pick_light"):
+		return false
+	carrying = prop
+	carry_heavy = is_heavy
+	prop.pick_up()
+	return true
+
+func begin_throw() -> bool:
+	if not is_carrying() or not can_attack() or not is_on_floor() or is_hurt():
+		return false
+	if not begin_attack("throw_heavy" if carry_heavy else "throw_light"):
+		return false
+	thrown_this_move = false
+	return true
+
+func drop_carried() -> Node2D:
+	## Hands it back to the world without throwing it. Used when he is hit, or
+	## dies, or the attempt restarts.
+	var held := carrying
+	carrying = null
+	carry_heavy = false
+	return held
+
+func segment_health() -> int:
+	## One slot of the health bar, in points.
+	return int(round(float(MAX_HEALTH) / float(HEALTH_SEGMENTS)))
+
+func begin_drink(segments: int, fill: float) -> bool:
+	## Starts a drink on a bottle that is `fill` full (0 to 1) and worth
+	## `segments` bars when whole. The caller has already decided the drink is
+	## allowed; this only refuses when he is not in a position to start —
+	## mid-move, or off the ground.
+	if not can_attack() or not is_on_floor():
+		return false
+	if fill <= 0.0:
+		return false
+	if not begin_attack("drink"):
+		return false
+	drink_segments = segments
+	drink_fill = clampf(fill, 0.0, 1.0)
+	drink_t = 0.0
+	return true
+
+func is_drinking() -> bool:
+	return attack == "drink"
+
+func drink_span() -> float:
+	## How long this particular drink takes: proportional to what is left in the
+	## bottle, so a half-empty or cracked one is a correspondingly shorter wait.
+	return drink_fill * FULL_DRINK_TIME
+
+func drink_remaining() -> float:
+	return maxf(0.0, drink_span() - drink_t)
+
+func drink_fill_left() -> float:
+	## How full the bottle in his hand is right now. The session pushes this into
+	## the bottle every frame, so its contents are live rather than settled up at
+	## the end — a drink cut off by anything at all still leaves the bottle
+	## holding exactly what he did not swallow.
+	if not is_drinking():
+		return 0.0
+	return maxf(0.0, drink_fill - drink_t / FULL_DRINK_TIME)
+
+func drink_progress() -> float:
+	## 0 to 1 through *this* drink. The HUD needs it: seconds of a looping
+	## animation with no visible clock reads as the game being stuck.
+	var span := drink_span()
+	if not is_drinking() or span <= 0.0:
+		return 0.0
+	return clampf(drink_t / span, 0.0, 1.0)
+
+func interrupt_drink(reason: String) -> void:
+	## Ends a drink from outside. The session calls it when he walks out of
+	## reach, and it is the hook damage hangs off: pass DRINK_HIT and the bottle
+	## is knocked out of his hand rather than set down.
+	_finish_drink(false, reason)
+
+func _finish_drink(completed: bool, reason: String) -> void:
+	if attack != "drink":
+		return
+	# Measured against a *full* bottle, which is the unit the bottle stores its
+	# contents in. Health is already in him: it went in as he swallowed.
+	last_drink_consumed = drink_t / FULL_DRINK_TIME
+	last_drink_left = maxf(0.0, drink_fill - last_drink_consumed)
+	_end_attack()
+	drink_ended.emit(completed, reason)
+
+func _advance_drink(delta: float) -> void:
+	if not is_on_floor():
+		_finish_drink(false, DRINK_KNOCKED)
+		return
+	var span := drink_span()
+	# Clamped so the last frame cannot overshoot and credit him for more of the
+	# bottle than was in it.
+	var step: float = minf(delta, maxf(0.0, span - drink_t))
+	drink_t += step
+	# Health arrives as he swallows rather than in a lump at the end, so a drink
+	# cut short is worth exactly the part of it he got through.
+	drink_pool += step / FULL_DRINK_TIME * float(drink_segments * segment_health())
+	var whole := int(floor(drink_pool))
+	if whole > 0:
+		drink_pool -= float(whole)
+		heal(whole)
+	if health >= MAX_HEALTH:
+		# Topped up with some still in the bottle. Stop rather than pour the
+		# rest away — he can come back for it.
+		_finish_drink(true, DRINK_FULL)
+		return
+	if drink_t >= span:
+		_finish_drink(true, DRINK_EMPTY)
+
+# --- attacks ---------------------------------------------------------------
+
+func can_attack() -> bool:
+	return enabled and attack == ""
+
+func _choose_attack() -> String:
+	## Context picks the move, so one button covers the whole ground moveset and
+	## the player never has to learn a motion input to see all of it.
+	if not is_on_floor():
+		return "kick"
+	if absf(velocity.x) >= CHARGE_FROM:
+		return "charge"
+	return "punch_a"
+
+func begin_attack(key: String) -> bool:
+	if not MOVES.has(key) or not Moveset.has(key):
+		return false
+	if MOVES[key].get("ground", false) and not is_on_floor():
+		return false
+	attack = key
+	attack_frame = 0
+	attack_clock = 0.0
+	chain_queued = false
+	blast_released = false
+	struck.clear()
+	# A drink is not a swing, and must not inflate the attacks-thrown figure the
+	# evidence run reports.
+	if key != "drink":
+		attacks_thrown += 1
+	return true
+
+func _end_attack() -> void:
+	attack = ""
+	attack_frame = 0
+	attack_clock = 0.0
+	chain_queued = false
+	blast_released = false
+	drink_t = 0.0
+	drink_fill = 1.0
+	drink_segments = 0
+	# drink_pool is deliberately NOT cleared: it is the fraction of a health
+	# point already swallowed but not yet worth a whole one. Dropping it on every
+	# stop would quietly lose most of a bottle drunk in short sips.
+	struck.clear()
+
+func _advance_attack(delta: float) -> void:
+	if attack == "":
+		return
+	attack_clock += delta
+	var rules: Dictionary = MOVES[attack]
+	if rules.get("loops", false):
+		# The animation repeats for as long as the move runs, rather than its
+		# length deciding when the move is over.
+		var span := Moveset.length(attack)
+		if span > 0.0:
+			attack_clock = fmod(attack_clock, span)
+	attack_frame = Moveset.frame_at(attack, attack_clock)
+
+	if attack == "drink":
+		# No hit frames, no chain, and its own clock decides when it ends.
+		_advance_drink(delta)
+		return
+	if rules.has("throw_frame") and not thrown_this_move and attack_frame >= int(rules.throw_frame):
+		thrown_this_move = true
+		var object := drop_carried()
+		if is_instance_valid(object):
+			var speed: Vector2 = THROW_HEAVY if attack == "throw_heavy" else THROW_LIGHT
+			threw.emit(object, Vector2(speed.x * facing, speed.y))
+	if rules.has("spawn_frame") and not blast_released and attack_frame >= int(rules.spawn_frame):
+		blast_released = true
+		blast_fired.emit(global_position + Vector2(BLAST_MUZZLE.x * facing, BLAST_MUZZLE.y), facing)
+
+	_resolve_hits()
+
+	# An air move that lands has nothing left to say; cutting it keeps him from
+	# standing on the floor still kicking.
+	if rules.get("ends_on_land", false) and is_on_floor() and attack_clock > 0.06:
+		_end_attack()
+		return
+	if attack_clock < Moveset.length(attack):
+		return
+	var chain: String = rules.get("chain", "")
+	if chain_queued and chain != "" and Moveset.has(chain):
+		begin_attack(chain)
+	else:
+		_end_attack()
+
+func _resolve_hits() -> void:
+	var hits := Moveset.hits(attack, attack_frame)
+	if hits.is_empty():
+		return
+	var space := get_world_2d().direct_space_state
+	for hit in hits:
+		var box: Rect2 = hit.rect
+		# The art is drawn facing right and the boxes are transcribed in that
+		# space, so both mirror together and the hit stays on the fist.
+		if facing < 0.0:
+			box.position.x = -(box.position.x + box.size.x)
+		box.position += global_position
+		var query := PhysicsShapeQueryParameters2D.new()
+		var shape := RectangleShape2D.new()
+		shape.size = box.size
+		query.shape = shape
+		query.transform = Transform2D(0.0, box.position + box.size / 2.0)
+		query.collision_mask = HITTABLE
+		query.collide_with_areas = true
+		query.collide_with_bodies = false
+		for result in space.intersect_shape(query, 16):
+			var target = result.collider
+			if target == null or struck.has(target) or not target.has_method("take_hit"):
+				continue
+			if target.take_hit(int(hit.damage), global_position):
+				struck.append(target)
+				hits_landed += 1
+
+# --- step ------------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
 	if not enabled:
 		return
 	tick += 1
+	if hurt_cooldown > 0.0:
+		hurt_cooldown = maxf(0.0, hurt_cooldown - delta)
+	if hurt_stun > 0.0:
+		hurt_stun = maxf(0.0, hurt_stun - delta)
+		hurt_clock += delta
 	var axis := test_axis if test_control else Input.get_axis("move_left", "move_right")
 	var held := test_jump_held if test_control else Input.is_action_pressed("jump")
 	var pressed := test_jump_pressed if test_control else Input.is_action_just_pressed("jump")
+	var attack_pressed := test_attack_pressed if test_control else Input.is_action_just_pressed("attack")
+	var blast_pressed := test_blast_pressed if test_control else Input.is_action_just_pressed("blast")
 	test_jump_pressed = false
+	test_attack_pressed = false
+	test_blast_pressed = false
+
+	if is_hurt():
+		# Reeling. He keeps falling if he was falling, but he does not walk,
+		# jump or swing out of it.
+		axis = 0.0
+		pressed = false
+		attack_pressed = false
+		blast_pressed = false
+
+	if attack == "drink":
+		# Read before `planted` zeroes the axis, so this sees the movement key
+		# even though the drink itself never moves him. Running before dispatch
+		# means the same press then does whatever it was going to do.
+		if not is_zero_approx(axis):
+			_finish_drink(false, DRINK_MOVED)
+		elif pressed:
+			_finish_drink(false, DRINK_JUMPED)
+		elif attack_pressed or blast_pressed:
+			_finish_drink(false, DRINK_ATTACKED)
+
+	if attack == "":
+		if is_carrying():
+			# Both hands are full. The attack button throws what he is holding
+			# rather than swinging through it.
+			if attack_pressed or blast_pressed:
+				begin_throw()
+		elif blast_pressed:
+			begin_attack("blast")
+		elif attack_pressed:
+			begin_attack(_choose_attack())
+	elif attack_pressed:
+		# Buffered, not immediate: pressing during the jab queues the cross and
+		# it starts when the jab finishes, so the combo reads as two hits.
+		chain_queued = true
+	_advance_attack(delta)
+
+	var rules: Dictionary = MOVES.get(attack, {})
+	if rules.get("planted", false):
+		axis = 0.0
+	# A committed move cannot be jumped out of. The request is dropped rather
+	# than buffered, so it does not fire the instant the move ends.
+	if attack != "" and is_on_floor():
+		pressed = false
+
 	if not held:
 		require_jump_release = false
 	if is_on_floor() and velocity.y >= 0.0:
@@ -53,9 +575,15 @@ func _physics_process(delta: float) -> void:
 		opportunity_consumed = false
 	if pressed and not require_jump_release:
 		jump_request_tick = tick
-	var rate: float = tuning.acceleration if not is_zero_approx(axis) else tuning.deceleration
-	velocity.x = move_toward(velocity.x, axis * tuning.speed, rate * delta)
-	if not is_zero_approx(axis):
+	if rules.has("drive"):
+		velocity.x = move_toward(velocity.x, facing * float(rules.drive), tuning.acceleration * delta)
+	else:
+		var rate: float = tuning.acceleration if not is_zero_approx(axis) else tuning.deceleration
+		var top: float = tuning.speed * (CARRY_SPEED if (is_carrying() and carry_heavy) else 1.0)
+		velocity.x = move_toward(velocity.x, axis * top, rate * delta)
+	# Facing is frozen mid-move, otherwise the hitbox could flip away from the
+	# fist between the wind-up and the contact frame.
+	if not is_zero_approx(axis) and attack == "":
 		facing = signf(axis)
 	velocity.y = minf(velocity.y + tuning.gravity * delta, tuning.terminal_velocity)
 	if not opportunity_consumed and tick - last_floor_tick <= tuning.coyote_ticks and tick - jump_request_tick <= tuning.buffer_ticks:
@@ -64,17 +592,5 @@ func _physics_process(delta: float) -> void:
 		jump_request_tick = -1000
 		jumps += 1
 	move_and_slide()
-	position.x = maxf(position.x, 10.0)
-	queue_redraw()
-
-func _draw() -> void:
-	var ink := Color("25354a")
-	var blue := Color("287baf")
-	var stride := sin(float(tick) * 0.7) * 2.0 if is_on_floor() and absf(velocity.x) > 8 else 0.0
-	draw_rect(Rect2(-9, -27, 18, 24), ink)
-	draw_rect(Rect2(-7, -25, 14, 20), blue)
-	draw_rect(Rect2(-10, -18, 20, 4), Color("ef875f"))
-	draw_rect(Rect2(-6, -4, 5, 4 + stride), ink)
-	draw_rect(Rect2(2, -4, 5, 4 - stride), ink)
-	draw_rect(Rect2(1 if facing > 0 else -6, -24, 5, 5), Color("fff9e9"))
-	draw_rect(Rect2(4 if facing > 0 else -6, -23, 2, 3), ink)
+	position.x = maxf(position.x, 20.0)
+	visual.advance(delta)

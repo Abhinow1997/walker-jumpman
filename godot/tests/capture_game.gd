@@ -29,7 +29,7 @@ func run() -> void:
 	game.player.test_control = true
 	game.player.test_axis = 1
 	# Walk from a safe landing into the spike trigger, not an invented failure card.
-	game.player.position = Vector2(275, 320)
+	game.player.position = Vector2(550, 640)
 	for i in range(90):
 		await step()
 		if game.state == Game.State.DYING: break
@@ -42,7 +42,7 @@ func run() -> void:
 	for i in range(900):
 		route.step(game.player)
 		await step()
-		if not gap_captured and game.player.position.x > 463 and game.player.position.y < 300:
+		if not gap_captured and game.player.position.x > 926 and game.player.position.y < 600:
 			await capture("03-jump")
 			gap_captured = true
 		if game.state != Game.State.PLAYING: break

@@ -1,0 +1,15 @@
+{
+ "_generated_by": "scripts/extract_healthbar.py",
+ "_source": "mech-healthbar.png",
+ "files": {
+  "empty": "healthbar_empty.png",
+  "full": "healthbar_full.png"
+ },
+ "fill_x0": 13,
+ "fill_x1": 44,
+ "segments": 5,
+ "size": [
+  53,
+  12
+ ]
+}
