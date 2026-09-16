@@ -1,0 +1,8 @@
+{
+ "_note": "The course order, and the only place that knows there is more than one level. Each id is godot/levels/<id>.json; a level file owns its own title and copy, so nothing is duplicated here. The menu lists these in order and finishing one loads the next. first_steps and proving_ground are the greybox tutorial and prototyping slice; the Fractured Isles areas that follow are themed.",
+ "order": [
+  "first_steps",
+  "proving_ground",
+  "fractured_isles"
+ ]
+}

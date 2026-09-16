@@ -6,7 +6,7 @@ Standalone game repository: [nikbearbrown/walker-jumpman](https://github.com/nik
 
 Clone with `git clone https://github.com/nikbearbrown/walker-jumpman.git`, then import `walker-jumpman/godot/project.godot` in the regular Godot editor. No .NET runtime or external assets are required. On macOS, the launcher below also works when Godot is installed in Applications; on other platforms, use the editor or `godot --path godot` from the cloned folder.
 
-Double-click [walker-jumpman.command](walker-jumpman.command) to play. Press **Enter** to start; **A/D or arrows** to move, **Space** to jump, **R** to retry, and **Escape/P** to pause. Reach the flag. Retries are unlimited.
+Double-click [walker-jumpman.command](walker-jumpman.command) to play. The game opens on a level menu: **W/S or up/down** to choose, **Enter** to start. In play, **A/D or left/right** to move, **Space** to jump, **J** to attack or throw, **K** to blast, **E** to lift or drink, **R** to retry, **Escape/P** to pause and **M** for the menu. Reach the flag. Retries are unlimited, and finishing a level goes straight to the next one.
 
 ![The actual First Steps game, captured during a scripted jump](evidence/screens/03-jump.png)
 
@@ -29,6 +29,170 @@ The first Walker example is a compact 2D platformer built around readable jumps,
 [Design consistency review](DESIGN-REVIEW.md) · [Editable SVG map](design/level-overview.svg)
 
 [Level coordinate data](design/level-01.json) drives this candidate blockout. Counts and geometry can be checked without Godot. Jump reachability, zero-cherry/all-cherry routing, camera behavior and enjoyment have not been tested.
+
+## Adding a level
+
+Levels are data. One JSON file each in [godot/levels/](godot/levels), listed in
+play order by [index.json](godot/levels/index.json), which is the only file that
+knows there is more than one. First Steps is the tutorial and prototyping slice:
+it introduces every mechanic once, and later levels assume it has been played.
+
+To add one, write `godot/levels/<id>.json` and put `<id>` in the index's `order`.
+Nothing else changes — the menu, the title, the progress bar, the background
+signs and the chain to the next level all read from the file.
+
+| key | shape | meaning |
+|---|---|---|
+| `title` | string | shown top-right in play and as the menu row |
+| `tagline`, `brief` | string | the results panel, and the menu blurb |
+| `width` | number | right wall; the camera stops half a viewport short of it |
+| `fall_y` | number | below this is a death, so it must be under every floor |
+| `spawn` | `[x, y]` | his feet, which must be the top surface of a solid |
+| `solids` | `[[x, y, w, h]]` | platforms and floor; `y` is the **top** edge |
+| `hazards` | `[[x, y, w, h]]` | spikes. Instant death, unchanged by health |
+| `finish` | `[x, y, w, h]` | the flag; `y + h` has to meet a solid's top |
+| `crates` | `[[x, y]]` | optional. Breakable, throwable, never an obstacle |
+| `bottles` | `[[x, y, bars]]` | optional. `bars` is **health-bar segments, 1–5**, not points |
+| `enemies` | `[[x, y]]` or `[[x, y, kind]]` | optional. One entry each. `kind` is `"bandit"` (the default), `"mark"` or `"hunter"`; each is a folder under `features/combat/art/` cut by `scripts/extract_<kind>.py` |
+| `signs` | `[[x, y, heading]]` or `[[x, y, heading, subtitle]]` | background text, in world coordinates |
+| `hills` | `[x, ...]` | optional, greybox only. Omit and six are spaced evenly across the width |
+| `theme` | string | optional. Names an art set in `features/world/art/`. Omit for the greybox look |
+| `decor` | `[[x, y, piece]]` | optional, themed only. Art with its bottom edge at `y`. Never collision |
+| `horizon` | number | optional, themed only. The waterline the parallax layers sit on |
+
+### Themes
+
+A level with no `theme` is drawn procedurally by `session.gd`, the original
+greybox: flat rectangles, drawn hills, a flag. First Steps and Proving Ground
+are these.
+
+A level with one is drawn by [scenery.gd](godot/features/world/scenery.gd) from
+the same data. **Terrain is not authored** — the cliffs, grass and caps are
+generated from the level's own `solids`, the identical rectangles the player
+collides with and the validator measures, so the art cannot end up somewhere you
+cannot stand or be missing somewhere you can. Only set dressing is placed by
+hand, because a tree is a decision rather than a consequence of the geometry.
+
+A solid may name the art it wears as an optional fifth value:
+
+| `solids` entry | drawn as |
+|---|---|
+| `[x, y, w, h]` | a grassed cliff: grass strip over a filled body, rock caps on the ends |
+| `[x, y, w, h, "island_large"]` | that piece, centred, its standing surface on the rectangle's top edge |
+| `[x, y, w, h, "bridge"]` | planking, with an anchor post at each end |
+
+`magic_cliffs` is the only theme so far — Ansimuz's **CC0** pack, and the only
+licensed art in the project. Its tiles are 16 px, which is **12 world units** at
+the game's 0.75 render scale, so those levels are authored on a 12-unit grid.
+See [its provenance](godot/features/world/art/magic_cliffs/PROVENANCE.md).
+
+Then check it before playing it:
+
+```
+python scripts/check_levels.py
+```
+
+That reads the jump envelope out of `features/player/tuning.gd` — currently
+**213 px of flat travel and 107 px of rise** — and fails on a gap no jump can
+clear, a spawn or prop hanging in the air, a fall line above the floor, a finish
+that does not meet the ground, or a bottle written in health points instead of
+bars. It warns, without failing, on a gap above 80% of the envelope. A movement
+change invalidates every gap in every level, and this is what says so.
+`python scripts/test_check_levels.py` checks the validator still rejects what it
+claims to. `tests/capture_levels.gd` renders the menu and every level.
+
+Then look at the route you just changed:
+
+```
+python scripts/map_level.py
+```
+
+That writes `evidence/maps/<id>.png`: the whole course as a strip map, on the
+tile grid, with every mandatory gap measured against the jump envelope and the
+real jump arc drawn off each ledge. The validator says whether a gap is
+clearable; the map shows by how much, which is the question you have while
+moving a platform.
+
+### Editing the layout
+
+[tools/level-editor.html](tools/level-editor.html) is a drag-and-drop editor for
+the same files. Serve the repo and open it, so it can load the levels itself:
+
+```
+python -m http.server 8777
+```
+
+then <http://127.0.0.1:8777/tools/level-editor.html>. Opened straight off disk it
+works too, but you have to click **Open level** and pick the file.
+
+Drag platforms to move them, drag the right-hand handle to resize, click to
+place bandits, crates and bottles, `Delete` to remove, `Ctrl+Z` to undo.
+Everything snaps to the 12-unit tile grid, and a prop dropped over a platform
+snaps to its surface so it can never be left hanging.
+
+The point of it is the feedback: the jump arc off every ledge is drawn live, and
+the **Route** panel scores each gap as a share of the envelope the moment you let
+go — so a platform dragged out of reach goes red while you are still holding it,
+rather than at the next validator run. **Download JSON** writes the file back
+with every field it does not understand preserved.
+
+The **Ground shape** panel tunes the rock itself with sliders: how far the cliff
+faces lean in, how tall each break is, how far the edge wanders, how strong the
+cave texture is, the width below which a platform stays square, and a nudge for
+each rock column. The canvas draws the real leaning, broken wedge while you drag,
+the two columns as coloured bands so a nudge is visible, and the collision
+rectangle dashed over the lot so you can see they are not the same thing.
+
+### Drawing an edge by hand
+
+Select a plain ground block and the **Outline** panel offers *Draw this edge by
+hand*. It seeds a set of handles from the shape the block already has, then you
+drag the dots to draw each face however you like. A block with a drawn outline
+ignores lean, break and jitter entirely: the handles ARE the shape.
+
+Outlines are stored under `ground.profiles`, keyed by the block's own left x, and
+read straight back by the renderer. *Back to automatic* deletes one; a level with
+none carries no block at all.
+
+The columns are aligned by their ART, not by their rectangle. Both carry four to
+eleven pixels of transparent margin on their outer side, so lining them up by the
+sprite box left a sliver of flat fill down every face; the extractor records that
+margin as `bleed` and the renderer backs each column out by it. The nudges are on
+top of that, for aligning by eye.
+
+Those values are saved into the level as a `ground` block and read straight back
+by [scenery.gd](godot/features/world/scenery.gd), so the numbers cannot drift
+between the tool and the game. A level left at the defaults carries no block at
+all.
+
+It is a convenience, not an authority. `scripts/check_levels.py` is the gate, and
+the editor's jump constants are a copy of `tuning.gd` — change the movement and
+you must change `TUNE` at the top of the HTML, or it will bless gaps the game
+cannot clear. The ground defaults are a copy too, but only the defaults: anything
+you actually tune lives in the level file.
+
+## Enemies
+
+Three enemies share one script
+([`features/combat/enemy.gd`](godot/features/combat/enemy.gd)) but fight to
+different personalities, keyed by kind in its `PROFILES` table. Place any of them
+with `[x, y, "kind"]` in a level's `enemies` array.
+
+| kind | style | plays as |
+|---|---|---|
+| `bandit` | charger | rushes you: from mid-range he commits a fast dash, so standing still in front of him is punished. An even match otherwise — one bar of health, one bar of damage. Even the charge stays slower than your run, so leaving is always an answer. |
+| `mark` | bruiser | the tank: far more health, a heavier blow, and **super-armour on his own swing** — catch him mid-punch and he eats it and follows through, so you cannot trade jabs and win. Slow, though; the answer is footwork, not standing your ground. |
+| `hunter` | archer | keeps his distance and **looses arrows** across the gap, kiting backwards to hold the range. Draws the bow, fires a straight-flying arrow, and is forced to his fists only if you close on him. Fragile. |
+
+The personality lives entirely in `PROFILES` — health, speed, damage, cooldown,
+knockback, and how it closes (walk, charge, or shoot and kite). A kind with no row
+falls back to a plain walker. Art, reach and hit geometry still come from each
+kind's manifest, so you can retune a bruiser without recutting a sprite. The
+hunter's arrow is its own object ([`features/combat/arrow.gd`](godot/features/combat/arrow.gd)) —
+the LF2 rip has his bow-draw frames but no arrow, so the shaft is drawn, not cut.
+
+`godot --path godot --script tests/capture_enemies.gd` renders each kind in the
+game — including the hunter's arrow in flight — to `evidence/<kind>/`.
 
 ## Proposed defaults ready for review
 

@@ -70,6 +70,8 @@ const HURT_FLASH := 0.35
 
 var motes: Array = []
 var mote_seed: int = 0
+## Texture pixel to world unit, read from the manifest in _ready.
+var art_scale := 1.0
 
 func _ready() -> void:
 	sprite = AnimatedSprite2D.new()
@@ -77,6 +79,10 @@ func _ready() -> void:
 	sprite.centered = true
 	sprite.offset = Moveset.pivot()
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	## The sheets are at the pack's own resolution, so the node carries the
+	## three-quarter cast size. Every scale this rig computes below — squash,
+	## widen, the turn — multiplies on top of it rather than replacing it.
+	art_scale = Moveset.render_scale()
 	add_child(sprite)
 	_play("idle")
 
@@ -266,7 +272,7 @@ func _apply_transform() -> void:
 	var facing := -1.0 if face_scale < 0.0 else 1.0
 	stretch_x *= TURN_NARROW + (1.0 - TURN_NARROW) * turn
 	stretch_y *= 1.0 + (1.0 - turn) * TURN_LIFT
-	sprite.scale = Vector2(stretch_x * facing, stretch_y)
+	sprite.scale = Vector2(stretch_x * facing, stretch_y) * art_scale
 
 func _noise(n: int) -> float:
 	## Deterministic, so headless captures and test runs stay reproducible.

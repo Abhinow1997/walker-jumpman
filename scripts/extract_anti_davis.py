@@ -58,7 +58,7 @@ OUT_DIR = os.path.normpath(os.path.join(
 
 # Davis is drawn 73 px tall in the pack, and the CC0 street enemies are 50 px.
 # Side by side at native size he towers over them, so everything he and the
-# props are made of is resampled by this factor on the way out: 73 -> 55, a head
+# props are made of is sized by this factor on the way out: 73 -> 55, a head
 # taller than an enemy, which is the relationship a protagonist wants.
 #
 # Only the cast scales. The level geometry and the movement tuning are left
@@ -66,10 +66,29 @@ OUT_DIR = os.path.normpath(os.path.join(
 # the level simply reads as roomier around a smaller cast — which is the space
 # walking enemies need anyway.
 #
-# LANCZOS because LF2's art is painted and already anti-aliased (145 colours in
-# one idle frame), so it resamples like a small photograph. Crisp indie pixel
-# art would not survive this and must never be put through it.
+# LANCZOS is the filter if any of this is ever resampled again: LF2's art is
+# painted and already anti-aliased (145 colours in one idle frame), so it takes
+# a resize like a small photograph. Crisp indie pixel art would not survive that
+# and must never be put through it. Nothing is resampled now — see TEXTURE_SCALE.
 SCALE = 0.75
+
+# The sheets are written at the pack's own resolution and never resampled.
+#
+# SCALE used to shrink the texture as well as the geometry, which threw a
+# quarter of the detail away before the screen had its say — and the screen
+# magnifies. The game runs a 960x540 viewport in a 1280x720 window, a 4/3
+# magnification, and 0.75 x 4/3 is exactly 1: a pack pixel lands on one screen
+# pixel. Shrinking the texture too made it 4/3 of a three-quarter-size sheet
+# instead, and TEXTURE_FILTER_NEAREST turned that into visibly blocky edges.
+#
+# So SCALE is a world measurement and TEXTURE_SCALE is a resolution one. Leave
+# this at 1.0 unless the pack itself changes size.
+TEXTURE_SCALE = 1.0
+
+# What a sprite node must be scaled by to turn a texture pixel into a world
+# unit. Published in the manifest so that nothing which draws this art has to
+# know either number above.
+RENDER_SCALE = SCALE / TEXTURE_SCALE
 
 CELL_W = CELL_H = 79
 GUTTER = 1
@@ -262,8 +281,17 @@ def sc_hits(hits):
     return [{"damage": h["damage"], "rect": sc(h["rect"])} for h in hits]
 
 
-def scaled_cell(out_size):
-    return (round(out_size[0] * SCALE), round(out_size[1] * SCALE))
+def tex(value):
+    """Scale a number, point or rect from the pack's pixels to the texture's.
+    Only the cell and the origin come through here — they address the sheet, not
+    the world. Everything the game measures in world units goes through sc()."""
+    if isinstance(value, (list, tuple)):
+        return [tex(v) for v in value]
+    return round(value * TEXTURE_SCALE, 3)
+
+
+def texture_cell(out_size):
+    return (round(out_size[0] * TEXTURE_SCALE), round(out_size[1] * TEXTURE_SCALE))
 
 
 def write_strip(path, tiles, out_size):
@@ -272,8 +300,11 @@ def write_strip(path, tiles, out_size):
         strip.paste(src, (i * out_size[0] + dx, dy), src)
     # Resized as one strip rather than per cell: resampling each frame alone
     # rounds its edges independently and the character jitters between frames.
-    cw, ch = scaled_cell(out_size)
-    strip = strip.resize((cw * len(tiles), ch), Image.LANCZOS)
+    # At TEXTURE_SCALE 1.0 there is nothing to resize and the pack's own pixels
+    # are written straight out.
+    cw, ch = texture_cell(out_size)
+    if (cw, ch) != (out_size[0], out_size[1]):
+        strip = strip.resize((cw * len(tiles), ch), Image.LANCZOS)
     strip.save(path)
 
 
@@ -298,8 +329,12 @@ def main():
     table = frames_table()
     manifest = {
         "_generated_by": "scripts/extract_anti_davis.py",
-        "cell": list(scaled_cell(OUT)), "origin": sc(list(ORIGIN)),
-        "ball_cell": list(scaled_cell(BALL_OUT)), "ball_origin": sc(list(BALL_ORIGIN)),
+        # cell and origin address the texture, in its own pixels; render_scale
+        # takes a texture pixel to a world unit. Every other number below is
+        # already in world units.
+        "render_scale": round(RENDER_SCALE, 6),
+        "cell": list(texture_cell(OUT)), "origin": tex(list(ORIGIN)),
+        "ball_cell": list(texture_cell(BALL_OUT)), "ball_origin": tex(list(BALL_ORIGIN)),
         "animations": {}, "ball": {},
     }
 

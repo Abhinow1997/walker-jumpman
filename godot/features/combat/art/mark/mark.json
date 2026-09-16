@@ -1,0 +1,67 @@
+{
+ "_generated_by": "scripts/extract_mark.py",
+ "_source": "Little Fighter 2 Mark (ripped sheet, unlicensed fan content)",
+ "animations": {
+  "hurt": {
+   "durations": [
+    0.1,
+    0.1,
+    0.14,
+    0.5
+   ],
+   "file": "hurt.png",
+   "frames": 4,
+   "loop": false
+  },
+  "idle": {
+   "durations": [
+    0.14,
+    0.14,
+    0.14,
+    0.14
+   ],
+   "file": "idle.png",
+   "frames": 4,
+   "loop": true
+  },
+  "punch": {
+   "durations": [
+    0.1,
+    0.2,
+    0.12
+   ],
+   "file": "punch.png",
+   "frames": 3,
+   "loop": false
+  },
+  "walk": {
+   "durations": [
+    0.11,
+    0.11,
+    0.11,
+    0.11
+   ],
+   "file": "walk.png",
+   "frames": 4,
+   "loop": true
+  }
+ },
+ "cell": [
+  79,
+  79
+ ],
+ "faces": 1,
+ "hit_damage": 20,
+ "hit_frame": 1,
+ "hit_rect": [
+  12.0,
+  -37.5,
+  10.5,
+  15.0
+ ],
+ "origin": [
+  39.0,
+  79.0
+ ],
+ "render_scale": 0.75
+}

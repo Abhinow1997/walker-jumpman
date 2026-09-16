@@ -39,7 +39,7 @@ func _ready() -> void:
 	var o: Array = Moveset.data().get("ball_origin", [0, 0])
 	sprite.offset = Vector2(float(c[0]) / 2.0 - float(o[0]), float(c[1]) / 2.0 - float(o[1]))
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	sprite.scale = Vector2(direction, 1.0)
+	sprite.scale = Vector2(direction, 1.0) * Moveset.render_scale()
 	add_child(sprite)
 	if sprite.sprite_frames.has_animation("fly"):
 		sprite.play("fly")

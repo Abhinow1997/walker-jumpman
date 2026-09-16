@@ -39,7 +39,12 @@ const WORLD := 1      # physics layer 1: what it lands on
 ##
 ## Lengths and speeds scale. Ratios (BOUNCE, SKID), rates (SPIN_MAX), times
 ## (BREAK_TIME) and game numbers (KNOCK_REFERENCE) must not: they are already
-## independent of size. Set this back to 1.0 if the art ever returns to native.
+## independent of size.
+##
+## This is how big a prop is in the WORLD. How big its sheet is, is a separate
+## number the extractor publishes as render_scale — the sheets are written at
+## the LF2 sheet's own resolution and are not scaled at all. Set this back to
+## 1.0 only if the props themselves get bigger, never because the art did.
 const ART_SCALE := 0.75
 
 ## Heavier than the player's own gravity. A prop that hangs in the air reads as
@@ -112,6 +117,9 @@ var spin_lift: float = -1.0
 
 # --- state ------------------------------------------------------------------
 
+## Texture pixel to world unit, read from the items manifest in _ready. Not the
+## same thing as ART_SCALE: that one is a world size, this one is a resolution.
+var art_render: float = 1.0
 var health: int = 0
 var broken: bool = false
 var flash: float = 0.0
@@ -192,6 +200,7 @@ func _init() -> void:
 
 func _ready() -> void:
 	home = position
+	art_render = Items.render_scale()
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if art_rest != "":
 		rest_frame = Items.frame(art_rest, 0)
@@ -201,6 +210,7 @@ func _ready() -> void:
 		debris_frames.append(Items.frame(art_debris, i))
 	sprite = Sprite2D.new()
 	sprite.centered = true
+	sprite.scale = Vector2(art_render, art_render)
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	add_child(sprite)
 	_on_ready()
@@ -250,7 +260,7 @@ func pick_up() -> void:
 func face_forward() -> void:
 	## Back to its own orientation once it is out of his hands.
 	if is_instance_valid(sprite):
-		sprite.scale.x = 1.0
+		sprite.scale = Vector2(art_render, art_render)
 
 func place_at(where: Vector2, side: float = 1.0) -> void:
 	## Driven every frame by the carrier's current weapon point. `side` mirrors
@@ -258,7 +268,7 @@ func place_at(where: Vector2, side: float = 1.0) -> void:
 	## points away from his own mouth.
 	position = where + Vector2(carry_anchor.x * side, carry_anchor.y)
 	if is_instance_valid(sprite):
-		sprite.scale.x = -1.0 if side < 0.0 else 1.0
+		sprite.scale = Vector2(-art_render if side < 0.0 else art_render, art_render)
 
 func launch(velocity: Vector2) -> void:
 	## Thrown. It re-enters the world on the same physics a punched prop uses,
@@ -467,7 +477,10 @@ func _update_sprite() -> void:
 func _draw() -> void:
 	if debris.is_empty() or debris_frames.is_empty():
 		return
-	var half := Vector2(Items.cell(art_debris)) * 0.5
+	# Drawn here rather than by a node, so the texture-to-world scale that every
+	# prop sprite gets from its own node has to be applied by hand.
+	var size := Vector2(Items.cell(art_debris)) * art_render
+	var half := size * 0.5
 	# Pieces hold full opacity while they are still moving and only fade over the
 	# last third, so the break does not dissolve before it has finished landing.
 	var fade: float = clampf((BREAK_TIME - break_t) / (BREAK_TIME * 0.35), 0.0, 1.0)
@@ -476,4 +489,5 @@ func _draw() -> void:
 		var index: int = int(piece.type) * DEBRIS_SPINS + spin
 		if index < 0 or index >= debris_frames.size():
 			continue
-		draw_texture(debris_frames[index], piece.pos - half, Color(1, 1, 1, fade))
+		draw_texture_rect(debris_frames[index], Rect2(piece.pos - half, size),
+						  false, Color(1, 1, 1, fade))

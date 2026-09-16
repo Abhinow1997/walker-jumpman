@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>walker-jumpman — level editor</title>
+<!--
+  Drag-and-drop layout editor for godot/levels/*.json.
+
+  It is not a second source of truth: it loads a level file, edits the same
+  arrays the game reads, and writes the file back out unchanged apart from what
+  you moved. Every field it does not understand is preserved.
+
+  The jump maths is the same as scripts/check_levels.py and is read from the
+  same numbers in features/player/tuning.gd. If those change, change TUNE here
+  or the editor will quietly bless gaps the game cannot clear.
+
+  Open it straight off disk: tools/level-editor.html
+-->
+<style>
+  :root {
+    --ink:#25354a; --muted:#8892a3; --line:#dfe3ea; --cream:#faf9f6;
+    --green:#287c68; --amber:#d68a2e; --red:#b0342c; --arc:#3884c8;
+    --solid:#25354a; --island:#567868; --bridge:#96743f;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:13px/1.45 "Segoe UI",system-ui,sans-serif; color:var(--ink);
+         background:var(--cream); display:flex; flex-direction:column; height:100vh; }
+  header { padding:8px 12px; border-bottom:1px solid var(--line); background:#fff;
+           display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:14px; margin:0 12px 0 0; font-weight:600; }
+  button, select, label.file { border:1px solid var(--line); background:#fff; color:var(--ink);
+           padding:5px 10px; border-radius:5px; cursor:pointer; font:inherit; }
+  button:hover, label.file:hover { border-color:var(--ink); }
+  button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  input[type=file] { display:none; }
+  main { flex:1; display:flex; min-height:0; }
+  #stage { flex:1; overflow:auto; background:#fff; }
+  canvas { display:block; cursor:crosshair; }
+  aside { width:310px; border-left:1px solid var(--line); background:#fff;
+          overflow:auto; padding:12px; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+       color:var(--muted); margin:16px 0 6px; font-weight:600; }
+  h2:first-child { margin-top:0; }
+  .row { display:flex; gap:6px; align-items:center; margin-bottom:5px; }
+  .row label { width:26px; color:var(--muted); }
+  .row input { width:100%; border:1px solid var(--line); border-radius:4px;
+               padding:4px 6px; font:inherit; color:var(--ink); }
+  .pill { display:inline-block; padding:1px 7px; border-radius:9px; font-size:11px;
+          color:#fff; margin-right:4px; }
+  .g{background:var(--green)} .a{background:var(--amber)} .r{background:var(--red)}
+  .issue { color:var(--red); margin:3px 0; }
+  .ok { color:var(--green); }
+  textarea { width:100%; height:150px; font:11px ui-monospace,Consolas,monospace;
+             border:1px solid var(--line); border-radius:5px; padding:6px; resize:vertical; }
+  small { color:var(--muted); display:block; margin-top:4px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  td { padding:2px 0; }
+  td.n { text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
+</style>
+
+<header>
+  <h1>walker-jumpman · level editor</h1>
+  <label class="file">Open level<input type="file" id="open" accept=".json"></label>
+  <span id="title" style="color:var(--muted)"></span>
+  <span style="flex:1"></span>
+  <button data-tool="select" class="on">Select</button>
+  <button data-tool="ground">+ Ground</button>
+  <button data-tool="island_large">+ Island L</button>
+  <button data-tool="island_small">+ Island S</button>
+  <button data-tool="bridge">+ Bridge</button>
+  <button data-tool="enemies">+ Bandit</button>
+  <button data-tool="crates">+ Crate</button>
+  <button data-tool="bottles">+ Bottle</button>
+  <button id="del">Delete</button>
+  <button id="undo" title="Ctrl+Z">Undo</button>
+  <button id="zoomout">−</button><button id="zoomin">+</button>
+</header>
+
+<main>
+  <div id="stage"><canvas id="c"></canvas></div>
+  <aside>
+    <h2>Level</h2>
+    <div id="levelprops"></div>
+    <h2>Ground shape</h2>
+    <div id="groundprops"></div>
+    <h2>Selected</h2>
+    <div id="props"><small>Click something on the map.</small></div>
+    <h2>Route</h2>
+    <div id="route"></div>
+    <h2>Problems</h2>
+    <div id="issues"></div>
+    <h2>Save</h2>
+    <button id="download">Download JSON</button>
+    <button id="copy">Copy</button>
+    <small>Replaces the file in <code>godot/levels/</code>. Then run
+      <code>python scripts/check_levels.py</code> — this panel mirrors it, but that
+      one is the authority.</small>
+    <textarea id="out" readonly></textarea>
+  </aside>
+</main>
+
+<script>
+"use strict";
+// --- the numbers that must agree with the game -----------------------------
+// features/player/tuning.gd. Change there, change here.
+const TUNE = { speed:320, jump:640, gravity:1920 };
+const TILE = 12;          // one 16px Magic Cliffs tile at the 0.75 render scale
+const TIGHT = 0.80;       // same warn threshold as scripts/check_levels.py
+
+// Defaults must match features/world/scenery.gd. A level that overrides any of
+// them carries a `ground` block, and the game reads the same numbers, so only
+// these fallbacks can drift - not the values you tune.
+const GROUND = [
+  ["lean",           0.55, 0.15, 1.20, 0.05, "how far in per unit of depth"],
+  ["lean_min_width", 336,   120,  900,   12, "narrower than this stays square"],
+  ["break_step",      24,     8,   72,    4, "height of each break"],
+  ["break_jitter",    24,     0,   72,    4, "how far it wanders in and out"],
+  ["texture",        0.5,     0,    1, 0.05, "strength of the cave rock"],
+  ["edge_left_x",      0,   -48,   48,    3, "nudge the left rock column"],
+  ["edge_right_x",     0,   -48,   48,    3, "nudge the right rock column"],
+];
+// Where the rock columns sit, so the preview shows what you are nudging. Width
+// and outer transparent margin come from magic_cliffs.json; scenery.gd backs
+// each column out by its own bleed so the rock, not the rect, meets the edge.
+const EDGE = { left: {w: 36, bleed: 3}, right: {w: 33, bleed: 3} };
+const PROFILE_STEP = 48;   // depth between sculpting handles, matches scenery.gd
+
+/** The drawn outline for a cliff, keyed by its own left x. */
+const profOf = x => ((level.ground && level.ground.profiles) || {})[String(Math.round(x))];
+function profileStep(p){ return Math.max((p && p.step) || PROFILE_STEP, 4); }
+/** How far in the drawn edge is at this depth, or null if nothing is drawn. */
+function sculpted(x, depth, isLeft){
+  const p = profOf(x); if(!p) return null;
+  const side = p[isLeft ? "left" : "right"]; if(!side || !side.length) return null;
+  const i = Math.max(0, Math.min(Math.floor(depth/profileStep(p)), side.length-1));
+  return side[i];
+}
+const g = k => (level.ground && level.ground[k] !== undefined)
+  ? level.ground[k] : GROUND.find(r => r[0] === k)[1];
+
+const PIECE = {           // drawn size in world units, from magic_cliffs.json
+  island_large:[73.5,57], island_small:[36,29.25], island_wide:[48,30],
+  rock_float:[36,24], rock_chunk:[24,24]
+};
+
+const $ = s => document.querySelector(s);
+const cv = $("#c"), ctx = cv.getContext("2d");
+
+let level = null, zoom = 0.55, tool = "select", sel = null, drag = null;
+
+// Undo. A misplaced drag is one click away and there is no other way back,
+// since the editor holds the only copy of what you have changed so far.
+let history = [];
+function remember(){
+  if(!level) return;
+  history.push(JSON.stringify(level));
+  if(history.length > 80) history.shift();
+}
+function undo(){
+  if(!history.length) return;
+  level = JSON.parse(history.pop()); sel = null; drag = null; draw();
+}
+
+// --- jump maths, mirroring check_levels.py ---------------------------------
+function envelope(rise){
+  const u=TUNE.jump, g=TUNE.gravity, v=TUNE.speed;
+  const under = u*u - 2*g*rise;
+  if (under < 0) return 0;
+  return v * (u + Math.sqrt(under)) / g;
+}
+function spans(){ return level.solids.map(s => [+s[0], +s[0]+ +s[2], +s[1]]); }
+function pits(){
+  const merged=[];
+  spans().map(s=>[s[0],s[1]]).sort((a,b)=>a[0]-b[0]).forEach(([a,b])=>{
+    if (merged.length && a <= merged[merged.length-1][1])
+      merged[merged.length-1][1] = Math.max(merged[merged.length-1][1], b);
+    else merged.push([a,b]);
+  });
+  const out=[]; let x=0;
+  for (const [a,b] of merged){ if (a>x) out.push([x,a]); x=Math.max(x,b); }
+  if (x < level.width) out.push([x, level.width]);
+  return out;
+}
+function edgeAt(x, side){
+  let best=null;
+  for (const [x0,x1,top] of spans()){
+    const at = side==="right" ? x1 : x0;
+    if (Math.abs(at-x) <= 0.5 && (best===null || top>best)) best=top;
+  }
+  return best;
+}
+function standingOn(x,y){
+  return spans().some(([x0,x1,top]) => Math.abs(top-y)<=0.5 && x>=x0-0.5 && x<=x1+0.5);
+}
+// --- ground silhouette, mirroring scenery.gd -------------------------------
+function brk(a,b){ return Math.abs((Math.sin(a*0.1237 + b*78.233)*43758.5453) % 1); }
+function faceX(x0, sideX, y, topY, pull){
+  const depth = Math.max(y - topY, 0);
+  const drawn = sculpted(x0, depth, pull >= 0);
+  if (drawn !== null) return sideX + (pull >= 0 ? drawn : -drawn);
+  if (Math.abs(pull) < 1e-6) return sideX;
+  const slide = Math.min(g("lean")*depth, Math.abs(pull));
+  const step  = Math.floor(depth / g("break_step"));
+  const ease  = Math.min(depth / (g("break_step")*2), 1);
+  const wob   = (brk(x0 + sideX, step) - 0.5) * 2 * g("break_jitter");
+  return sideX + Math.sign(pull) * Math.max(0, Math.min(slide + wob*ease, Math.abs(pull)));
+}
+/** The wedge a cliff is drawn as, as world-space points. */
+function silhouette(x,y,w,h){
+  const drawn = !!profOf(x);
+  const leans = drawn || w >= g("lean_min_width");
+  const closes = leans ? (w*0.5)/Math.max(g("lean"),0.01) : 0;
+  const depth = drawn ? h : (leans ? Math.min(h, closes) : h);
+  const pull = drawn ? w*0.5 : (leans ? g("lean")*depth : 0);
+  const bottom = y + depth;
+  if (!leans) return [[x,y],[x+w,y],[x+w,bottom],[x,bottom]];
+  const L=[], R=[]; let yy=y, step=g("break_step");
+  for(;;){
+    const lx=faceX(x,x,yy,y,pull), rx=faceX(x,x+w,yy,y,-pull);
+    const next=Math.min(yy+step, bottom);
+    if (yy>=bottom || rx-lx<=step){ const m=(lx+rx)/2; L.push([m,Math.min(yy,bottom)]); break; }
+    L.push([lx,yy]); L.push([lx,next]); R.push([rx,yy]); R.push([rx,next]);
+    yy=next;
+  }
+  return [[x,y],[x+w,y]].concat(R, L.reverse());
+}
+
+/** Bands showing where each rock column lands, so a nudge is visible. */
+function drawEdges(x,y,w,h){
+  const leans = w >= g("lean_min_width");
+  const closes = leans ? (w*0.5)/Math.max(g("lean"),0.01) : 0;
+  const depth = leans ? Math.min(h, closes) : h;
+  const pull = leans ? g("lean")*depth : 0;
+  for(const side of ["left","right"]){
+    const e=EDGE[side], sx = side==="left" ? x : x+w, sign = side==="left" ? 1 : -1;
+    ctx.fillStyle = side==="left" ? "rgba(150,116,66,.85)" : "rgba(120,145,150,.85)";
+    for(let yy=y; yy<y+depth; yy+=12){
+      const face = faceX(x, sx, yy, y, sign*pull);
+      const px = side==="left" ? face - e.bleed + g("edge_left_x")
+                               : face - e.w + e.bleed + g("edge_right_x");
+      ctx.fillRect(X(px), Y(yy), Math.max(X(e.w),1), Math.max(Y(yy+12)-Y(yy),1));
+    }
+  }
+}
+
+/** Handle positions for the selected cliff, as {side, i, x, y} in world space. */
+function handles(){
+  if(!sel || sel.kind!=="solids" || !level.theme) return [];
+  const e = level.solids[sel.i];
+  if(e.length>4 && e[4]) return [];
+  const x=Number(e[0]), y=Number(e[1]), w=Number(e[2]);
+  const p = profOf(x); if(!p) return [];
+  const step = profileStep(p), out=[];
+  for(const side of ["left","right"])
+    (p[side]||[]).forEach((v,i)=>out.push({
+      side: side, i: i, y: y + i*step,
+      x: side==="left" ? x + v : x + w - v }));
+  return out;
+}
+
+function gapInfo(a,b){
+  const take=edgeAt(a,"right"), land=edgeAt(b,"left");
+  if (take===null || land===null) return null;
+  const rise=take-land, reach=envelope(rise), gap=b-a;
+  return { a,b,gap,rise,take,land,reach, share: reach>0 ? gap/reach : 99 };
+}
+
+// --- view ------------------------------------------------------------------
+// The drawn window covers everything in the level plus headroom, and it is
+// recomputed on every draw. Move a ledge up or down and the canvas grows to
+// match, so the stage always has something to scroll. It used to be sized only
+// when you zoomed, which meant raising a platform pushed the level out of a
+// canvas that never grew, with no scrollbar to follow it.
+const PAD_TOP = 420;     // room to build upward into; one jump rises 107
+const PAD_BOTTOM = 140;
+
+let originY = 0;         // the world y drawn at canvas row 0
+
+function contentBounds(){
+  let top = +level.spawn[1], bot = +level.fall_y;
+  for (const [,,t] of spans()){ top=Math.min(top,t); bot=Math.max(bot,t); }
+  for (const k of ["enemies","crates","bottles","decor"])
+    for (const e of level[k]||[]){ top=Math.min(top,+e[1]); bot=Math.max(bot,+e[1]); }
+  for (const hz of level.hazards||[]){ top=Math.min(top,+hz[1]); bot=Math.max(bot,+hz[1]+ +hz[3]); }
+  top = Math.min(top, +level.finish[1]);
+  bot = Math.max(bot, +level.finish[1] + +level.finish[3]);
+  return { top: top-PAD_TOP, bot: bot+PAD_BOTTOM };
+}
+const X = x => x*zoom, Y = y => (y-originY)*zoom;
+const unX = px => px/zoom, unY = py => py/zoom + originY;
+const snap = v => Math.round(v/TILE)*TILE;
+
+function fit(){
+  const b = contentBounds();
+  const w = Math.ceil(level.width*zoom)+40;
+  const h = Math.ceil((b.bot-b.top)*zoom)+40;
+  if (Math.abs(b.top-originY) > 0.5 || cv.width !== w || cv.height !== h){
+    // Hold the same world point under the viewport when the window grows
+    // upward, or the level appears to jump while you are still dragging.
+    $("#stage").scrollTop += (originY - b.top) * zoom;
+    originY = b.top; cv.width = w; cv.height = h;
+  }
+  return b;
+}
+
+function resize(){ if(level){ fit(); draw(); } }
+
+function draw(){
+  if(!level) return;
+  const b = fit();
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,cv.width,cv.height);
+
+  // grid
+  for(let x=0;x<=level.width;x+=TILE){
+    const major = x % (TILE*10) === 0;
+    ctx.strokeStyle = major ? "#c8d0da" : "#eef1f5";
+    ctx.beginPath(); ctx.moveTo(X(x)+.5,0); ctx.lineTo(X(x)+.5,cv.height); ctx.stroke();
+    if(major && zoom>0.35){
+      ctx.fillStyle="#b6becb"; ctx.font="10px system-ui";
+      ctx.fillText(x+"  ("+(x/TILE)+"t)", X(x)+3, 12);
+    }
+  }
+  // the horizon the art sits on
+  if(level.horizon!==undefined){
+    ctx.strokeStyle="#bfe0e4"; ctx.setLineDash([5,4]);
+    ctx.beginPath(); ctx.moveTo(0,Y(level.horizon)); ctx.lineTo(cv.width,Y(level.horizon));
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // solids
+  level.solids.forEach((s,i)=>{
+    const [x,y,w,h]=s.map(Number), wears = s.length>4 ? String(s[4]) : "";
+    ctx.fillStyle = wears==="bridge" ? "#96743f" : (wears ? "#567868" : "#25354a");
+    if(!wears && level.theme){
+      // Plain ground wears the leaning, broken wedge scenery.gd draws, so the
+      // sliders show the actual shape rather than the collision rectangle.
+      const pts = silhouette(x,y,w,h);
+      ctx.beginPath(); ctx.moveTo(X(pts[0][0]), Y(pts[0][1]));
+      for(const p of pts.slice(1)) ctx.lineTo(X(p[0]), Y(p[1]));
+      ctx.closePath(); ctx.fill();
+      drawEdges(x,y,w,h);
+      if(sel && sel.kind==="solids" && level.solids[sel.i]===s){
+        for(const hd of handles()){
+          const on = drag && drag.handle && drag.handle.side===hd.side && drag.handle.i===hd.i;
+          ctx.fillStyle = on ? "#3884c8" : "#fffdf7";
+          ctx.strokeStyle = "#3884c8"; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(X(hd.x), Y(hd.y), 5, 0, 7);
+          ctx.fill(); ctx.stroke(); ctx.lineWidth = 1;
+        }
+      }
+      ctx.strokeStyle="rgba(136,146,163,.5)"; ctx.setLineDash([3,3]);
+      ctx.strokeRect(X(x),Y(y),X(w),Math.max(X(h),3));   // the collision, dashed
+      ctx.setLineDash([]);
+    } else {
+      ctx.fillRect(X(x), Y(y), X(w), Math.max(X(h), 3));
+    }
+    if(sel && sel.kind==="solids" && sel.i===i){
+      ctx.strokeStyle="#3884c8"; ctx.lineWidth=2;
+      ctx.strokeRect(X(x)-1.5, Y(y)-1.5, X(w)+3, Math.max(X(h),3)+3);
+      ctx.fillStyle="#3884c8";
+      ctx.fillRect(X(x+w)-4, Y(y)-4, 8, 8);           // resize handle
+      ctx.lineWidth=1;
+    }
+    if(zoom>0.3){
+      ctx.fillStyle = wears==="bridge" ? "#96743f" : (wears ? "#567868" : "#7c879a");
+      ctx.font="10px system-ui";
+      ctx.fillText(wears || (w+"×"+h), X(x)+3, Y(y)-4);
+    }
+  });
+
+  // gaps and arcs
+  for(const [a,b] of pits()){
+    const g=gapInfo(a,b); if(!g) continue;
+    const tone = g.share<=TIGHT ? "#287c68" : (g.share<=1 ? "#d68a2e" : "#b0342c");
+    ctx.strokeStyle="#3884c8"; ctx.lineWidth=1.5; ctx.beginPath();
+    let first=true;
+    for(let t=0;t<3;t+=0.012){
+      const ax=a+TUNE.speed*t;
+      const ay=g.take-(TUNE.jump*t-0.5*TUNE.gravity*t*t);
+      if(ay>b.bot||ax>level.width) break;
+      if(first){ctx.moveTo(X(ax),Y(ay));first=false;} else ctx.lineTo(X(ax),Y(ay));
+    }
+    ctx.stroke();
+    ctx.strokeStyle="#3884c8"; ctx.beginPath();
+    ctx.moveTo(X(a+g.reach), Y(g.land)-16); ctx.lineTo(X(a+g.reach), Y(g.land)+8); ctx.stroke();
+    ctx.strokeStyle=tone; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(X(a),Y(g.take)); ctx.lineTo(X(b),Y(g.take)); ctx.stroke();
+    ctx.lineWidth=1;
+    if(zoom>0.3){
+      ctx.fillStyle=tone; ctx.font="10px system-ui";
+      ctx.fillText(Math.round(g.gap)+"px  "+Math.round(g.share*100)+"%", X(a)+3, Y(g.take)+14);
+    }
+  }
+  // props
+  pin(level.spawn, "#287c68", "SPAWN", true);
+  (level.enemies||[]).forEach((e,i)=>pin(e,"#b0342c","bandit",false,"enemies",i));
+  (level.crates||[]).forEach((e,i)=>pin(e,"#96743f","crate",false,"crates",i));
+  (level.bottles||[]).forEach((e,i)=>pin(e,"#568cc4","bottle",false,"bottles",i));
+  (level.hazards||[]).forEach(h=>{
+    ctx.fillStyle="#b0342c";
+    ctx.fillRect(X(+h[0]),Y(+h[1]),X(+h[2]),X(+h[3]));
+  });
+  const f=level.finish.map(Number);
+  ctx.strokeStyle = (sel&&sel.kind==="finish") ? "#3884c8" : "#287c68";
+  ctx.lineWidth = (sel&&sel.kind==="finish") ? 3 : 2;
+  ctx.strokeRect(X(f[0]),Y(f[1]),X(f[2]),X(f[3])); ctx.lineWidth=1;
+  ctx.fillStyle="#287c68"; ctx.font="10px system-ui"; ctx.fillText("FINISH", X(f[0])-6, Y(f[1])-5);
+
+  function pin(p,colour,label,isSpawn,kind,i){
+    const x=+p[0], y=+p[1];
+    const chosen = sel && kind && sel.kind===kind && sel.i===i;
+    ctx.fillStyle=colour;
+    ctx.beginPath(); ctx.arc(X(x),Y(y),chosen?7:5,0,7); ctx.fill();
+    if(chosen){ ctx.strokeStyle="#3884c8"; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(X(x),Y(y),10,0,7); ctx.stroke(); ctx.lineWidth=1; }
+    if(zoom>0.35){ ctx.fillStyle=colour; ctx.font="10px system-ui";
+      ctx.fillText(label, X(x)+8, Y(y)-8); }
+  }
+  panels();
+}
+
+// --- panels ----------------------------------------------------------------
+function panels(){
+  const route=$("#route"), issues=$("#issues");
+  let rows="<table>";
+  for(const [a,b] of pits()){
+    const g=gapInfo(a,b); if(!g) continue;
+    const cls = g.share<=TIGHT?"g":(g.share<=1?"a":"r");
+    rows += `<tr><td><span class="pill ${cls}">${Math.round(g.share*100)}%</span></td>
+      <td class="n">${Math.round(g.gap)}px</td>
+      <td class="n">${g.rise?(g.rise>0?"−":"+")+Math.abs(g.rise):""}</td>
+      <td class="n">at ${Math.round(a)}</td></tr>`;
+  }
+  route.innerHTML = rows+"</table>";
+
+  const bad=[];
+  for(const [a,b] of pits()){
+    const g=gapInfo(a,b);
+    if(!g){ if(a>0&&b<level.width) bad.push(`pit ${a}..${b} has no ledge on one side`); continue; }
+    if(g.reach<=0) bad.push(`pit at ${a} lands ${g.rise} higher than the jump rises`);
+    else if(g.gap>g.reach) bad.push(`pit at ${a} is ${Math.round(g.gap)} of a possible ${Math.round(g.reach)}`);
+    if(a<=+level.spawn[0] && +level.spawn[0]<=b) bad.push("spawn is over a pit");
+  }
+  if(!standingOn(+level.spawn[0],+level.spawn[1])) bad.push("spawn is not on a solid");
+  const f=level.finish.map(Number);
+  if(!standingOn(f[0]+f[2]/2, f[1]+f[3])) bad.push("finish does not meet the floor");
+  for(const k of ["crates","bottles","enemies"])
+    (level[k]||[]).forEach(e=>{ if(!standingOn(+e[0],+e[1]))
+      bad.push(`${k.slice(0,-1)} at ${e[0]} is not on a solid`); });
+  (level.bottles||[]).forEach(e=>{ if(e.length>2 && (e[2]<1||e[2]>5))
+      bad.push(`bottle at ${e[0]} is ${e[2]} bars; the bar has five`); });
+  const lowest=Math.max(...spans().map(s=>s[2]));
+  if(+level.fall_y<=lowest) bad.push("fall_y is above the floor");
+  issues.innerHTML = bad.length ? bad.map(t=>`<div class="issue">${t}</div>`).join("")
+                                : '<div class="ok">Nothing wrong.</div>';
+
+  // selected object. Left alone while one of its fields has focus, or every
+  // keystroke would replace the input you are typing into.
+  const p=$("#props");
+  if(p.contains(document.activeElement)) { $("#out").value=JSON.stringify(level,null,1); return; }
+  if(!sel){ p.innerHTML='<small>Click something on the map.</small>'; }
+  else if(sel.kind==="solids"){
+    sculptPanel();
+    const s=level.solids[sel.i];
+    p.innerHTML = field("x",s[0])+field("y",s[1])+field("w",s[2])+field("h",s[3])+
+      `<div class="row"><label>art</label><input id="f_t" value="${s.length>4?s[4]:''}"
+        placeholder="(cliff)"></div>`;
+    bind(v=>{ ["x","y","w","h"].forEach((k,n)=>s[n]=v[k]);
+      const t=$("#f_t").value.trim();
+      if(t) s[4]=t; else if(s.length>4) s.length=4; });
+  } else if(sel.kind==="finish"){
+    const f=level.finish;
+    p.innerHTML = field("x",f[0])+field("y",f[1])+field("w",f[2])+field("h",f[3])+
+      '<small>The flag. Its bottom edge (y + h) has to sit on a floor.</small>';
+    bind(v=>{ f[0]=v.x; f[1]=v.y; f[2]=v.w; f[3]=v.h; });
+  } else {
+    const e=level[sel.kind][sel.i];
+    p.innerHTML = field("x",e[0])+field("y",e[1])+
+      (sel.kind==="bottles"?field("bars",e[2]===undefined?2:e[2]):"");
+    bind(v=>{ e[0]=v.x; e[1]=v.y; if(sel.kind==="bottles") e[2]=v.bars; });
+  }
+  $("#out").value = JSON.stringify(level,null,1);
+
+  function field(k,v){ return `<div class="row"><label>${k}</label>
+    <input id="f_${k}" type="number" step="${k==='bars'?1:TILE}" value="${v}"></div>`; }
+  function bind(apply){
+    p.querySelectorAll("input").forEach(inp=>{ inp.onfocus=remember; });
+    p.querySelectorAll("input").forEach(inp=>inp.oninput=()=>{
+      const v={}; p.querySelectorAll("input[type=number]").forEach(i=>
+        v[i.id.slice(2)] = Number(i.value));
+      apply(v); draw();
+    });
+  }
+}
+
+// --- hit testing and dragging ----------------------------------------------
+function at(wx,wy){
+  const f=level.finish.map(Number);
+  if(wx>=f[0] && wx<=f[0]+f[2] && wy>=f[1] && wy<=f[1]+f[3]) return {kind:"finish",i:0};
+  for(const k of ["bottles","crates","enemies"])
+    for(let i=(level[k]||[]).length-1;i>=0;i--){
+      const e=level[k][i];
+      if(Math.hypot(+e[0]-wx,+e[1]-wy) < 14/zoom) return {kind:k,i};
+    }
+  for(let i=level.solids.length-1;i>=0;i--){
+    const [x,y,w,h]=level.solids[i].map(Number);
+    if(wx>=x && wx<=x+w && wy>=y-6/zoom && wy<=y+Math.max(h,6/zoom)) return {kind:"solids",i};
+  }
+  return null;
+}
+
+cv.onmousedown = ev => {
+  if(!level) return;
+  const r=cv.getBoundingClientRect();
+  const wx=unX(ev.clientX-r.left), wy=unY(ev.clientY-r.top);
+  if(tool!=="select"){ add(wx,wy); return; }
+  // A sculpting handle beats anything under it: they sit on top of the cliff.
+  for(const hd of handles()){
+    if(Math.hypot(hd.x-wx, hd.y-wy) < 12/zoom){
+      remember(); drag={handle:hd, mode:"handle"}; draw(); return;
+    }
+  }
+  const hit=at(wx,wy);
+  sel=hit;
+  if(hit){
+    remember();
+    if(hit.kind==="finish"){
+      drag={hit, mode:"finish", dx:wx-+level.finish[0], dy:0};
+    } else if(hit.kind==="solids"){
+      const s=level.solids[hit.i].map(Number);
+      const onHandle = Math.abs(wx-(s[0]+s[2])) < 10/zoom;
+      drag={hit, mode:onHandle?"resize":"move", dx:wx-s[0], dy:wy-s[1]};
+    } else {
+      const e=level[hit.kind][hit.i];
+      drag={hit, mode:"point", dx:wx-+e[0], dy:wy-+e[1]};
+    }
+  }
+  draw();
+};
+cv.onmousemove = ev => {
+  if(!drag) return;
+  const r=cv.getBoundingClientRect();
+  const wx=unX(ev.clientX-r.left), wy=unY(ev.clientY-r.top);
+  if(drag.mode==="handle"){
+    const e=level.solids[sel.i].map(Number);
+    const p=profOf(e[0]);
+    const inward = drag.handle.side==="left" ? wx-e[0] : e[0]+e[2]-wx;
+    // Never past the middle, never back outside the rectangle it belongs to.
+    p[drag.handle.side][drag.handle.i] =
+      Math.round(Math.max(0, Math.min(inward, e[2]/2 - 12)) / 3) * 3;
+    draw(); return;
+  }
+  if(drag.mode==="move"){
+    const s=level.solids[drag.hit.i];
+    s[0]=snap(wx-drag.dx); s[1]=snap(wy-drag.dy);
+  } else if(drag.mode==="resize"){
+    const s=level.solids[drag.hit.i];
+    s[2]=Math.max(TILE, snap(wx-+s[0]));
+  } else if(drag.mode==="finish"){
+    const f=level.finish;
+    f[0]=snap(wx-drag.dx);
+    // The flag has to meet a floor, so it rides whatever it is over rather than
+    // being placed at a height you then have to correct.
+    const under=spans().filter(([x0,x1])=> +f[0]+ +f[2]/2>=x0 && +f[0]+ +f[2]/2<=x1)
+                       .map(v=>v[2]).sort((a,b)=>Math.abs(a-wy)-Math.abs(b-wy));
+    if(under.length) f[1]=under[0]-+f[3];
+  } else {
+    const e=level[drag.hit.kind][drag.hit.i];
+    e[0]=snap(wx-drag.dx);
+    // Props snap to whatever they are over, so they are never left hanging.
+    const under=spans().filter(([x0,x1])=> +e[0]>=x0 && +e[0]<=x1)
+                       .map(s=>s[2]).sort((a,b)=>Math.abs(a-wy)-Math.abs(b-wy));
+    e[1]= under.length ? under[0] : snap(wy-drag.dy);
+  }
+  draw();
+};
+addEventListener("mouseup", ()=>{ drag=null; });
+
+function add(wx,wy){
+  remember();
+  const x=snap(wx), y=snap(wy);
+  if(["enemies","crates","bottles"].includes(tool)){
+    const under=spans().filter(([x0,x1])=> x>=x0 && x<=x1)
+                       .map(s=>s[2]).sort((a,b)=>Math.abs(a-y)-Math.abs(b-y));
+    const gy = under.length?under[0]:y;
+    level[tool] = level[tool]||[];
+    level[tool].push(tool==="bottles"?[x,gy,2]:[x,gy]);
+    sel={kind:tool,i:level[tool].length-1};
+  } else if(tool==="ground"){
+    level.solids.push([x,y,TILE*20,332]); sel={kind:"solids",i:level.solids.length-1};
+  } else if(tool==="bridge"){
+    level.solids.push([x,y,TILE*30,12,"bridge"]); sel={kind:"solids",i:level.solids.length-1};
+  } else {
+    const [w]=PIECE[tool]||[72,24];
+    level.solids.push([x,y,Math.round(w/TILE)*TILE,24,tool]);
+    sel={kind:"solids",i:level.solids.length-1};
+  }
+  setTool("select"); draw();
+}
+
+addEventListener("keydown", ev=>{
+  if(ev.key==="Delete"||ev.key==="Backspace"){
+    if(sel && sel.kind!=="finish" && !(sel.kind==="solids" && level.solids.length<=1)){
+      remember();
+      level[sel.kind].splice(sel.i,1); sel=null; draw(); ev.preventDefault();
+    }
+  }
+  if((ev.ctrlKey||ev.metaKey) && ev.key.toLowerCase()==="z"){ undo(); ev.preventDefault(); }
+});
+
+// --- chrome ----------------------------------------------------------------
+function setTool(t){
+  tool=t;
+  document.querySelectorAll("[data-tool]").forEach(b=>
+    b.classList.toggle("on", b.dataset.tool===t));
+}
+document.querySelectorAll("[data-tool]").forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
+$("#del").onclick = ()=>{ if(sel && sel.kind!=="finish"){ remember(); level[sel.kind].splice(sel.i,1); sel=null; draw(); } };
+$("#undo").onclick = undo;
+$("#zoomin").onclick = ()=>{ zoom=Math.min(2,zoom*1.25); resize(); };
+$("#zoomout").onclick = ()=>{ zoom=Math.max(0.15,zoom/1.25); resize(); };
+$("#copy").onclick = ()=> navigator.clipboard.writeText($("#out").value);
+$("#download").onclick = ()=>{
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([$("#out").value+"\n"],{type:"application/json"}));
+  a.download=(level.id||"level").replace(/-/g,"_")+".json"; a.click();
+};
+$("#open").onchange = ev => {
+  const file=ev.target.files[0]; if(!file) return;
+  file.text().then(t=>{ load(JSON.parse(t)); });
+};
+function levelPanel(){
+  // Built once per load rather than on every draw, so typing a width does not
+  // rebuild the box you are typing it into.
+  const lp=$("#levelprops");
+  const row=(id,label,v)=>`<div class="row"><label style="width:56px">${label}</label>
+      <input id="${id}" type="number" step="${TILE}" value="${v}"></div>`;
+  lp.innerHTML = row("lw","width",level.width) + row("lf","fall_y",level.fall_y) +
+    (level.horizon===undefined ? "" : row("lh","horizon",level.horizon)) +
+    row("lsx","spawn x",level.spawn[0]) + row("lsy","spawn y",level.spawn[1]) +
+    '<small>Widening the level adds empty space at the end. Build out to it and '+
+    'drag the flag there, or the new ground is a pit you never cross.</small>';
+  const on=(id,set)=>{ const e=$("#"+id); if(!e) return;
+    e.onfocus=remember;
+    e.oninput=()=>{ set(Number(e.value)); resize(); }; };
+  on("lw", v=>level.width=v);
+  on("lf", v=>level.fall_y=v);
+  on("lh", v=>level.horizon=v);
+  on("lsx", v=>level.spawn[0]=v);
+  on("lsy", v=>level.spawn[1]=v);
+}
+
+function groundPanel(){
+  const gp=$("#groundprops");
+  gp.innerHTML = GROUND.map(([k,,lo,hi,stp,why]) =>
+    `<div class="row"><label style="width:92px" title="${why}">${k}</label>
+       <input id="g_${k}" type="range" min="${lo}" max="${hi}" step="${stp}"
+              value="${g(k)}" style="flex:1">
+       <span id="v_${k}" style="width:42px;text-align:right;color:var(--muted)">${g(k)}</span>
+     </div>`).join("") +
+    '<small>Shape of the rock. Saved into the level as a <code>ground</code> block; '+
+    'the game reads the same numbers. Leave them at the defaults and no block is '+
+    'written. The dashed box is the collision, which never changes.</small>' +
+    '<button id="g_reset" style="margin-top:6px">Reset to defaults</button>'
+    + '<h2>Outline</h2><div id="sculpt"></div>';
+  for(const [k,def] of GROUND){
+    const el=$("#g_"+k);
+    el.onfocus=remember;
+    el.oninput=()=>{
+      level.ground = level.ground || {};
+      level.ground[k] = Number(el.value);
+      $("#v_"+k).textContent = el.value;
+      // Nothing written for a level that is simply using the defaults.
+      if(GROUND.every(([n,d]) => level.ground[n]===undefined || level.ground[n]===d))
+        delete level.ground;
+      draw();
+    };
+  }
+  $("#g_reset").onclick=()=>{ remember(); delete level.ground; groundPanel(); draw(); };
+  sculptPanel();
+}
+
+/** Sculpting controls for whichever cliff is selected. */
+function sculptPanel(){
+  const box=$("#sculpt"); if(!box) return;
+  const e = (sel && sel.kind==="solids") ? level.solids[sel.i] : null;
+  const cliff = e && !(e.length>4 && e[4]) && level.theme;
+  if(!cliff){ box.innerHTML='<small>Select a plain ground block to draw its edges.</small>'; return; }
+  const has = !!profOf(Number(e[0]));
+  box.innerHTML = has
+    ? '<button id="s_clear">Back to automatic</button>'
+      + '<small>Drag the dots to draw each face. The shape is the handles now: '
+      + 'lean, break and jitter no longer apply to this block.</small>'
+    : '<button id="s_make">Draw this edge by hand</button>'
+      + '<small>Starts from the shape it already has, then you drag the dots.</small>';
+  const mk=$("#s_make"), cl=$("#s_clear");
+  if(mk) mk.onclick=()=>{ remember(); makeProfile(e); sculptPanel(); draw(); };
+  if(cl) cl.onclick=()=>{
+    remember();
+    delete level.ground.profiles[String(Math.round(Number(e[0])))];
+    if(!Object.keys(level.ground.profiles).length) delete level.ground.profiles;
+    if(level.ground && !Object.keys(level.ground).length) delete level.ground;
+    sculptPanel(); draw();
+  };
+}
+
+/** Seeds a profile from the procedural shape, so sculpting starts where it is. */
+function makeProfile(e){
+  const x=Number(e[0]), y=Number(e[1]), w=Number(e[2]), h=Number(e[3]);
+  level.ground = level.ground || {};
+  level.ground.profiles = level.ground.profiles || {};
+  const leans = w >= g("lean_min_width");
+  const closes = leans ? (w*0.5)/Math.max(g("lean"),0.01) : 0;
+  const depth = leans ? Math.min(h, closes) : h;
+  const pull = leans ? g("lean")*depth : 0;
+  const rows = Math.max(2, Math.min(Math.ceil(depth/PROFILE_STEP), 14));
+  const left=[], right=[];
+  for(let i=0;i<rows;i++){
+    const yy = y + i*PROFILE_STEP;
+    left.push(Math.round((faceX(x,x,yy,y,pull) - x)/3)*3);
+    right.push(Math.round((x + w - faceX(x,x+w,yy,y,-pull))/3)*3);
+  }
+  level.ground.profiles[String(Math.round(x))] = {step: PROFILE_STEP, left: left, right: right};
+}
+
+function load(data){
+  level=data; sel=null; history=[];
+  originY = contentBounds().top;   // so the first fit() does not scroll
+  levelPanel();
+  groundPanel();
+  $("#title").textContent = (level.title||"") + " · " + level.width + " wide";
+  resize();
+}
+// Served rather than opened off disk? Then it can fetch the level itself.
+fetch("../godot/levels/fractured_isles.json").then(r=>r.json()).then(load).catch(()=>{
+  $("#props").innerHTML = '<small>Click <b>Open level</b> and pick a file from '+
+    '<code>godot/levels/</code>.</small>';
+});
+</script>

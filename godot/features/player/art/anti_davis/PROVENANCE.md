@@ -26,16 +26,33 @@ written licence, or commissioned.
 ## Cell geometry
 
 Frames are rebaked from LF2's 79x79 cells into a uniform cell with the
-character's origin (feet, mid-body) at a fixed point inside it, then the whole
-strip is resampled by `SCALE` (currently **0.75**, giving a **72x72** cell with
-the origin at **(33, 61.5)**).
+character's origin (feet, mid-body) at a fixed point inside it. The sheets are
+written at the pack's own resolution — a **96x96** cell with the origin at
+**(44, 82)** — and are **not resampled**.
 
-The rescale exists because Davis is drawn 73 px tall in the pack and the CC0
-street enemies are 50 px; at native size he towered over them. At 0.75 he stands
-a head taller, which is the relationship a protagonist wants. LANCZOS is used
-because LF2's art is painted and already anti-aliased — 145 colours in one idle
-frame — so it resamples like a small photograph. **Crisp indie pixel art must
-never be put through this.**
+Two separate numbers do the work the one `SCALE` used to:
+
+| | value | what it means |
+|---|---|---|
+| `SCALE` | 0.75 | how big he is in the **world**: hit boxes, weapon points, reach |
+| `TEXTURE_SCALE` | 1.0 | how big his **sheet** is; 1.0 is the pack's own pixels |
+| `render_scale` | 0.75 | published in the manifest; texture pixel to world unit |
+
+`SCALE` exists because Davis is drawn 73 px tall in the pack and the CC0 street
+enemies are 50 px; at native size he towered over them. At 0.75 he stands a head
+taller, which is the relationship a protagonist wants.
+
+`TEXTURE_SCALE` is 1.0 because the screen magnifies. The game runs a 960x540
+viewport in a 1280x720 window — a 4/3 canvas magnification — and 0.75 x 4/3 is
+exactly 1, so a pack pixel lands on one screen pixel. Shrinking the sheet as
+well threw a quarter of the detail away and then had `TEXTURE_FILTER_NEAREST`
+blow the remainder back up, which is where the blocky edges came from. **Change
+the viewport and `SCALE` has to change with it, or that stops being exact.**
+
+LANCZOS is still the filter if anything here is ever resampled again, because
+LF2's art is painted and already anti-aliased — 145 colours in one idle frame —
+so it takes a resize like a small photograph. **Crisp indie pixel art must never
+be put through that.**
 
 Only the cast and the props scale. The level geometry and movement tuning are
 deliberately untouched, so the jump arc and every gap stay exactly as tuned and

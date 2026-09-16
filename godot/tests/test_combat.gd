@@ -51,6 +51,41 @@ func arm_enemies() -> void:
 		bandit.target = game.player
 	await steps(1)
 
+## Drive one enemy through the whole loop on a clear patch: it closes and lands a
+## punch, it takes one back, and it goes down through its own hurt run. Every
+## other enemy is parked first, so on a level with more than one neither steals
+## the other's blow. `spot` must be clear ground.
+func fight_one(foe: Area2D, label: String, spot: Vector2) -> void:
+	for other in game.enemies:
+		other.target = null
+	foe.position = spot
+	foe.home = spot
+	foe.target = game.player
+	game.player.position = Vector2(spot.x - 40.0, spot.y)
+	game.player.health = game.player.MAX_HEALTH
+	await steps(3)
+	var before: int = game.player.health
+	var ticks := 0
+	while game.player.health == before and ticks < 300:
+		await steps(1)
+		ticks += 1
+	check(label + "-lands-a-blow",
+		game.player.health < before and ticks < 300,
+		{"health": game.player.health, "ticks": ticks})
+	var full: int = foe.health
+	check("a-jab-hurts-" + label,
+		foe.take_hit(20, foe.position - Vector2(40.0, 0.0)) and foe.health == full - 20,
+		{"health": foe.health})
+	var kill := 0
+	while foe.alive() and kill < 40:
+		foe.take_hit(20, foe.position - Vector2(40.0, 0.0))
+		await steps(2)
+		kill += 1
+	await steps(4)
+	check("a-downed-" + label + "-stays-down",
+		not foe.alive() and foe.sprite.animation == "hurt",
+		{"alive": foe.alive(), "playing": foe.sprite.animation})
+
 ## Put him on the ground a given distance from a crate, facing it.
 ## How far the jab reaches from the player's origin, read from the moveset.
 func jab_reach() -> float:
@@ -763,8 +798,12 @@ func run() -> void:
 	await arm_enemies()
 	check("bandit-has-the-players-energy", bandit.MAX_HEALTH == game.player.MAX_HEALTH,
 		{"bandit": bandit.MAX_HEALTH, "player": game.player.MAX_HEALTH})
-	check("bandit-is-outrunnable", bandit.WALK_SPEED < game.player.tuning.speed,
-		{"bandit": bandit.WALK_SPEED, "player": game.player.tuning.speed})
+	# Even his charge — the fastest he ever moves — stays under the player's run,
+	# so leaving is always an answer to a fight he does not want.
+	check("bandit-is-outrunnable",
+		float(bandit.prof.get("charge_speed", bandit.speed)) < game.player.tuning.speed,
+		{"charge": bandit.prof.get("charge_speed", bandit.speed),
+		 "player": game.player.tuning.speed})
 	check("bandit-is-on-the-hittable-layer", bandit.get_collision_layer() & 64 != 0,
 		{"layer": bandit.get_collision_layer()})
 
@@ -1104,6 +1143,138 @@ func run() -> void:
 		and bandit.sprite.frame == bandit.sprite.sprite_frames.get_frame_count("hurt") - 1,
 		{"playing": bandit.sprite.animation, "frame": bandit.sprite.frame,
 		 "player_hurt_frames": hurt_frames})
+
+	# --- the bandit is a charger ---------------------------------------------
+	# He no longer ambles up like the walker he was: from mid-range he commits a
+	# dash, moving far faster than his walk, which is what punishes standing still.
+	await fresh()
+	var chg: Area2D = game.enemies[0]
+	check("bandit-is-the-charger", chg.style == "charger", {"style": chg.style})
+	for other in game.enemies:
+		other.target = null
+	chg.position = Vector2(820, 640); chg.home = chg.position
+	chg.target = game.player
+	game.player.position = Vector2(740, 640)
+	game.player.health = game.player.MAX_HEALTH
+	await steps(2)
+	var charged := false
+	for i in range(120):
+		await steps(1)
+		if chg.state == chg.State.CHARGE or absf(chg.velocity.x) > chg.speed + 8.0:
+			charged = true
+			break
+	check("a-bandit-charges-from-mid-range", charged,
+		{"state": chg.state, "vx": chg.velocity.x, "walk": chg.speed})
+
+	# --- two more kinds: Mark and Hunter, spawned from level entries ----------
+	# proving_ground carries [1000, 640, "mark"] and [430, 640, "hunter"]. This
+	# exercises the whole path the roster adds — the session reads the kind off
+	# each entry, the enemy loads its own art folder, and everything the bandit
+	# does works on them unchanged.
+	await fresh()
+	game.load_level("proving_ground")
+	game.start_session()
+	game.player.test_control = true
+	await steps(3)
+	var mk: Area2D = null
+	var hn: Area2D = null
+	for foe in game.enemies:
+		if foe.kind == "mark":
+			mk = foe
+		elif foe.kind == "hunter":
+			hn = foe
+	check("proving-ground-spawns-mark-and-hunter",
+		mk != null and hn != null and game.enemies.size() == 2,
+		{"count": game.enemies.size(),
+		 "first_kind": game.enemies[0].kind if game.enemies.size() > 0 else "<none>"})
+	check("mark-loads-his-own-manifest",
+		mk != null and mk.data().get("animations", {}).size() == 4
+		and str(mk.data().get("_source", "")).contains("Mark"),
+		{"source": mk.data().get("_source", "") if mk != null else "<none>"})
+	check("hunter-loads-his-own-manifest",
+		hn != null and hn.data().get("animations", {}).size() >= 4
+		and hn.data().get("animations", {}).has("shoot")
+		and str(hn.data().get("_source", "")).contains("Hunter"),
+		{"anims": hn.data().get("animations", {}).keys() if hn != null else [],
+		 "source": hn.data().get("_source", "") if hn != null else "<none>"})
+	# Each carries its own geometry: Mark's jab reaches further than Hunter's.
+	check("the-two-kinds-have-their-own-reach",
+		mk != null and hn != null and mk.reach() > 0.0 and hn.reach() > 0.0
+		and mk.reach() != hn.reach(),
+		{"mark": mk.reach() if mk != null else -1.0,
+		 "hunter": hn.reach() if hn != null else -1.0})
+
+	# --- personality: they fight to type ------------------------------------
+	# Mark is the tank — more health than the standard bar and a heavier blow than
+	# the archer's melee; Hunter is the glass one who fights at range.
+	check("mark-is-the-bruiser",
+		mk != null and hn != null and mk.style == "bruiser"
+		and mk.max_health > mk.MAX_HEALTH and mk.attack_damage() > hn.attack_damage(),
+		{"style": mk.style if mk != null else "<none>",
+		 "health": mk.max_health if mk != null else -1,
+		 "damage": mk.attack_damage() if mk != null else -1,
+		 "hunter_damage": hn.attack_damage() if hn != null else -1})
+	check("hunter-is-the-archer",
+		hn != null and hn.style == "archer" and hn.max_health < hn.MAX_HEALTH,
+		{"style": hn.style if hn != null else "<none>",
+		 "health": hn.max_health if hn != null else -1})
+
+	# Mark swings through a blow: caught mid-punch, he keeps the swing and only
+	# takes the damage — you cannot trade jabs with him and win the exchange.
+	if mk != null:
+		for other in game.enemies:
+			other.target = null
+		mk.position = Vector2(1050, 640); mk.home = mk.position
+		mk.target = game.player
+		game.player.position = Vector2(1050 - mk.attack_range() * 0.7, 640)
+		game.player.health = game.player.MAX_HEALTH
+		var to_punch := 0
+		while mk.state != mk.State.PUNCH and to_punch < 120:
+			await steps(1)
+			to_punch += 1
+		check("mark-throws-his-punch", mk.state == mk.State.PUNCH,
+			{"state": mk.state, "ticks": to_punch})
+		var armor_hp: int = mk.health
+		var _sa: bool = mk.take_hit(20, mk.global_position - Vector2(40.0, 0.0))
+		check("mark-swings-through-a-blow",
+			mk.state == mk.State.PUNCH and mk.health == armor_hp - 20,
+			{"state": mk.state, "health": mk.health, "was": armor_hp})
+		mk.reset()
+
+	# Hunter fights at range: from across the gap he draws the bow and looses an
+	# arrow — a real travelling object — that crosses to the player and hurts.
+	if hn != null:
+		for other in game.enemies:
+			other.target = null
+		# Both east of the spikes (800..848): hunter far, the player 180 back — out
+		# of melee, inside fire range, on clear floor.
+		hn.position = Vector2(1120, 640); hn.home = hn.position
+		hn.target = game.player
+		game.player.position = Vector2(940, 640)
+		game.player.health = game.player.MAX_HEALTH
+		var before_arrow: int = game.player.health
+		var saw_arrow := false
+		var arrow_hit := false
+		var at := 0
+		while not arrow_hit and at < 400:
+			await steps(1)
+			at += 1
+			if game.arrows.size() > 0:
+				saw_arrow = true
+			if game.player.health < before_arrow:
+				arrow_hit = true
+		check("hunter-looses-an-arrow", saw_arrow,
+			{"saw_arrow": saw_arrow, "state": hn.state})
+		check("the-arrow-crosses-and-connects", arrow_hit,
+			{"health": game.player.health, "was": before_arrow, "ticks": at})
+		hn.reset()
+
+	# Each closes, lands a punch, and goes down through its own hurt run — on its
+	# own clear patch, with the other parked, so neither steals the other's blow.
+	if mk != null:
+		await fight_one(mk, "mark", Vector2(1120, 640))
+	if hn != null:
+		await fight_one(hn, "hunter", Vector2(200, 640))
 
 	var report := {
 		"scope": "Anti-Davis moveset: hit geometry, move selection, projectile lifetime, health pickup",

@@ -6,11 +6,43 @@ const Crate = preload("res://features/combat/crate.gd")
 const Blast = preload("res://features/combat/blast.gd")
 const Bottle = preload("res://features/combat/bottle.gd")
 const Enemy = preload("res://features/combat/enemy.gd")
+const Arrow = preload("res://features/combat/arrow.gd")
+const Scenery = preload("res://features/world/scenery.gd")
+const LEVEL_DIR := "res://levels/"
+## What boots, and what every test gets unless it asks for something else.
+const DEFAULT_LEVEL := "first_steps"
+
+## Half the 960x540 viewport. The camera centres on its own position, so this
+## is both where it starts and how close to either end of the level it may get
+## before the edge would come into shot.
+const VIEW_HALF := Vector2(480, 270)
+## The HUD is laid out in a 640x360 design space and every coordinate in hud.gd
+## is written in it. The viewport is 960x540, so the layer is scaled back up to
+## keep the HUD the size it has always been on screen rather than reflowing it.
+const HUD_SCALE := 960.0 / 640.0
+
+## Appended to, never reordered: the tests record `state` as a number.
 enum State { MENU, PLAYING, PAUSED, DYING, COMPLETE }
 var state: State = State.MENU
+## Which level this session is running. Assign before add_child() to boot into
+## one directly; load_level() is the way to change it once it is running.
+var level_id: String = DEFAULT_LEVEL
+## Which row the level-select menu is sitting on.
+var menu_index: int = 0
+static var _catalogue: Array = []
+static var _levels: Dictionary = {}
 var player: CharacterBody2D
 var camera: Camera2D
 var hud: Control
+## Draws the world for a level with a `theme`. Null for the greybox levels,
+## which session.gd draws procedurally in _draw() instead.
+var scenery: Node2D
+## How far the camera may travel vertically, worked out from the level in
+## _build_world. The camera used to be pinned at y 500 for every level, which was
+## invisible while every level was flat and hid the lower half of the first one
+## that was not: the player simply walked off the bottom of the screen.
+var view_top: float = 500.0
+var view_bottom: float = 500.0
 var level: Dictionary
 var hazard_areas: Array[Area2D] = []
 var crates: Array[Area2D] = []
@@ -21,6 +53,9 @@ var enemies: Array[Area2D] = []
 ## away mid-drink, which is exactly the case that has to be caught.
 var drinking_bottle: Area2D = null
 var blasts: Array[Node2D] = []
+## Arrows in flight, the archer's. Like blasts, they outlive whoever fired them
+## and are cleared on reset and level change.
+var arrows: Array[Node2D] = []
 var goal: Area2D
 var deaths: int = 0
 var elapsed: float = 0.0
@@ -32,8 +67,55 @@ var contact_settle_ticks: int = 0
 
 func _ready() -> void:
 	process_physics_priority = 10
-	level = JSON.parse_string(FileAccess.get_file_as_string("res://levels/first_steps.json"))
-	_setup_input()
+	setup_input()
+	_build_world()
+
+## Which level is loaded. Set it before add_child() to boot straight into one;
+## the default is the tutorial, which is what every test expects.
+func load_level(id: String) -> void:
+	## Tears the world down and builds the next one in place. The session node
+	## itself survives, so the camera, the HUD and every signal the level does
+	## not own are re-made rather than re-wired from outside.
+	level_id = id
+	menu_index = maxi(catalogue().find(id), 0)
+	_clear_world()
+	_build_world()
+	deaths = 0
+	elapsed = 0.0
+	last_finish_time = 0.0
+	state = State.MENU
+
+func _clear_world() -> void:
+	## remove_child before queue_free: freeing is deferred, and a solid still in
+	## the tree for one more frame would collide with the level replacing it.
+	for child in get_children():
+		remove_child(child)
+		child.queue_free()
+	hazard_areas.clear()
+	crates.clear()
+	bottles.clear()
+	enemies.clear()
+	blasts.clear()
+	arrows.clear()
+	goal = null
+	scenery = null
+	player = null
+	camera = null
+	hud = null
+	drinking_bottle = null
+
+func _build_world() -> void:
+	level = level_data(level_id).duplicate(true)
+	if level.is_empty():
+		return
+	# First child, so it is behind everything, and before the solids so that the
+	# terrain it generates from them is already on screen when they exist.
+	var theme := str(level.get("theme", ""))
+	if theme != "":
+		scenery = Scenery.new()
+		scenery.game = self
+		scenery.theme = theme
+		add_child(scenery)
 	for entry in level.solids:
 		_add_solid(Rect2(entry[0], entry[1], entry[2], entry[3]))
 	_add_solid(Rect2(-64, 0, 64, 860))
@@ -68,12 +150,17 @@ func _ready() -> void:
 		add_child(bottle)
 	# Spawned before the player so he draws in front of them, and so `target`
 	# can be handed over the moment he exists.
-	# [x, y] per punk. More is another entry, not more code.
+	# [x, y] per enemy, or [x, y, "kind"] to pick which one — "bandit" (the
+	# default) or "mark". More is another entry, not more code. `kind` is set
+	# before add_child so it is in place when the enemy reads its manifest.
 	for entry in level.get("enemies", []):
 		var foe := Enemy.new()
 		foe.position = Vector2(entry[0], entry[1])
+		if entry.size() > 2 and str(entry[2]) != "":
+			foe.kind = str(entry[2])
 		foe.fall_limit = float(level.fall_y)
 		foe.struck_player.connect(_on_player_struck)
+		foe.fired_arrow.connect(_on_arrow_fired)
 		enemies.append(foe)
 		add_child(foe)
 	player = Player.new()
@@ -82,19 +169,128 @@ func _ready() -> void:
 	player.threw.connect(_on_threw)
 	add_child(player)
 	player.reset_at(Vector2(level.spawn[0], level.spawn[1]))
+	_measure_view()
 	camera = Camera2D.new()
-	camera.position = Vector2(320, 500)
+	camera.position = Vector2(VIEW_HALF.x, camera_home_y())
 	add_child(camera)
 	var layer := CanvasLayer.new()
+	layer.scale = Vector2(HUD_SCALE, HUD_SCALE)
 	add_child(layer)
 	hud = Hud.new()
 	hud.game = self
 	layer.add_child(hud)
-	get_window().focus_exited.connect(_on_focus_lost)
+	# Guarded: _build_world runs again on every level change, and connecting a
+	# second time would pause the game twice for one lost focus.
+	if not get_window().focus_exited.is_connected(_on_focus_lost):
+		get_window().focus_exited.connect(_on_focus_lost)
 	queue_redraw()
 
-func _setup_input() -> void:
-	var actions := {"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT], "jump": [KEY_SPACE], "drink": [KEY_E], "attack": [KEY_J, KEY_X], "blast": [KEY_K, KEY_C], "pause": [KEY_ESCAPE, KEY_P], "restart": [KEY_R], "confirm": [KEY_ENTER], "menu": [KEY_M]}
+## Finishing a level loads the next one in the index. Empty on the last level,
+## where there is nothing to advance to.
+func next_level_id() -> String:
+	var order := catalogue()
+	var i := order.find(level_id)
+	if i < 0 or i + 1 >= order.size():
+		return ""
+	return order[i + 1]
+
+func advance_level() -> bool:
+	var next := next_level_id()
+	if next == "":
+		return false
+	load_level(next)
+	start_session()
+	return true
+
+## The course order, from levels/index.json. Static because it is the same for
+## every session and the menu reads it before a session has been started.
+static func catalogue() -> Array:
+	if _catalogue.is_empty():
+		var text := FileAccess.get_file_as_string(LEVEL_DIR + "index.json")
+		if text.is_empty():
+			push_error("levels: %sindex.json is missing" % LEVEL_DIR)
+			_catalogue = [DEFAULT_LEVEL]
+		else:
+			var parsed = JSON.parse_string(text)
+			_catalogue = parsed.get("order", []) if parsed else []
+		# An index that parses but lists nothing would leave the menu indexing
+		# an empty array, so it falls back rather than crashing on the title screen.
+		if _catalogue.is_empty():
+			push_error("levels: index.json lists no levels")
+			_catalogue = [DEFAULT_LEVEL]
+	return _catalogue
+
+## One level file, parsed once. The menu needs every level's title before any of
+## them is loaded, so this is keyed by id rather than held by the session.
+static func level_data(id: String) -> Dictionary:
+	if not _levels.has(id):
+		var text := FileAccess.get_file_as_string(LEVEL_DIR + id + ".json")
+		if text.is_empty():
+			push_error("levels: %s%s.json is missing" % [LEVEL_DIR, id])
+			_levels[id] = {}
+		else:
+			var parsed = JSON.parse_string(text)
+			_levels[id] = parsed if parsed else {}
+	return _levels[id]
+
+static func level_title(id: String) -> String:
+	return str(level_data(id).get("title", id))
+
+## How high and low the camera may look, from the level's own geometry: never
+## far above its highest ledge, never past the line a fall is fatal at.
+const SKY_ABOVE := 240.0
+const BELOW_FALL := 40.0
+## The camera only moves when the player leaves a band this tall around its
+## centre. Without it the view bobs on every jump, since one jump rises 107.
+const CAMERA_DEADZONE := 90.0
+## How quickly the view settles back onto him once he lands, per physics tick.
+const CAMERA_RECENTRE := 0.06
+
+func _measure_view() -> void:
+	var highest: float = INF
+	for entry in level.get("solids", []):
+		highest = minf(highest, float(entry[1]))
+	if highest == INF:
+		highest = 500.0
+	view_top = highest - SKY_ABOVE + VIEW_HALF.y
+	view_bottom = float(level.get("fall_y", 860)) + BELOW_FALL - VIEW_HALF.y
+	if view_bottom < view_top:
+		# The whole level fits in one screen, so there is nothing to follow.
+		view_top = (view_top + view_bottom) * 0.5
+		view_bottom = view_top
+
+## A level that names camera_y pins the camera there. The two greybox levels do,
+## to keep the framing they were built and screenshotted with; anything authored
+## since simply follows, which is what a level with height needs.
+func camera_home_y() -> float:
+	if level.has("camera_y"):
+		return float(level.camera_y)
+	if not is_instance_valid(player):
+		return clampf(float(level.get("spawn", [0, 500])[1]), view_top, view_bottom)
+	return clampf(player.position.y, view_top, view_bottom)
+
+func _follow_y(current: float) -> float:
+	if level.has("camera_y"):
+		return float(level.camera_y)
+	var target: float = current
+	if player.position.y < current - CAMERA_DEADZONE:
+		target = player.position.y + CAMERA_DEADZONE
+	elif player.position.y > current + CAMERA_DEADZONE:
+		target = player.position.y - CAMERA_DEADZONE
+	# Once he is standing again, ease back onto him. Without this the camera
+	# keeps whatever offset the last descent left it with, which puts the horizon
+	# a deadzone above his feet and makes him look waist-deep in the sea.
+	if player.is_on_floor():
+		target = lerpf(target, player.position.y, CAMERA_RECENTRE)
+	return clampf(target, view_top, view_bottom)
+
+## Static, and public, because the title screen needs the same menu_up/menu_down/
+## confirm bindings before any session exists. Registering is idempotent, so
+## whichever of the two runs first defines them and the other no-ops.
+static func setup_input() -> void:
+	## W/S and the up/down arrows are free during play — movement is A/D and the
+	## left/right arrows — so the menu can have them without a mode switch.
+	var actions := {"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT], "jump": [KEY_SPACE], "drink": [KEY_E], "attack": [KEY_J, KEY_X], "blast": [KEY_K, KEY_C], "pause": [KEY_ESCAPE, KEY_P], "restart": [KEY_R], "confirm": [KEY_ENTER], "menu": [KEY_M], "menu_up": [KEY_W, KEY_UP], "menu_down": [KEY_S, KEY_DOWN]}
 	for action in actions:
 		if InputMap.has_action(action):
 			continue
@@ -166,9 +362,13 @@ func restart_attempt() -> void:
 		if is_instance_valid(blast):
 			blast.queue_free()
 	blasts.clear()
+	for arrow in arrows:
+		if is_instance_valid(arrow):
+			arrow.queue_free()
+	arrows.clear()
 	player.reset_at(Vector2(level.spawn[0], level.spawn[1]))
 	player.enabled = true
-	camera.position = Vector2(320, 500)
+	camera.position = Vector2(VIEW_HALF.x, camera_home_y())
 
 func set_paused(value: bool) -> void:
 	if value and state == State.PLAYING:
@@ -206,6 +406,17 @@ func _on_blast_fired(at: Vector2, direction: float) -> void:
 	blast.position = at
 	blasts.append(blast)
 	add_child(blast)
+
+func _on_arrow_fired(at: Vector2, direction: float, damage: int) -> void:
+	## The archer's arrow is a level object too: it keeps its heading and reports
+	## its hit the same way a melee blow does, through the player's own window.
+	var arrow := Arrow.new()
+	arrow.direction = direction
+	arrow.damage = damage
+	arrow.position = at
+	arrow.struck_player.connect(_on_player_struck)
+	arrows.append(arrow)
+	add_child(arrow)
 
 ## How close he has to be to pick something up. Generous, like the bottle's
 ## drink reach: this is "am I standing at it", not "am I touching it".
@@ -328,6 +539,7 @@ func _physics_process(delta: float) -> void:
 	elif state == State.PLAYING:
 		elapsed += delta
 		blasts = blasts.filter(func(b): return is_instance_valid(b))
+		arrows = arrows.filter(func(a): return is_instance_valid(a))
 		# He carries the bottle now, so he cannot walk away from it — the old
 		# out-of-reach interruption is gone with the reach. What can still
 		# happen is losing hold of it: knocked out of his hands, or smashed
@@ -352,20 +564,27 @@ func _physics_process(delta: float) -> void:
 			contact_settle_ticks -= 1
 		else:
 			resolve_contacts(fatal, goal.overlaps_body(player))
-		# Lookahead scales with the world; the 320 bound is half the viewport, which
-		# did not scale, so the player now sees less of the level ahead than before.
-		camera.position.x = clampf(player.position.x + 200, 320, float(level.width) - 320)
+		# Lookahead is a world distance and does not scale with the viewport; the
+		# bound is half the viewport, so the camera stops before either end of the
+		# level would come into shot.
+		camera.position.x = clampf(player.position.x + 200, VIEW_HALF.x,
+								   float(level.width) - VIEW_HALF.x)
+		camera.position.y = _follow_y(camera.position.y)
 	if is_instance_valid(hud):
 		hud.queue_redraw()
+	# The background parallaxes against the camera, so it is redrawn with it.
+	if is_instance_valid(scenery):
+		scenery.queue_redraw()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.echo:
 		return
-	if event.is_action_pressed("confirm"):
-		if state in [State.MENU, State.COMPLETE]:
-			start_session()
-		elif state == State.PAUSED:
-			set_paused(false)
+	if event.is_action_pressed("menu_up") and state == State.MENU:
+		menu_index = posmod(menu_index - 1, catalogue().size())
+	elif event.is_action_pressed("menu_down") and state == State.MENU:
+		menu_index = posmod(menu_index + 1, catalogue().size())
+	elif event.is_action_pressed("confirm"):
+		confirm()
 	elif event.is_action_pressed("pause"):
 		set_paused(state != State.PAUSED)
 	elif event.is_action_pressed("drink"):
@@ -376,17 +595,46 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("restart") and state in [State.PLAYING, State.PAUSED, State.DYING]:
 		restart_attempt()
 	elif event.is_action_pressed("menu") and state in [State.PAUSED, State.COMPLETE]:
-		state = State.MENU
-		player.enabled = false
+		open_menu()
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if Rect2(220, 215, 200, 34).has_point(hud.get_local_mouse_position()):
-			if state in [State.MENU, State.COMPLETE]:
+		var at: Vector2 = hud.get_local_mouse_position()
+		var row: int = hud.row_at(at)
+		if state == State.MENU and row >= 0:
+			menu_index = row
+			confirm()
+		elif hud.button_rect().has_point(at):
+			confirm()
+
+func open_menu() -> void:
+	## The menu opens on the level you were just in, not back at the top.
+	state = State.MENU
+	menu_index = maxi(catalogue().find(level_id), 0)
+	if is_instance_valid(player):
+		player.enabled = false
+
+func confirm() -> void:
+	## One button, three meanings: start the highlighted level, resume, or take
+	## the next one. Reachable from the keyboard and from the HUD button alike.
+	match state:
+		State.MENU:
+			var order := catalogue()
+			var pick: String = order[clampi(menu_index, 0, order.size() - 1)]
+			if pick != level_id:
+				load_level(pick)
+			start_session()
+		State.COMPLETE:
+			# The last level has nowhere to advance to, so it replays instead.
+			if not advance_level():
 				start_session()
-			elif state == State.PAUSED:
-				set_paused(false)
+		State.PAUSED:
+			set_paused(false)
 
 func _draw() -> void:
 	if level.is_empty():
+		return
+	# A themed level draws its world in scenery.gd from this same level data.
+	# Everything below is the original greybox, kept for the levels without one.
+	if is_instance_valid(scenery):
 		return
 	var font := ThemeDB.fallback_font
 	var ink := Color("25354a")
@@ -403,8 +651,13 @@ func _draw() -> void:
 		draw_line(Vector2(x, 160), Vector2(x, floor_y), Color("e7e5df"), 1)
 	for y in range(192, int(floor_y) + 1, 64):
 		draw_line(Vector2(0, y), Vector2(width, y), Color("e7e5df"), 1)
-	# Six hills across the wider level; three left gaps you could see straight through.
-	for x in [140, 520, 900, 1240, 1560, 1860]:
+	# Hill peaks are level data. A level that names none gets six spaced evenly
+	# across its width, so a new level is never authored against a blank sky.
+	var hills: Array = level.get("hills", [])
+	if hills.is_empty():
+		for i in range(6):
+			hills.append(width * (float(i) + 0.5) / 6.0)
+	for x in hills:
 		draw_colored_polygon(PackedVector2Array([Vector2(x-190,floor_y),Vector2(x,floor_y-190),Vector2(x+190,floor_y)]), Color("e4e8e3"))
 	for entry in level.solids:
 		var r := Rect2(entry[0], entry[1], entry[2], entry[3])
@@ -423,7 +676,12 @@ func _draw() -> void:
 	var mast: float = f[1] - 28.0
 	draw_line(Vector2(finish_x+6, f[1]+f[3]), Vector2(finish_x+6, mast), ink, 6)
 	draw_colored_polygon(PackedVector2Array([Vector2(finish_x+10,mast),Vector2(finish_x+64,mast+20),Vector2(finish_x+10,mast+48)]), Color("287c68"))
-	draw_string(font, Vector2(66, 502), "01 / GET MOVING", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ink)
-	draw_string(font, Vector2(66, 524), "Read the landing. Then jump.", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, ink)
-	draw_string(font, Vector2(948, 454), "02 / MIND THE GAP", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ink)
-	draw_string(font, Vector2(1756, 450), "FINISH", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ink)
+	# Signs are painted on the background from the level file: [x, y, heading]
+	# or [x, y, heading, subtitle]. They were three hard-coded draw_string calls
+	# naming First Steps' own zones, which no second level could ever reuse.
+	for marker in level.get("signs", []):
+		draw_string(font, Vector2(marker[0], marker[1]), str(marker[2]),
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ink)
+		if marker.size() > 3:
+			draw_string(font, Vector2(marker[0], float(marker[1]) + 22.0), str(marker[3]),
+						HORIZONTAL_ALIGNMENT_LEFT, -1, 13, ink)

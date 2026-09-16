@@ -359,7 +359,7 @@ Keep private art beside its owner; share only genuinely reused assets. The sibli
 
 Use Godot input actions so controls and UI prompts can reflect remapping. [Official input documentation](https://docs.godotengine.org/en/stable/tutorials/inputs/inputevent.html)
 
-Proposed logical viewport: 640 × 360; normal review window: 1280 × 720. Keep aspect ratio and prefer integer scaling/letterboxing for pixel assets. Validate another window size and the Web canvas. HUD text starts at 14 logical pixels minimum; this is a tuning baseline, not a universal accessibility certification.
+Logical viewport: **960 × 540**; normal review window: 1280 × 720. Keep the aspect ratio. Integer canvas scaling is the usual advice for pixel assets, but the property that matters is that one source pixel lands on one screen pixel: the cast is drawn at 0.75 world size and the canvas is magnified 4/3, and those multiply to exactly 1. Changing one without the other is what makes the art look blocky — it was proposed at 640 × 360, which magnified 2× and so showed three-quarter-size art at 1.5×. Validate another window size and the Web canvas. HUD text starts at 14 logical pixels minimum; the HUD is laid out in its own 640 × 360 space and its layer is scaled to fill the viewport, so that baseline is unchanged. A tuning baseline, not a universal accessibility certification.
 
 The camera follows with level bounds and enough look-ahead to show required landings. No shake in the MVP. Reposition directly on reset so the view does not pan across the entire course before control returns. Camera motion must not introduce a mandatory blind jump.
 

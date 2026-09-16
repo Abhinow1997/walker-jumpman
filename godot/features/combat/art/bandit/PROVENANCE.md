@@ -56,8 +56,15 @@ That is why an unrelated pack's manifest drops straight in.
 ## Geometry
 
 LF2 draws every frame against a fixed origin — mid-body, feet on the floor —
-so the cell needs no repacking: **79x79, origin (39, 79)**, scaled 0.75 to
-**59x59, origin (29.25, 59.25)** to match the rest of the cast.
+so the cell needs no repacking and no resampling: the sheet is written at
+**79x79, origin (39, 79)**, the rip's own pixels.
+
+He is 0.75 size in the *world*, like the rest of the cast, and the manifest
+publishes that as `render_scale` for the sprite node to apply. `SCALE` and
+`TEXTURE_SCALE` mean the same things they do for the player — see
+`features/player/art/anti_davis/PROVENANCE.md`, which carries the long version.
+Both extractors must agree on `SCALE` or the bandit and the player stop being to
+the same scale.
 
 The punch's reach is measured off the extended arm on the hit frame rather than
 taken from the frame's bounding box, which includes his legs and would put the

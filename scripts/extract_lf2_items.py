@@ -39,10 +39,14 @@ OUT_DIR = os.path.normpath(os.path.join(
 
 KEY_COLOUR = (0, 0, 0)
 
-# The props are scaled with the character, or a crate drawn for a 73 px Davis
-# stands chest-high to a 55 px one. Same factor and same reasoning as
-# scripts/extract_anti_davis.py — see the note on SCALE there.
+# The props are sized with the character, or a crate drawn for a 73 px Davis
+# stands chest-high to a 55 px one. Same factors and same reasoning as
+# scripts/extract_anti_davis.py — see the notes on SCALE and TEXTURE_SCALE
+# there. SCALE is world size; TEXTURE_SCALE is sheet resolution, and leaving it
+# at 1.0 is what keeps a prop drawn pixel for pixel as it was painted.
 SCALE = 0.75
+TEXTURE_SCALE = 1.0
+RENDER_SCALE = SCALE / TEXTURE_SCALE
 
 # Block origins and pitches, measured from the sheet. "cell" and "pitch" may be
 # a single number for square blocks, or (w, h) where the two differ.
@@ -128,8 +132,13 @@ def cell_of(sheet, block, index):
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     sheet = load_sheet()
+    # Every cell and origin below addresses the texture, in its own pixels;
+    # render_scale takes a texture pixel to a world unit. Nothing else in this
+    # manifest is a measurement — the props' world sizes live in crate.gd and
+    # bottle.gd, which are hand-tuned against the drawn art.
     manifest = {"_generated_by": "scripts/extract_lf2_items.py",
-                "_source": os.path.basename(SHEET), "items": {}}
+                "_source": os.path.basename(SHEET),
+                "render_scale": round(RENDER_SCALE, 6), "items": {}}
 
     for name, spec in PICKS.items():
         tiles = [cell_of(sheet, spec["block"], i) for i in spec["cells"]]
@@ -159,10 +168,16 @@ def main():
                 origin = [cell[0] // 2, cell[1]]
 
         # Scaled last, as one strip. Resampling each frame on its own rounds its
-        # edges independently and a spinning prop jitters between angles.
-        cell = (max(1, round(cell[0] * SCALE)), max(1, round(cell[1] * SCALE)))
-        origin = [round(origin[0] * SCALE, 3), round(origin[1] * SCALE, 3)]
-        strip = strip.resize((cell[0] * len(tiles), cell[1]), Image.LANCZOS)
+        # edges independently and a spinning prop jitters between angles. At
+        # TEXTURE_SCALE 1.0 there is nothing to resize and the sheet's own pixels
+        # go straight out.
+        scaled = (max(1, round(cell[0] * TEXTURE_SCALE)),
+                  max(1, round(cell[1] * TEXTURE_SCALE)))
+        origin = [round(origin[0] * TEXTURE_SCALE, 3),
+                  round(origin[1] * TEXTURE_SCALE, 3)]
+        if scaled != cell:
+            strip = strip.resize((scaled[0] * len(tiles), scaled[1]), Image.LANCZOS)
+        cell = scaled
 
         path = os.path.join(OUT_DIR, name + ".png")
         strip.save(path)

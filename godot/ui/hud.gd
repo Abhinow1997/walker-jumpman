@@ -48,6 +48,49 @@ func centered(text: String, y: float, font_size: int, color: Color = INK) -> voi
 	var width := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	text_at(text, Vector2((640-width)/2, y), font_size, color)
 
+func right_at(text: String, corner: Vector2, font_size: int, color: Color = INK) -> void:
+	## Right-aligned to `corner.x`. Level titles vary in length, so the old fixed
+	## left edge would have run off the panel on anything longer than the first.
+	var width := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	text_at(text, Vector2(corner.x - width, corner.y), font_size, color)
+
+## --- the panel the menu, the pause screen and the results share -------------
+##
+## The menu grew a row per level, so the panel is sized from its contents rather
+## than being the one fixed rectangle it used to be. The session hit-tests
+## clicks against button_rect() and row_at() rather than repeating the numbers.
+
+const PANEL_W := 340.0
+## The pause and results panel is the original 318x159 one, so PANEL_MID is set
+## to leave it exactly where it was; the menu grows downward from the same middle.
+const PANEL_MID := 182.5
+const ROW_H := 22.0
+
+func _panel_height() -> float:
+	## Roughly six levels before the list runs into the button. Past that the
+	## menu needs to scroll rather than grow.
+	if game.state == game.State.MENU:
+		return 140.0 + game.catalogue().size() * ROW_H
+	return 159.0
+
+func _panel_top() -> float:
+	return PANEL_MID - _panel_height() / 2.0
+
+func button_rect() -> Rect2:
+	return Rect2(220, _panel_top() + _panel_height() - 47.0, 200, 34)
+
+func _row_rect(i: int) -> Rect2:
+	return Rect2((640 - PANEL_W) / 2.0 + 16.0, _panel_top() + 52.0 + i * ROW_H, PANEL_W - 32.0, ROW_H)
+
+## Which level row the given point is over, or -1. Only meaningful on the menu.
+func row_at(at: Vector2) -> int:
+	if not is_instance_valid(game) or game.state != game.State.MENU:
+		return -1
+	for i in game.catalogue().size():
+		if _row_rect(i).has_point(at):
+			return i
+	return -1
+
 func _health(at: Vector2) -> void:
 	## He starts on very little health on purpose, so the bar reads as a problem
 	## before the bottle is ever found: one segment of five, and the heart is the
@@ -115,10 +158,14 @@ func _draw() -> void:
 		return
 	draw_rect(Rect2(0,0,640,74), Color("f6f3ec"))
 	text_at("WALKER / JUMPMAN", Vector2(22,27), 18)
-	text_at("FIRST STEPS", Vector2(497,27), 14)
+	right_at(str(game.level.get("title", "")).to_upper(), Vector2(618,27), 14)
 	text_at("A/D: move  Space: jump  J: attack / throw  K: blast  E: lift / drink  R: retry  Esc: pause", Vector2(22,50), 12)
 	draw_rect(Rect2(22,63,596,3), Color("daddd6"))
-	var progress: float = clampf((game.player.position.x-128)/1704, 0, 1)
+	## Spawn to flag, read off the level. It was (x-128)/1704 typed in, which is
+	## exactly First Steps' spawn and finish and silently wrong for any other level.
+	var from: float = float(game.level.spawn[0])
+	var to: float = float(game.level.finish[0])
+	var progress: float = clampf((game.player.position.x-from)/maxf(to-from, 1.0), 0, 1)
 	draw_rect(Rect2(22,63,596*progress,3), Color("287c68"))
 	# Five pixels taller than it was: the health bar is 24 px at double size and
 	# the old 25 px strip left it hanging off the bottom of the screen.
@@ -135,21 +182,58 @@ func _draw() -> void:
 		centered("Back at the start in a moment.", 180, 13)
 		return
 	draw_rect(Rect2(0,74,640,261), Color(0.10,0.16,0.20,0.16))
-	draw_rect(Rect2(163,103,318,159), Color("fffdf7"))
-	draw_rect(Rect2(163,103,318,4), Color("ef875f"))
-	var title := "First steps. Real jumps."
-	var detail := "Cross two gaps. Clear the spikes. Reach the flag."
-	var button := "ENTER  /  START"
+	var top := _panel_top()
+	var h := _panel_height()
+	var left := (640.0 - PANEL_W) / 2.0
+	draw_rect(Rect2(left, top, PANEL_W, h), Color("fffdf7"))
+	draw_rect(Rect2(left, top, PANEL_W, 4), Color("ef875f"))
+	if game.state == game.State.MENU:
+		_level_select(top)
+	else:
+		_message_panel(top)
+	var button := button_rect()
+	draw_rect(button, Color("287c68"))
+	centered(_button_label(), button.position.y + 22.0, 14, Color("fffdf7"))
+
+func _button_label() -> String:
+	if game.state == game.State.PAUSED:
+		return "ENTER  /  RESUME"
+	if game.state == game.State.COMPLETE:
+		# The last level has nothing after it, so finishing it replays instead.
+		return "ENTER  /  NEXT LEVEL" if game.next_level_id() != "" else "ENTER  /  PLAY AGAIN"
+	return "ENTER  /  START"
+
+func _level_select(top: float) -> void:
+	## The menu is the level select. It reads the order from levels/index.json
+	## and each title from the level file itself, so adding a level is one line
+	## in the index and nothing here.
+	var order: Array = game.catalogue()
+	centered("Choose a level.", top + 34, 20)
+	for i in order.size():
+		var row := _row_rect(i)
+		var picked: bool = i == game.menu_index
+		if picked:
+			draw_rect(row, Color("287c68"))
+		text_at("%d.  %s" % [i + 1, game.level_title(order[i])],
+				Vector2(row.position.x + 10, row.position.y + 16), 14,
+				Color("fffdf7") if picked else INK)
+	var chosen: String = order[clampi(game.menu_index, 0, order.size() - 1)]
+	var foot := top + 52.0 + order.size() * ROW_H
+	centered(str(game.level_data(chosen).get("brief", "")), foot + 18.0, 12)
+	centered("W/S or the arrows to choose.", foot + 34.0, 12)
+
+func _message_panel(top: float) -> void:
+	var title := str(game.level.get("tagline", ""))
+	var detail := str(game.level.get("brief", ""))
+	var foot := "One jump. No double jump. Unlimited retries."
 	if game.state == game.State.PAUSED:
 		title = "Take a breath."
 		detail = "R: restart attempt    M: main menu"
-		button = "ENTER  /  RESUME"
 	elif game.state == game.State.COMPLETE:
 		title = "Course complete."
 		detail = "%.1f seconds   /   %d retries" % [game.last_finish_time, game.deaths]
-		button = "ENTER  /  PLAY AGAIN"
-	centered(title, 143, 24)
-	centered(detail, 177, 12)
-	centered("One jump. No double jump. Unlimited retries.", 197, 12)
-	draw_rect(Rect2(220,215,200,34), Color("287c68"))
-	centered(button, 237, 14, Color("fffdf7"))
+		if game.next_level_id() != "":
+			foot = "Next: %s" % game.level_title(game.next_level_id())
+	centered(title, top + 40, 24)
+	centered(detail, top + 74, 12)
+	centered(foot, top + 94, 12)

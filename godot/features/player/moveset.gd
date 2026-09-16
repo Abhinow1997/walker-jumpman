@@ -16,7 +16,8 @@ static func data() -> Dictionary:
 		var text := FileAccess.get_file_as_string(PATH)
 		if text.is_empty():
 			push_error("moveset: %s is missing. Run scripts/extract_anti_davis.py." % PATH)
-			_data = {"animations": {}, "ball": {}, "cell": [1, 1], "origin": [0, 0]}
+			_data = {"animations": {}, "ball": {}, "cell": [1, 1], "origin": [0, 0],
+					 "render_scale": 1.0}
 		else:
 			_data = JSON.parse_string(text)
 	return _data
@@ -33,13 +34,24 @@ static func animation(key: String) -> Dictionary:
 static func frame_count(key: String) -> int:
 	return animation(key).get("durations", []).size()
 
+## One frame of a sheet, in the SHEET's own pixels. The extractor writes the
+## art at the pack's resolution and leaves it there, so this is not a world
+## measurement — render_scale is what turns it into one.
 static func cell() -> Vector2i:
 	var c: Array = data().get("cell", [1, 1])
 	return Vector2i(int(c[0]), int(c[1]))
 
+## Texture pixel to world unit. The cast is drawn three-quarter size but the
+## sheets are full size, and the sprite node carries the difference. Every other
+## number this manifest publishes — hit boxes, weapon points — is already world.
+static func render_scale() -> float:
+	return float(data().get("render_scale", 1.0))
+
 static func pivot() -> Vector2:
 	## Where the texture must sit so the character's origin — feet, mid-body —
-	## lands on the node origin, which is where the collider's feet are. An
+	## lands on the node origin, which is where the collider's feet are. In
+	## texture pixels, like cell(): the sprite node's own scale is render_scale,
+	## and Godot applies that to the offset along with the art. An
 	## AnimatedSprite2D with centered = true draws its centre at the node, so the
 	## offset is simply centre minus origin. Scaling the node then pivots on the
 	## feet, which is why squash and the turn cannot lift him off the ground.

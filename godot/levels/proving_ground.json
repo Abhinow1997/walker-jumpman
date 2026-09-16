@@ -1,0 +1,20 @@
+{
+  "id": "proving-ground",
+  "title": "Proving Ground",
+  "scope": "STUB. Exists to prove the level pipeline works end to end — that a second level loads, chains from the first, appears in the menu and passes the validator. The layout is deliberately plain and is not playtested content.",
+  "tagline": "Shorter. Meaner.",
+  "brief": "One gap, one set of spikes, one flag.",
+  "width": 1280,
+  "fall_y": 860,
+  "camera_y": 500,
+  "camera_y_note": "Pins the camera vertically, keeping the framing this greybox level was built and screenshotted with. Omit it and the camera follows the player, which is what a level with real height needs.",
+  "spawn": [128, 640],
+  "solids": [[0, 640, 512, 128], [640, 640, 640, 128], [320, 576, 96, 32]],
+  "hazards": [[800, 608, 48, 32]],
+  "crates": [[260, 640]],
+  "bottles": [[380, 576, 2]],
+  "enemies": [[1000, 640, "mark"], [430, 640, "hunter"]],
+  "enemies_note": "[x, ground_y] is a bandit; a third value picks the kind — \"bandit\" (the default), \"mark\" (white-tank LF2 fighter) or \"hunter\" (the bow-carrying archer, cut as a brawler). Hunter waits on the first platform near the spawn; Mark is met on the far platform after the gap. Two kinds, no two stacked.",
+  "signs": [[66, 502, "01 / SAME RULES", "Nothing new. Just less floor."]],
+  "finish": [1192, 528, 48, 112]
+}

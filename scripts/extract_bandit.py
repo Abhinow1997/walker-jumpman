@@ -51,7 +51,15 @@ PALETTE = 0          # 0 = red bandana, 1 = teal
 ## There is no .dat with this rip, so the convention is used directly and every
 ## frame is checked against it below.
 ORIGIN = (39, CELL)
+
+## World size, and only world size. See the long note on SCALE and TEXTURE_SCALE
+## in scripts/extract_anti_davis.py — both extractors must agree on these or the
+## bandit and the player stop being to the same scale.
 SCALE = 0.75
+## The sheet is written at the rip's own resolution and never resampled: 0.75 of
+## world size against the viewport's 4/3 magnification is exactly 1:1 on screen.
+TEXTURE_SCALE = 1.0
+RENDER_SCALE = SCALE / TEXTURE_SCALE
 
 ## LF2 pic indices. Read off the sheet rather than taken on faith — render
 ## scripts and the checks below both exist because the bandit's template is
@@ -129,6 +137,14 @@ def sc(value):
     return round(value * SCALE, 3)
 
 
+def tex(value):
+    """Pack pixels to texture pixels. Only the cell and the origin, which
+    address the sheet rather than the world."""
+    if isinstance(value, (list, tuple)):
+        return [tex(v) for v in value]
+    return round(value * TEXTURE_SCALE, 3)
+
+
 def main():
     sheet = load_sheet()
     if sheet.size != (PITCH * COLS_PER_SHEET * 2, PITCH * ROWS_PER_SHEET * 2):
@@ -136,11 +152,14 @@ def main():
                  % (sheet.size, (PITCH * COLS_PER_SHEET * 2, PITCH * ROWS_PER_SHEET * 2)))
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    out_cell = (round(CELL * SCALE), round(CELL * SCALE))
+    out_cell = (round(CELL * TEXTURE_SCALE), round(CELL * TEXTURE_SCALE))
     manifest = {
         "_generated_by": "scripts/extract_bandit.py",
         "_source": "Little Fighter 2 Bandit (ripped sheet, unlicensed fan content)",
-        "cell": list(out_cell), "origin": sc(list(ORIGIN)), "faces": 1,
+        # cell and origin address the texture; render_scale takes a texture
+        # pixel to a world unit. The hit box and reach below are already world.
+        "render_scale": round(RENDER_SCALE, 6),
+        "cell": list(out_cell), "origin": tex(list(ORIGIN)), "faces": 1,
         "hit_frame": HIT_FRAME, "hit_rect": sc(HIT_RECT), "hit_damage": HIT_DAMAGE,
         "animations": {},
     }
@@ -155,8 +174,10 @@ def main():
         for i, tile in enumerate(tiles):
             strip.paste(tile, (i * CELL, 0), tile)
         # Resized as one strip, not per cell: resampling each frame alone rounds
-        # its edges independently and the character jitters between frames.
-        strip = strip.resize((out_cell[0] * len(tiles), out_cell[1]), Image.LANCZOS)
+        # its edges independently and the character jitters between frames. At
+        # TEXTURE_SCALE 1.0 there is nothing to resize.
+        if out_cell != (CELL, CELL):
+            strip = strip.resize((out_cell[0] * len(tiles), out_cell[1]), Image.LANCZOS)
         strip.save(os.path.join(OUT_DIR, "%s.png" % name))
         manifest["animations"][name] = {
             "file": "%s.png" % name, "frames": len(tiles),
