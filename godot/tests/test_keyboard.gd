@@ -30,6 +30,13 @@ func check(id: String, condition: bool, observed: String) -> void:
 	if not condition: failures += 1
 
 func run() -> void:
+	# Pinned to First Steps. Every expectation below is that level's geometry —
+	# the spawn it retries to, the ground the jump leaves — and the first ENTER
+	# starts whatever the level list has highlighted, which is the course's first
+	# row. First Steps is off the course now (see levels/index.json), so the
+	# course is stood in for rather than have this suite follow it about: what is
+	# under test here is the keyboard, not the catalogue.
+	Game._catalogue = ["first_steps"]
 	game = Game.new()
 	game.test_mode = true
 	root.add_child(game)

@@ -3,8 +3,10 @@
     python scripts/extract_magic_cliffs.py
     <godot> --path godot --headless --import
 
-THE ONLY LICENSED ART IN THE PROJECT. Magic Cliffs Environment by Ansimuz
-(Luis Zuno) is CC0 - public domain, commercial use, no attribution required.
+THE ONLY LICENSED ART IN THE PROJECT, and now the only music too: the pack
+ships a 96-second loop beside the sheets, which this copies to godot/audio/.
+Magic Cliffs Environment by Ansimuz (Luis Zuno) is CC0 - public domain,
+commercial use, no attribution required.
 Every other sheet here is ripped commercial art. See the PROVENANCE.md this
 writes next to the output.
 
@@ -32,6 +34,14 @@ PACK = os.path.normpath(os.path.join(
     "Assets", "Environment", "PNG"))
 OUT_DIR = os.path.normpath(os.path.join(
     HERE, "..", "godot", "features", "world", "art", "magic_cliffs"))
+# The pack ships one 96-second music loop alongside the art, under the same CC0.
+# It does not belong in an art folder, so it goes to its own, and it is copied
+# rather than processed: there is nothing to cut out of an ogg.
+MUSIC_SOURCE = os.path.normpath(os.path.join(
+    HERE, "..", "..", "Assests", "Magic-Cliffs-Gamekit", "Magic-Cliffs-Gamekit",
+    "Assets", "magic cliffs music", "magic cliffs.ogg"))
+MUSIC_DIR = os.path.normpath(os.path.join(HERE, "..", "godot", "audio"))
+MUSIC_OUT = "magic_cliffs.ogg"
 
 SHEET = "tileset.png"
 SHEET_SIZE = (928, 320)
@@ -357,6 +367,13 @@ def main():
             {"file": out_name, "size": list(size), "factor": factor})
         print("%-14s %3dx%-3d background, scroll %.2f"
               % (out_name[:-4], size[0], size[1], factor))
+
+    if not os.path.isfile(MUSIC_SOURCE):
+        sys.exit("the pack's music is missing from %s" % MUSIC_SOURCE)
+    os.makedirs(MUSIC_DIR, exist_ok=True)
+    shutil.copyfile(MUSIC_SOURCE, os.path.join(MUSIC_DIR, MUSIC_OUT))
+    print("%-14s %.1f MB music loop -> godot/audio/%s"
+          % ("magic_cliffs", os.path.getsize(MUSIC_SOURCE) / 1048576.0, MUSIC_OUT))
 
     path = os.path.join(OUT_DIR, "magic_cliffs.json")
     with open(path, "w", encoding="utf-8") as handle:

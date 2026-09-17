@@ -4,6 +4,7 @@ extends Control
 ## why project.godot starts here rather than at game/main.tscn.
 
 const Session = preload("res://game/session.gd")
+const Music = preload("res://game/music.gd")
 const BACKDROP := preload("res://ui/art/title_bg.png")
 
 ## Each plate is its own sheet crop, already scaled to the size it is drawn at,
@@ -30,11 +31,17 @@ const DIM := Color(0.62, 0.66, 0.70)
 ## Picked out of the cracks in the plates so the highlight belongs to the art.
 const GLOW := Color(0.31, 0.85, 0.91)
 
-## Where PRACTICE drops in. Proving Ground is the prototyping slice, so it is
-## the sandbox; NEW JOURNEY instead starts the course at its first level and
-## advances through it. Using DEFAULT_LEVEL here would make the two rows
-## identical, since it is also the first level in the course.
-const PRACTICE_LEVEL := "proving_ground"
+## Where PRACTICE drops in. First Steps is the tutorial slice: it introduces
+## every mechanic once on flat greybox, which is what someone who picked
+## "practice" is after. It is off the course entirely (see levels/index.json), so
+## this row is the only way into it and the two rows cannot collide.
+const PRACTICE_LEVEL := "first_steps"
+
+## The menu's music. The same loop The Fractured Isles plays, because the pack
+## ships one and the course is that level: the handoff is seamless rather than
+## two tracks colliding. PRACTICE boots a greybox slice, which names no track,
+## so choosing it stops the menu music.
+const TRACK := "magic_cliffs"
 
 var index: int = 0
 
@@ -45,6 +52,9 @@ func _ready() -> void:
 	# session.gd registers the same actions when it boots, and both sides skip
 	# any action that already exists, so whichever runs first wins harmlessly.
 	Session.setup_input()
+	# The Fractured Isles names this same loop, so NEW JOURNEY does not restart
+	# it — see music.gd on why the node outlives this scene.
+	Music.cue(get_tree(), TRACK)
 
 func _plate_rect(row: int) -> Rect2:
 	return Rect2(Vector2((DESIGN.x - PLATE.x) * 0.5, FIRST_ROW_Y + row * ROW_PITCH), PLATE)
@@ -87,8 +97,9 @@ func _gui_input(event: InputEvent) -> void:
 func _choose(row: int) -> void:
 	match ROWS[row]["act"]:
 		"journey":
-			# The course order's first level, so adding a prologue ahead of
-			# first_steps in index.json changes where NEW JOURNEY lands.
+			# The course order's first level — The Fractured Isles. Not named
+			# here: putting a prologue ahead of it in index.json is what moves
+			# where NEW JOURNEY lands, and this row follows the order.
 			_boot(Session.catalogue()[0], true)
 		"practice":
 			_boot(PRACTICE_LEVEL, true)

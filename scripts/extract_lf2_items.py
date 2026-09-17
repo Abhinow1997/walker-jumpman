@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Cut the crate and the milk bottle out of the Little Fighter 2 items sheet.
+"""Cut the crate and the two bottles out of the Little Fighter 2 items sheet.
 
 Source: "PC _ Computer - Little Fighter 2 - Miscellaneous - Items.png" in
 Assests/ — a rip of LF2's item sprites, laid out as labelled blocks on a teal
 page with coloured grid lines and a pure black backdrop inside each block.
 
-Only the crate, its shatter debris and the white milk bottle are taken. The
-sheet holds a dozen other weapons and effects that this game has no use for yet;
+Only the crate, its shatter debris and the two bottles are taken: the white milk
+bottle, which is health, and the brown one below it, which is mana. The sheet
+holds a dozen other weapons and effects that this game has no use for yet;
 adding one is a new entry in PICKS, not a new script.
 
 Geometry was measured off the sheet rather than assumed, because no two blocks
-share a grid: the crate block is on a 59 px pitch with 58 px cells, the bottle
-block on a 49 px pitch with 48 px cells, and the debris block on a 28 x 29 px
+share a grid: the crate block is on a 59 px pitch with 58 px cells, both bottle
+blocks on a 49 px pitch with 48 px cells, and the debris block on a 28 x 29 px
 pitch with 27 x 28 px cells.
+
+The two bottle blocks are laid out identically — same pitch, same rotation order
+— so the brown one is picked with the white one's cell numbers against a
+different block origin, and the two sets of frames stay in step.
 
 Each sprite is re-originned to the point that should sit on the ground — bottom
 centre — so a crate and a bottle both stand on the floor line with no per-item
@@ -52,6 +57,9 @@ RENDER_SCALE = SCALE / TEXTURE_SCALE
 # a single number for square blocks, or (w, h) where the two differ.
 CRATE = {"x": 5, "y": 476, "cell": 58, "pitch": 59}
 BOTTLE = {"x": 5, "y": 946, "cell": 48, "pitch": 49, "cols": 10}
+# The brown bottle, four blocks further down the page. Same grid as the milk
+# bottle and the same forty rotations in the same order.
+BREW = {"x": 5, "y": 1434, "cell": 48, "pitch": 49, "cols": 10}
 # LF2's broken-weapon debris: ten materials, two rows each. Rows 4 and 5 are the
 # wooden planks a crate shatters into; rows 7 and 8 are the milk bottle's glass.
 DEBRIS = {"x": 5, "y": 1970, "cell": (27, 28), "pitch": (28, 29), "cols": 10}
@@ -75,6 +83,17 @@ PICKS = {
     # other one of the first sixteen is an even eight-step turn through a full
     # circle, which is what a knocked bottle needs.
     "bottle_spin": {"block": BOTTLE, "cells": [(i % 10, i // 10) for i in range(0, 16, 2)]},
+    # The brown bottle, cell for cell the same picks against the other block.
+    "brew": {"block": BREW, "cells": [(0, 0)]},
+    "brew_drink": {"block": BREW, "cells": [(1, 3)]},
+    "brew_spin": {"block": BREW, "cells": [(i % 10, i // 10) for i in range(0, 16, 2)]},
+    # Brown glass. The sheet has no smashed brown bottle, so this is the amber
+    # sliver row instead of the milk bottle's own debris — that one is white
+    # plastic with a red label on it, which reads as the wrong bottle entirely.
+    # Four large slivers and four small, matching the milk bottle's two sizes.
+    "brew_debris": {"block": DEBRIS,
+                    "cells": [(c, 1) for c in range(4)]       # large slivers
+                           + [(c, 1) for c in range(4, 8)]},  # small slivers
     # The crate's shatter. Four fragment sizes, four rotations each, in strip
     # order: type * 4 + rotation. LF2 spins a piece by swapping between its four
     # drawn angles rather than rotating one sprite, and so does the game.
@@ -95,13 +114,13 @@ PICKS = {
 # frames, and they already fill it, so the sheet's own 58x58 is kept and the
 # origin put on its bottom edge. The bottle is a lone frame, so it is cropped to
 # its own content with a pixel of margin.
-TIGHT = {"bottle", "bottle_drink"}
+TIGHT = {"bottle", "bottle_drink", "brew", "brew_drink"}
 
 # Items whose origin is their middle rather than the ground under them, because
 # they are held rather than stood on. LF2 stamps a held object by its own
 # centre onto the frame's weapon point, so that is what has to line up.
 CENTRED = {"bottle_drink", "crate_debris", "crate_spin", "bottle_debris",
-           "bottle_spin"}
+           "bottle_spin", "brew_drink", "brew_debris", "brew_spin"}
 
 
 def load_sheet():
@@ -136,9 +155,23 @@ def main():
     # render_scale takes a texture pixel to a world unit. Nothing else in this
     # manifest is a measurement — the props' world sizes live in crate.gd and
     # bottle.gd, which are hand-tuned against the drawn art.
-    manifest = {"_generated_by": "scripts/extract_lf2_items.py",
-                "_source": os.path.basename(SHEET),
-                "render_scale": round(RENDER_SCALE, 6), "items": {}}
+    # items.json has more than one owner: this writes the crate and the bottles,
+    # scripts/extract_rock.py writes the rock. So the file is read back and only
+    # this script's own keys are replaced — writing it fresh deleted the rock and
+    # left the game with a prop whose art had no manifest entry.
+    manifest = {}
+    if os.path.isfile(os.path.join(OUT_DIR, "items.json")):
+        manifest = json.load(open(os.path.join(OUT_DIR, "items.json"), encoding="utf-8"))
+    by = manifest.get("_generated_by", [])
+    if isinstance(by, str):
+        by = [by]
+    mine = "scripts/extract_lf2_items.py"
+    if mine not in by:
+        by.append(mine)
+    manifest["_generated_by"] = sorted(by)
+    manifest["_source"] = os.path.basename(SHEET)
+    manifest["render_scale"] = round(RENDER_SCALE, 6)
+    manifest.setdefault("items", {})
 
     for name, spec in PICKS.items():
         tiles = [cell_of(sheet, spec["block"], i) for i in spec["cells"]]

@@ -5,9 +5,11 @@ const Hud = preload("res://ui/hud.gd")
 const Crate = preload("res://features/combat/crate.gd")
 const Blast = preload("res://features/combat/blast.gd")
 const Bottle = preload("res://features/combat/bottle.gd")
+const Brew = preload("res://features/combat/brew.gd")
 const Enemy = preload("res://features/combat/enemy.gd")
 const Arrow = preload("res://features/combat/arrow.gd")
 const Scenery = preload("res://features/world/scenery.gd")
+const Music = preload("res://game/music.gd")
 const LEVEL_DIR := "res://levels/"
 ## What boots, and what every test gets unless it asks for something else.
 const DEFAULT_LEVEL := "first_steps"
@@ -44,6 +46,12 @@ var scenery: Node2D
 var view_top: float = 500.0
 var view_bottom: float = 500.0
 var level: Dictionary
+## The section walls, one per entry in the level's `gates`, and the x each one
+## stands on. A wall is a real StaticBody2D built once and switched in and out of
+## the World layer, rather than added and freed, so nothing has to be rebuilt in
+## the middle of a fight.
+var gates: Array = []
+var gate_walls: Array[StaticBody2D] = []
 var hazard_areas: Array[Area2D] = []
 var crates: Array[Area2D] = []
 var bottles: Array[Area2D] = []
@@ -101,6 +109,8 @@ func _clear_world() -> void:
 	scenery = null
 	player = null
 	camera = null
+	gates.clear()
+	gate_walls.clear()
 	hud = null
 	drinking_bottle = null
 
@@ -108,6 +118,11 @@ func _build_world() -> void:
 	level = level_data(level_id).duplicate(true)
 	if level.is_empty():
 		return
+	# Whatever this level names, or silence. Asking for the track already playing
+	# does nothing, so arriving from the title screen — which plays the same loop
+	# The Fractured Isles does — carries straight on rather than starting over.
+	# A greybox level names none and the music stops. See music.gd.
+	Music.cue(get_tree(), str(level.get("music", "")))
 	# First child, so it is behind everything, and before the solids so that the
 	# terrain it generates from them is already on screen when they exist.
 	var theme := str(level.get("theme", ""))
@@ -135,34 +150,40 @@ func _build_world() -> void:
 		crate.fall_limit = float(level.fall_y)
 		crates.append(crate)
 		add_child(crate)
-	# [x, y] or [x, y, segments]. The third value is health-BAR SEGMENTS, not
-	# health points: [470, 640, 2] is a bottle worth two of the bar's five bars.
-	# It used to be raw points, so an old level file's 50 would now read as fifty
-	# bars — check any level authored before this changed.
+	# [x, y] or [x, y, segments]. The third value is BAR SEGMENTS, not points:
+	# [470, 640, 2] is a bottle worth two of the bar's five bars. It used to be
+	# raw points, so an old level file's 50 would now read as fifty bars — check
+	# any level authored before this changed.
+	#
+	# "bottles" is the white milk bottle and fills the health bar; "brews" is the
+	# brown one and fills the mana bar. Both are the same prop on the same
+	# physics and both land in `bottles`, which is the list of things that can be
+	# drunk rather than the list of milk.
 	for entry in level.get("bottles", []):
-		var bottle := Bottle.new()
-		bottle.position = Vector2(entry[0], entry[1])
-		# A bottle is knocked about when hit, same as a crate.
-		bottle.fall_limit = float(level.fall_y)
-		if entry.size() > 2:
-			bottle.heal_segments = int(entry[2])
-		bottles.append(bottle)
-		add_child(bottle)
+		_add_bottle(Bottle.new(), entry)
+	for entry in level.get("brews", []):
+		_add_bottle(Brew.new(), entry)
 	# Spawned before the player so he draws in front of them, and so `target`
 	# can be handed over the moment he exists.
 	# [x, y] per enemy, or [x, y, "kind"] to pick which one — "bandit" (the
 	# default) or "mark". More is another entry, not more code. `kind` is set
 	# before add_child so it is in place when the enemy reads its manifest.
+	#
+	# A fourth value "perch" says this one does not hold its section's gate. See
+	# holds_gate in enemy.gd for why some cannot be allowed to.
 	for entry in level.get("enemies", []):
 		var foe := Enemy.new()
 		foe.position = Vector2(entry[0], entry[1])
 		if entry.size() > 2 and str(entry[2]) != "":
 			foe.kind = str(entry[2])
+		if entry.size() > 3 and str(entry[3]) == "perch":
+			foe.holds_gate = false
 		foe.fall_limit = float(level.fall_y)
 		foe.struck_player.connect(_on_player_struck)
 		foe.fired_arrow.connect(_on_arrow_fired)
 		enemies.append(foe)
 		add_child(foe)
+	_build_gates()
 	player = Player.new()
 	player.blast_fired.connect(_on_blast_fired)
 	player.drink_ended.connect(_on_drink_ended)
@@ -184,6 +205,107 @@ func _build_world() -> void:
 	if not get_window().focus_exited.is_connected(_on_focus_lost):
 		get_window().focus_exited.connect(_on_focus_lost)
 	queue_redraw()
+
+## --- sections ---------------------------------------------------------------
+##
+## A level may cut itself into sections with `gates`: a list of x positions, each
+## the end wall of one section, so three gates make four. While any enemy in a
+## section still holds it, that section's wall is solid and the camera stops with
+## the wall at the right edge of the screen — you can see you have run out of
+## screen rather than out of floor, which is the beat-em-up convention and the
+## reason the wall does not need to be drawn. Clearing the section opens both.
+##
+## Nothing blocks going back. The rule is about not skipping a fight, and a wall
+## behind the player only takes away the room he needs to fight in.
+##
+## A level with no `gates` — both greybox levels — behaves exactly as before.
+
+## How wide the wall is, and how far above and below the level it runs. Tall
+## enough that nothing jumps it: the level's own ceiling is well inside this.
+const GATE_WALL := Vector2(24.0, 2400.0)
+## How far inside the right edge of the screen the wall sits while it is shut.
+## Without it the camera stops with the wall exactly on the edge, and a player
+## standing against the wall is half off the screen — he is the one thing that
+## must never be clipped. A sliver of the ground past the wall shows instead,
+## which costs nothing: the wall is at the edge either way.
+const GATE_INSET := 48.0
+
+func _build_gates() -> void:
+	gates.clear()
+	gate_walls.clear()
+	for entry in level.get("gates", []):
+		var x := float(entry)
+		gates.append(x)
+		# Built once and switched in and out of the World layer by _sync_gates,
+		# rather than created and freed as fights start and end.
+		var wall := _add_solid(Rect2(x, -GATE_WALL.y / 2.0, GATE_WALL.x, GATE_WALL.y))
+		gate_walls.append(wall)
+
+func section_of(x: float) -> int:
+	## Which section a point is in. The last section has no gate, so anything
+	## past the final one belongs to it.
+	for i in gates.size():
+		if x < float(gates[i]):
+			return i
+	return gates.size()
+
+func section_bounds(index: int) -> Vector2:
+	var low: float = 0.0 if index <= 0 else float(gates[index - 1])
+	var high: float = float(level.get("width", 0)) if index >= gates.size() else float(gates[index])
+	return Vector2(low, high)
+
+func section_holders(index: int) -> Array:
+	## The enemies whose gate this is: spawned inside the section and not marked
+	## as a perch. Judged on `home`, where it was placed, rather than on where it
+	## has walked to — an enemy that chases the player over a line must not hand
+	## its gate to the next section.
+	var bounds := section_bounds(index)
+	var out: Array = []
+	for foe in enemies:
+		if is_instance_valid(foe) and foe.holds_gate 				and bounds.x <= foe.home.x and foe.home.x < bounds.y:
+			out.append(foe)
+	return out
+
+func section_clear(index: int) -> bool:
+	for foe in section_holders(index):
+		if foe.alive():
+			return false
+	return true
+
+func gate_shut_at() -> float:
+	## The x of the wall holding the player in, or INF when he is free to go on.
+	## Only his own section can hold him: everything behind him is already clear
+	## by definition, and everything ahead is somebody else's fight.
+	if gates.is_empty() or not is_instance_valid(player):
+		return INF
+	var index := section_of(player.position.x)
+	if index >= gates.size() or section_clear(index):
+		return INF
+	return float(gates[index])
+
+func _sync_gates() -> void:
+	## One pass a frame: each wall is solid exactly while its own section is not
+	## clear. Driven off alive() rather than off a death signal, so a retry —
+	## which puts every enemy back on its feet — closes the walls again with no
+	## extra bookkeeping.
+	for i in gate_walls.size():
+		var wall := gate_walls[i]
+		if not is_instance_valid(wall):
+			continue
+		# Layer 1 is World, which is the only thing the player collides with.
+		# Dropping to 0 leaves the body in place and lets him walk through it.
+		wall.collision_layer = 0 if section_clear(i) else 1
+
+func _add_bottle(bottle: Node2D, entry: Array) -> void:
+	## One bottle of either kind, placed and registered. The kind is already
+	## settled by the class — see brew.gd on why it cannot be a field set here.
+	bottle.position = Vector2(entry[0], entry[1])
+	# A bottle is knocked about when hit, same as a crate.
+	bottle.fall_limit = float(level.fall_y)
+	if entry.size() > 2:
+		bottle.refill_segments = int(entry[2])
+	bottles.append(bottle)
+	add_child(bottle)
 
 ## Finishing a level loads the next one in the index. Empty on the last level,
 ## where there is nothing to advance to.
@@ -300,7 +422,9 @@ static func setup_input() -> void:
 			event.physical_keycode = key
 			InputMap.action_add_event(action, event)
 
-func _add_solid(rect: Rect2) -> void:
+func _add_solid(rect: Rect2) -> StaticBody2D:
+	## Returns the body, which the level's own geometry ignores and the section
+	## walls keep: a gate has to be able to switch its own wall off.
 	var body := StaticBody2D.new()
 	body.position = rect.position + rect.size / 2
 	body.collision_layer = 1
@@ -311,6 +435,7 @@ func _add_solid(rect: Rect2) -> void:
 	collision.shape = shape
 	body.add_child(collision)
 	add_child(body)
+	return body
 
 func _add_area(rect: Rect2, layer: int, spikes: bool) -> Area2D:
 	var area := Area2D.new()
@@ -468,7 +593,7 @@ func drink() -> bool:
 	## Starts a six-second drink on the bottle in reach. Deliberately not
 	## automatic on touch: the tutorial is teaching that the action exists, which
 	## a silent pickup does not do. Drinking at full health is refused rather
-	## than wasting the bottle.
+	## than wasting the bottle, and so is drinking a brown one on full mana.
 	##
 	## Nothing is spent and nothing is restored here — see _on_drink_ended.
 	## He has to be holding it. Picking it up is its own beat now, so the bottle
@@ -478,9 +603,9 @@ func drink() -> bool:
 	var held: Node2D = player.carrying
 	if not bottles.has(held) or not held.available():
 		return false
-	if player.health >= player.MAX_HEALTH:
+	if player.refill_full(held.refills):
 		return false
-	if not player.begin_drink(held.heal_segments, held.contents):
+	if not player.begin_drink(held.refill_segments, held.contents, held.refills):
 		return false
 	# The bottle leaves the ground the moment he raises it, and the one in his
 	# hand is drawn by the visual at the frame's weapon point, exactly as LF2
@@ -564,11 +689,20 @@ func _physics_process(delta: float) -> void:
 			contact_settle_ticks -= 1
 		else:
 			resolve_contacts(fatal, goal.overlaps_body(player))
+		_sync_gates()
 		# Lookahead is a world distance and does not scale with the viewport; the
 		# bound is half the viewport, so the camera stops before either end of the
 		# level would come into shot.
+		#
+		# A shut gate pulls that far bound in to itself, which is what makes the
+		# wall legible: the fight is framed, and the wall lands exactly on the
+		# right edge of the screen rather than somewhere off in the dark.
+		var far: float = float(level.width) - VIEW_HALF.x
+		var shut := gate_shut_at()
+		if shut < INF:
+			far = minf(far, shut - VIEW_HALF.x + GATE_INSET)
 		camera.position.x = clampf(player.position.x + 200, VIEW_HALF.x,
-								   float(level.width) - VIEW_HALF.x)
+								   maxf(far, VIEW_HALF.x))
 		camera.position.y = _follow_y(camera.position.y)
 	if is_instance_valid(hud):
 		hud.queue_redraw()

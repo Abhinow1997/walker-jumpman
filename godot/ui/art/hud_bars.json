@@ -1,0 +1,26 @@
+{
+ "_generated_by": "scripts/extract_hud_bars.py",
+ "_source": "health system asset.jpg",
+ "bars": {
+  "health": {
+   "files": {
+    "empty": "bar_health_empty.png",
+    "full": "bar_health_full.png"
+   },
+   "fill_x0": 56,
+   "fill_x1": 312
+  },
+  "mana": {
+   "files": {
+    "empty": "bar_mana_empty.png",
+    "full": "bar_mana_full.png"
+   },
+   "fill_x0": 50,
+   "fill_x1": 312
+  }
+ },
+ "size": [
+  320,
+  52
+ ]
+}

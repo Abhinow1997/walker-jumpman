@@ -9,6 +9,9 @@ extends SceneTree
 ## hitbox that is off by twenty pixels shows up here rather than in a screenshot.
 const Game = preload("res://game/session.gd")
 const Moveset = preload("res://features/player/moveset.gd")
+const Enemy = preload("res://features/combat/enemy.gd")
+const Crate = preload("res://features/combat/crate.gd")
+const PlayerSprite = preload("res://features/player/player_sprite.gd")
 
 var game: Node2D
 var results: Array[Dictionary] = []
@@ -305,7 +308,14 @@ func run() -> void:
 
 	# --- blast --------------------------------------------------------------
 	await fresh()
-	crate = game.crates[0]
+	# The LAST crate, not the first. A blast is stopped by level geometry, and
+	# the first crate is knocked back onto the raised step at x 320 — where the
+	# step's own face eats the second blast before it arrives. This one sits on
+	# the long flat run at the end with nothing raised within the knockback, so
+	# the check measures the projectile rather than the scenery. It passed on the
+	# first crate for years by 2.45 px: the old wooden box was wide enough to
+	# overhang the step's edge into the same query, and the narrower rock is not.
+	crate = game.crates[game.crates.size() - 1]
 	# Well out of punching range, so only a projectile can reach it.
 	await stand_near(crate, -300.0)
 	game.player.test_blast_pressed = true
@@ -350,6 +360,238 @@ func run() -> void:
 	await steps(60)
 	await steps(120)
 	check("blast-expires", game.blasts.is_empty(), {"live": game.blasts.size()})
+
+	# --- the two paths the rock needs ---------------------------------------
+	# Neither is used by the crate or the bottle: both break straight into flying
+	# debris and both have drawn tumble angles. The rock sheet has five break
+	# frames and no angles at all, so prop.gd grew a drawn-shatter path and a
+	# rotate-the-sprite path for it. Exercised here against the crate's own art
+	# as a stand-in, so they are not first run in front of a player.
+	await fresh()
+	var mock: Area2D = Crate.new()
+	# Any multi-frame strip proves the stepping; crate_spin has six.
+	mock.art_break = "crate_spin"
+	mock.break_step = 0.05
+	mock.position = Vector2(700, 640)
+	game.add_child(mock)
+	await steps(2)
+	# Twice: SURVIVES_FIRST_BLOW leaves anything at full health on one point, so
+	# a single hit of any size only dents it.
+	var _dent: bool = mock.take_hit(999, mock.position - Vector2(40, 0))
+	await steps(1)
+	var _killed: bool = mock.take_hit(999, mock.position - Vector2(40, 0))
+	await steps(1)
+	check("a-drawn-break-plays-where-it-stood",
+		mock.broken and mock.breaking and mock.sprite.visible
+		and mock.debris.is_empty(),
+		{"breaking": mock.breaking, "visible": mock.sprite.visible,
+		 "pieces": mock.debris.size()})
+	var stepped := false
+	var strip_ticks := 0
+	while mock.breaking and strip_ticks < 90:
+		if mock.sprite.texture != mock.break_frames[0]:
+			stepped = true
+		await steps(1)
+		strip_ticks += 1
+	check("the-drawn-break-steps-through-its-frames", stepped,
+		{"frames": mock.break_frames.size(), "ticks": strip_ticks})
+	check("the-pieces-fly-once-the-strip-is-done",
+		not mock.breaking and not mock.sprite.visible
+		and mock.debris.size() == mock.debris_types.size(),
+		{"pieces": mock.debris.size(), "expected": mock.debris_types.size(),
+		 "visible": mock.sprite.visible})
+
+	# And a prop with no drawn angles turns its own sprite instead of flying rigid.
+	await fresh()
+	var roller: Area2D = Crate.new()
+	roller.spins_sprite = true
+	roller.position = Vector2(700, 640)
+	game.add_child(roller)
+	await steps(2)
+	# Standing in for art with no tumble drawn for it, which is the rock's case.
+	roller.spin_frames.clear()
+	var _knocked: bool = roller.take_hit(20, roller.position - Vector2(40, 0))
+	await steps(2)
+	var turned_to: float = roller.sprite.rotation
+	await steps(4)
+	check("no-drawn-angles-means-the-sprite-turns",
+		not roller.at_rest and absf(roller.sprite.rotation - turned_to) > 0.01,
+		{"rotation": roller.sprite.rotation, "was": turned_to,
+		 "at_rest": roller.at_rest})
+	# Back on the ground it has to be upright again, not left lying at an angle.
+	var settle := 0
+	while not roller.at_rest and settle < 240:
+		await steps(1)
+		settle += 1
+	check("it-lands-upright",
+		roller.at_rest and is_zero_approx(roller.sprite.rotation),
+		{"rotation": roller.sprite.rotation, "ticks": settle})
+
+	# The breakable prop is the rock now, and uses both: five drawn shatter
+	# frames and no tumble angles to step through.
+	await fresh()
+	var rock: Area2D = game.crates[0]
+	check("the-breakable-prop-uses-the-rock-art",
+		rock.art_rest == "rock" and rock.art_break == "rock_break"
+		and rock.art_debris == "rock_debris" and rock.spins_sprite
+		and rock.break_frames.size() == 5 and rock.rest_frames.size() == 6,
+		{"rest": rock.art_rest, "break_frames": rock.break_frames.size(),
+		 "rest_frames": rock.rest_frames.size(), "spins": rock.spins_sprite})
+	# The bottle is untouched by either: it has drawn angles and no shatter art.
+	var milk: Area2D = game.bottles[0]
+	check("the-bottle-breaks-as-it-always-did",
+		milk.art_break == "" and not milk.spins_sprite
+		and milk.break_frames.is_empty() and milk.debris_spins == 4,
+		{"art_break": milk.art_break, "spins": milk.spins_sprite,
+		 "debris_spins": milk.debris_spins})
+	# Its resting art animates, which nothing in the game did before.
+	var was: Texture2D = rock._resting_frame()
+	var changed := false
+	for i in range(40):
+		await steps(1)
+		if rock._resting_frame() != was:
+			changed = true
+			break
+	check("the-rock-glow-pulses-where-it-stands", changed,
+		{"rest_fps": rock.rest_fps, "frames": rock.rest_frames.size()})
+
+	# --- a landed blow flashes the same red on anybody ----------------------
+	# The player's hurt flash and the enemies' are the same colour for the same
+	# length, so the feedback is one thing to learn rather than two. Asserted
+	# rather than commented, because two constants in two files drift.
+	check("enemies-flash-the-player's-red",
+		Enemy.HURT_TINT == PlayerSprite.HURT_TINT
+		and is_equal_approx(Enemy.HURT_FLASH, PlayerSprite.HURT_FLASH),
+		{"enemy": str(Enemy.HURT_TINT), "player": str(PlayerSprite.HURT_TINT),
+		 "enemy_s": Enemy.HURT_FLASH, "player_s": PlayerSprite.HURT_FLASH})
+
+	await fresh()
+	var struck: Area2D = game.enemies[0]
+	check("an-unhit-enemy-is-not-tinted",
+		struck.sprite.modulate.is_equal_approx(Color.WHITE),
+		{"modulate": str(struck.sprite.modulate)})
+	var _landed: bool = struck.take_hit(20, struck.position - Vector2(40, 0))
+	await steps(1)
+	check("a-hit-enemy-flashes-red",
+		struck.sprite.modulate.r > struck.sprite.modulate.g + 0.3
+		and struck.sprite.modulate.is_equal_approx(
+			Color.WHITE.lerp(Enemy.HURT_TINT, struck.hurt_flash / Enemy.HURT_FLASH)),
+		{"modulate": str(struck.sprite.modulate), "left": struck.hurt_flash})
+	# And it fades out rather than sticking.
+	var fade_ticks := 0
+	while struck.hurt_flash > 0.0 and fade_ticks < 60:
+		await steps(1)
+		fade_ticks += 1
+	check("the-flash-fades-back-to-white",
+		struck.sprite.modulate.is_equal_approx(Color.WHITE) and fade_ticks < 60,
+		{"modulate": str(struck.sprite.modulate), "ticks": fade_ticks})
+
+	# The bruiser eats a blow mid-swing through his super-armour and never plays
+	# a recoil frame, so before this the one enemy you most needed feedback from
+	# was the one that gave you none.
+	await fresh()
+	var bruiser: Area2D = null
+	for one in game.enemies:
+		if one.armor:
+			bruiser = one
+	if bruiser == null:
+		# First Steps has no bruiser; make the same point on an armoured stand-in
+		# rather than skipping the check entirely.
+		bruiser = game.enemies[0]
+		bruiser.armor = true
+	bruiser.state = bruiser.State.PUNCH
+	var _hit: bool = bruiser.take_hit(20, bruiser.position - Vector2(40, 0))
+	await steps(1)
+	check("super-armour-still-flashes",
+		bruiser.state == bruiser.State.PUNCH and bruiser.hurt_flash > 0.0
+		and bruiser.sprite.modulate.r > bruiser.sprite.modulate.g + 0.3,
+		{"state": bruiser.state, "flash": bruiser.hurt_flash,
+		 "modulate": str(bruiser.sprite.modulate)})
+
+	# --- the blast costs mana ----------------------------------------------
+	# The one thing that spends the bar, and the one thing that refuses to run
+	# when it is empty. Punches stay free, which is what keeps a bar of mana from
+	# being a bar of "may I play".
+	await fresh()
+	var mana_before: int = game.player.mana
+	check("starts-with-three-blasts",
+		mana_before == game.player.START_MANA
+		and mana_before / game.player.BLAST_COST == 3,
+		{"mana": mana_before, "cost": game.player.BLAST_COST})
+	game.player.test_blast_pressed = true
+	await steps(1)
+	check("mana-not-spent-on-keypress",
+		game.player.attack == "blast" and game.player.mana == mana_before,
+		{"attack": game.player.attack, "mana": game.player.mana})
+	var released := 0
+	while not game.player.blast_released and released < 60:
+		await steps(1)
+		released += 1
+	check("blast-costs-mana-on-release",
+		game.player.mana == mana_before - game.player.BLAST_COST,
+		{"mana": game.player.mana, "before": mana_before})
+	await finish_attack()
+
+	# A punch is not a blast and must not touch the bar.
+	mana_before = game.player.mana
+	await stand_to_punch(game.crates[0])
+	game.player.test_attack_pressed = true
+	await finish_attack()
+	check("punching-is-free", game.player.mana == mana_before, {"mana": game.player.mana})
+
+	# Empty: the key does nothing at all. Not a shorter blast, not a punch
+	# instead — nothing, so the bar is the whole explanation.
+	game.player.mana = game.player.BLAST_COST - 1
+	# Counted rather than asserted empty: a projectile from the blast above is
+	# still crossing the level on its own range, and it is not evidence of this.
+	var live_before: int = game.blasts.size()
+	game.player.test_blast_pressed = true
+	await steps(3)
+	check("no-blast-on-empty-mana",
+		game.player.attack == "" and game.blasts.size() <= live_before
+		and game.player.mana == game.player.BLAST_COST - 1,
+		{"attack": game.player.attack, "mana": game.player.mana,
+		 "blasts": game.blasts.size(), "before": live_before})
+	# And one point more is enough again, so the refusal is the cost and not a
+	# separate rule that could drift away from it.
+	game.player.mana = game.player.BLAST_COST
+	game.player.test_blast_pressed = true
+	await steps(2)
+	check("one-blast-left-still-fires", game.player.attack == "blast",
+		{"attack": game.player.attack, "mana": game.player.mana})
+	await finish_attack()
+
+	# --- the brown bottle is mana ------------------------------------------
+	await fresh()
+	var brew: Node2D = null
+	for item in game.bottles:
+		if item.refills == "mana":
+			brew = item
+	check("level-has-a-brown-bottle", brew != null,
+		{"bottles": game.bottles.size()})
+	if brew != null:
+		game.player.mana = 0
+		game.player.health = game.player.MAX_HEALTH
+		await stand_near(brew, -4.0)
+		var two_bars_mana: int = brew.refill_segments * game.player.segment_mana()
+		var drank_it: bool = await finish_drink()
+		check("brown-bottle-fills-mana-not-health",
+			drank_it and game.player.mana == two_bars_mana
+			and game.player.health == game.player.MAX_HEALTH,
+			{"mana": game.player.mana, "expected": two_bars_mana,
+			 "health": game.player.health})
+		# Full mana refuses the drink for the same reason full health refuses
+		# milk: the bottle is worth keeping.
+		await fresh()
+		for item in game.bottles:
+			if item.refills == "mana":
+				brew = item
+		game.player.mana = game.player.MAX_MANA
+		await stand_near(brew, -4.0)
+		var _held: bool = await take_bottle()
+		check("full-mana-refuses-the-brown-bottle",
+			not game.drink() and not brew.consumed,
+			{"mana": game.player.mana, "consumed": brew.consumed})
 
 	# --- retry restores targets --------------------------------------------
 	await fresh()
@@ -447,7 +689,10 @@ func run() -> void:
 	# --- health and the bottle ---------------------------------------------
 	await fresh()
 	check("level-has-a-bottle", game.bottles.size() > 0, {"bottles": game.bottles.size()})
-	check("starts-on-low-health",
+	# Not "starts low" any more — he starts nearly full. What still has to hold is
+	# that he starts BELOW max, because drink() refuses a bottle at full health
+	# and the tutorial's drink beat depends on there being room for one.
+	check("starts-with-room-for-a-bottle",
 		game.player.health == game.player.START_HEALTH
 		and game.player.health < game.player.MAX_HEALTH,
 		{"health": game.player.health, "max": game.player.MAX_HEALTH})
@@ -490,7 +735,7 @@ func run() -> void:
 		{"health": game.player.health, "before": health_before})
 	check("bottle-not-spent-on-keypress", not bottle.consumed and bottle.carried,
 		{"consumed": bottle.consumed, "carried": bottle.carried})
-	var two_bars: int = bottle.heal_segments * game.player.segment_health()
+	var two_bars: int = bottle.refill_segments * game.player.segment_health()
 	check("a-bottle-is-worth-two-bars", two_bars == 40, {"points": two_bars})
 
 	# Measured in game seconds, not loop iterations. steps() awaits a physics

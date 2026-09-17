@@ -4,7 +4,11 @@
 .idea/
 .vscode/
 
-# Video/audio and generated distribution packages stay outside source control.
+# Video/audio RENDERS and generated distribution packages stay outside source
+# control. The game's own music is not one of those and is tracked: Assests/
+# lives outside this repository, so godot/audio/magic_cliffs.ogg is the only
+# copy a clone gets, exactly as for every generated sheet under godot/. Note
+# .ogg is deliberately absent from the list below.
 *.[mM][pP]3
 *.[mM][pP]4
 *.avi

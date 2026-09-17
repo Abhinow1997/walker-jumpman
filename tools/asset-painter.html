@@ -232,11 +232,10 @@ function drawCliff(x,y,w,h){
   ctx.beginPath();
   poly.forEach((p,i)=>{ const s=toS(p[0],p[1]); i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]); });
   ctx.closePath(); ctx.fillStyle="#112024"; ctx.fill();
-  const bs=IMG.body_stone;
-  if(bs&&bs.width){ const pat=ctx.createPattern(bs,"repeat");
-    if(pat&&pat.setTransform) pat.setTransform(new DOMMatrix([RS*view.zoom,0,0,RS*view.zoom,-view.panX*view.zoom,-view.panY*view.zoom]));
-    ctx.save(); ctx.globalAlpha=0.55+0.45*g("texture"); ctx.fillStyle=pat||"#1a2b2b"; ctx.fill();
-    ctx.globalAlpha=1; ctx.restore(); }
+  // Flat, and nothing over it: the pack's cliff interiors are one colour, and
+  // scenery.gd stopped tiling body_stone across them because a single fin shape
+  // repeated down a face reads as wallpaper. A body_stone you PLACE still draws,
+  // as decor - that is how a fin gets into a body now, here and in the game.
   const gs=IMG.grass_strip;
   if(gs&&gs.width){ const gw=gs.width*RS, gh=gs.height*RS, top=y-surf("grass_strip");
     for(let xx=x; xx<x+w-0.1; xx+=gw){ const cw=Math.min(gw,x+w-xx), s=toS(xx,top);

@@ -1,8 +1,7 @@
 {
- "_note": "The course order, and the only place that knows there is more than one level. Each id is godot/levels/<id>.json; a level file owns its own title and copy, so nothing is duplicated here. The menu lists these in order and finishing one loads the next. first_steps and proving_ground are the greybox tutorial and prototyping slice; the Fractured Isles areas that follow are themed.",
+ "_note": "The course order: what NEW JOURNEY plays through, what the in-game level list offers, and the only place that knows how many levels the course has. Each id is godot/levels/<id>.json; a level file owns its own title and copy, so nothing is duplicated here. Finishing one loads the next.",
+ "_off_course": "first_steps and proving_ground are the greybox tutorial and prototyping slices. They are deliberately NOT listed: the course is the themed Fractured Isles alone, and a new journey should not open on a greybox. Both level files are still shipped, still validated by scripts/check_levels.py, and First Steps is what the title screen's PRACTICE row boots — so dropping them from the order took them off the course, not out of the game. Putting either back is one line in `order`.",
  "order": [
-  "first_steps",
-  "proving_ground",
   "fractured_isles"
  ]
 }

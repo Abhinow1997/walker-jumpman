@@ -1,7 +1,7 @@
 extends SceneTree
-## Development tool: shoots the level-select menu and the opening view of every
-## level in the catalogue, so adding a level to the index is one command away
-## from a picture of it.
+## Development tool: shoots the level-select menu and three views of every level
+## file on disk, on or off the course, so adding a level is one command away from
+## a picture of it.
 ##
 ## Not a test; makes no assertions. scripts/check_levels.py is what says whether
 ## a level is playable. This says what it looks like.
@@ -38,6 +38,15 @@ func run() -> void:
 	output = ProjectSettings.globalize_path("res://../evidence/levels")
 	DirAccess.make_dir_recursive_absolute(output)
 	var order: Array = Game.catalogue()
+	# The course is one level now, but the greybox slices are still shipped and
+	# still reachable through the title screen's PRACTICE row, so they are still
+	# worth a picture. The menu rows come from the course; the level shots come
+	# from everything on disk.
+	var every: Array = []
+	for name in DirAccess.get_files_at("res://levels"):
+		if name.ends_with(".json") and name != "index.json":
+			every.append(name.trim_suffix(".json"))
+	every.sort()
 
 	# The menu, once per row, so a long title running into the panel edge shows
 	# up here rather than in a screenshot someone takes later.
@@ -50,7 +59,7 @@ func run() -> void:
 
 	# Each level from its spawn, and again from the flag, which is the pair that
 	# shows whether the geometry and the decoration agree at both ends.
-	for id in order:
+	for id in every:
 		await fresh(id)
 		game.start_session()
 		await steps(3)

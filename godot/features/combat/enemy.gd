@@ -138,6 +138,17 @@ var frame: int = 0
 var velocity: Vector2 = Vector2.ZERO
 var cooldown: float = 0.0
 var stagger: float = 0.0
+## Counts down after a blow lands, exactly as the player's does. Until now a hit
+## on an enemy was legible only from the recoil frame, which the bruiser eats
+## outright through his super-armour — so the one enemy you most need feedback
+## from was the one that gave you none.
+##
+## Kept in step with HURT_FLASH and HURT_TINT in features/player/player_sprite.gd
+## by a check in test_combat.gd: being hit has to read the same whoever it
+## happens to.
+var hurt_flash: float = 0.0
+const HURT_FLASH := 0.35
+const HURT_TINT := Color(1.0, 0.42, 0.38)
 var dead_t: float = 0.0
 ## One punch may only land once, however many frames its box is open for.
 var landed_this_punch: bool = false
@@ -145,6 +156,15 @@ var landed_this_punch: bool = false
 var fired: bool = false
 ## Set by whoever spawns him.
 var home: Vector2 = Vector2.ZERO
+## Whether this one holds its section's gate shut — see the sections block in
+## session.gd. True for anything standing on ground the player runs along.
+##
+## The level marks the exceptions with "perch". The six on the Isles' high ledges
+## are 240 px above the floor: the jump apexes at 112, and both the blast and the
+## arrow fly dead flat, so there is no way at all to kill them. A gate waiting on
+## one of those could never open, and an unopenable gate is a worse bug than a
+## sniper you have to run past.
+var holds_gate: bool = true
 var fall_limit: float = INF
 var target: Node2D = null
 
@@ -216,7 +236,11 @@ func _ready() -> void:
 	sprite.sprite_frames = _build_frames()
 	sprite.centered = true
 	sprite.offset = _pivot()
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	## Linear, for the reason player_sprite.gd gives: this is painted LF2 art at
+	## 0.75, not pixel art, and it only lands texel-perfect at two window sizes.
+	## The whole cast shares the filter or a bandit standing next to him would be
+	## visibly harder-edged than he is.
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	## The sheet is at the rip's own resolution; the node carries the
 	## three-quarter cast size, the same as the player's.
 	art_scale = float(data().get("render_scale", 1.0))
@@ -304,6 +328,10 @@ func take_hit(damage: int, from: Vector2) -> bool:
 	if state == State.DEAD:
 		return false
 	health -= damage
+	# Set here rather than in any of the branches below, so every blow that lands
+	# flashes: the killing one, the one a bruiser shrugs off mid-swing, and the
+	# ordinary one that staggers him.
+	hurt_flash = HURT_FLASH
 	facing = 1.0 if from.x > global_position.x else -1.0
 	var away := -facing
 	# Knockback is scaled by how much the blow weighs against him: a bruiser barely
@@ -376,6 +404,7 @@ func reset() -> void:
 	velocity = Vector2.ZERO
 	cooldown = 0.0
 	stagger = 0.0
+	hurt_flash = 0.0
 	dead_t = 0.0
 	grounded = true
 	landed_this_punch = false
@@ -408,8 +437,13 @@ func _physics_process(delta: float) -> void:
 			_advance_chase(delta)
 
 	_integrate(delta)
+	if hurt_flash > 0.0:
+		hurt_flash = maxf(0.0, hurt_flash - delta)
 	if is_instance_valid(sprite):
 		sprite.scale = Vector2(facing * art_faces, 1.0) * art_scale
+		# Fades back to white on its own clock, so the flash outlives the recoil
+		# frame and a blow still registers on something that never staggered.
+		sprite.modulate = Color.WHITE.lerp(HURT_TINT, hurt_flash / HURT_FLASH)
 
 func _integrate(delta: float) -> void:
 	velocity.y += GRAVITY * delta
@@ -585,6 +619,19 @@ func _advance_charge(delta: float) -> void:
 
 func _advance_archer(delta: float, gap: float, level: bool) -> void:
 	var agap := absf(gap)
+	# He has not noticed the player yet, so he stands where the level put him.
+	#
+	# This gate was missing, and its absence was not subtle: "too far to shoot"
+	# below means walk in, and it had no upper bound, so every archer in the level
+	# set off toward the player the instant it loaded. The first hunter was 1920
+	# away at spawn and arrived while the player was still on the opening ledge.
+	# The melee styles were always gated this way — see the aggro test at the foot
+	# of _advance_chase — and the archer simply never got the same check.
+	if agap > aggro:
+		state = State.IDLE
+		velocity.x = move_toward(velocity.x, 0.0, 600.0 * delta)
+		_play("idle")
+		return
 	# Someone closed to melee range: put his fists up. An archer up close is in
 	# trouble, and the jab is his only answer there.
 	if agap <= attack_range() and cooldown <= 0.0:

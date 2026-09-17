@@ -67,6 +67,11 @@ var death_t: float = 0.0
 ## of the screen is not felt; this puts it on the character.
 var hurt_t: float = 0.0
 const HURT_FLASH := 0.35
+## The red a hit flashes. Named rather than inlined because the enemies flash the
+## same one — see HURT_TINT in features/combat/enemy.gd, which test_combat.gd
+## holds to this value. A player who has learnt what the red means on himself
+## should read it on a bandit without being told.
+const HURT_TINT := Color(1.0, 0.42, 0.38)
 
 var motes: Array = []
 var mote_seed: int = 0
@@ -78,7 +83,16 @@ func _ready() -> void:
 	sprite.sprite_frames = _build_frames()
 	sprite.centered = true
 	sprite.offset = Moveset.pivot()
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	## Linear, unlike the Magic Cliffs scenery, because this is not pixel art:
+	## LF2's sheets are painted and already anti-aliased, 145 colours in one idle
+	## frame, and they take a resample the way a small photograph does.
+	##
+	## It matters because the node below is scaled by 0.75, so the sprite only
+	## lands one texel per pixel when the canvas magnification is a multiple of
+	## 4/3 - that is, at 1280x720 or 2560x1440 and nowhere else. Resize the window
+	## to anything between and nearest sampling drops and doubles rows unevenly,
+	## which reads as the character being far blockier than everything around him.
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	## The sheets are at the pack's own resolution, so the node carries the
 	## three-quarter cast size. Every scale this rig computes below — squash,
 	## widen, the turn — multiplies on top of it rather than replacing it.
@@ -199,7 +213,7 @@ func advance(delta: float) -> void:
 
 	if hurt_t > 0.0:
 		hurt_t = maxf(0.0, hurt_t - delta)
-		sprite.modulate = Color.WHITE.lerp(Color(1.0, 0.42, 0.38), hurt_t / HURT_FLASH)
+		sprite.modulate = Color.WHITE.lerp(HURT_TINT, hurt_t / HURT_FLASH)
 	elif not dying:
 		sprite.modulate = Color.WHITE
 

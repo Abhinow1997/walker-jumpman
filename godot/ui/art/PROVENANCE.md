@@ -1,43 +1,52 @@
-# Health bar — provenance
+# HUD art — provenance
 
-Generated files. Do not edit by hand; rerun `scripts/extract_healthbar.py`
-and let Godot reimport.
+Generated files. Do not edit by hand; rerun the script named below and let Godot
+reimport.
+
+## The health and mana bars
 
 | | |
 |---|---|
-| Source file | `Assests/mech-healthbar.png` |
-| Origin | **Unknown.** Supplied as a bare 60 x 30 PNG with no pack, readme or licence alongside it. |
+| Files | `bar_health_full.png`, `bar_health_empty.png`, `bar_mana_full.png`, `bar_mana_empty.png`, `hud_bars.json` |
+| Script | `scripts/extract_hud_bars.py` |
+| Source file | `Assests/health system asset.jpg` |
+| Origin | **Generated art**, supplied by the author on 2026-09-16. Not a licensed pack and not attributable. |
 
-## Rights
+The source is a 1952 x 2196 style guide rather than a spritesheet: labelled rows
+of full-state examples, partial-fill examples and a component breakdown, all on
+flat grey. Only the two partial-fill bars are used, because they are the only
+pieces on the sheet showing the orb cap, the lightning fill and the dark empty
+track together at one scale. The COMPONENT BREAKDOWN frames look like the
+obvious source and are not: their interiors are page grey, so an unfilled bar cut
+from one would be a hole in the screen.
 
-Unlike the LF2 art in `features/`, nothing is known about where this came from.
-It is not from the Little Fighter 2 rips — different palette, different pixel
-scale, a heart motif LF2 does not use. It looks like a UI sprite from an asset
-pack, which usually means a licence exists somewhere.
+Each bar is reduced to 80 x 13 native pixels, which `hud.gd` draws at x2 in its
+640x360 design space — x3 on the 960x540 screen, so one art pixel is exactly a
+3 x 3 block. Both bars are forced to that one size even though the sheet draws
+them at different scales, because two bars of different lengths stacked in a
+corner read as a mistake and seven percent of stone-block width does not.
 
-**Before release, find out what it is and whether it can be used.** If the pack
-is unknown or its terms cannot be met, the bar is the cheapest thing in the
-project to redraw: it is 53 x 12 pixels and the code reads its geometry from
-`healthbar.json`, so a replacement of the same shape drops straight in.
+The track in both variants is rebuilt column by column, so neither inherits the
+torn, sparking fill edge the sheet happens to be drawn at. Since the source is a
+JPEG, the script cannot check exact pixel values the way the LF2 extractors do;
+it checks the geometry by proportion instead — the lit span has to be saturated
+colour and the dark span has to be dark, by a wide margin — and stops if the
+sheet has been recropped or replaced.
 
-## What the extractor does
+### Rights
 
-The asset is drawn in one fixed state — three segments lit, two grey — which a
-HUD cannot use. Two versions are written instead:
+This is the same provenance category as the title screen (`title_bg.png` and the
+four menu plates, also generated, also from the author): not a licence problem
+the way the LF2 sprites in `features/` are, but not attributable the way the CC0
+packs are either. **A credits screen needs its own line for generated art and
+must not fold it into the CC0 attributions.**
 
-| File | Segments | Under-bar |
-|---|---|---|
-| `healthbar_empty.png` | all grey | dark |
-| `healthbar_full.png` | all lit | amber and orange |
+## The old mech health bar
 
-`hud.gd` draws the empty one and then the full one clipped to the player's
-health fraction, so the segments and the under-bar fill together and a segment
-can sit half-lit at the clip edge. At 25 of 100 health one segment of five is
-lit; after the milk, three and a half.
-
-The recolouring cannot be a blanket palette swap: the heart is drawn in the same
-two reds as a lit segment and would grey out with them. The segments are
-addressed by position instead — at row `15 + n`, segment `i` starts at
-`x = 20 + 5i - n`, its two coloured pixels being the next two along. Those
-numbers were measured off the asset, and the extractor re-checks every one of
-them against the source on each run and stops if any has moved.
+`healthbar_full.png`, `healthbar_empty.png`, `healthbar.json` and
+`scripts/extract_healthbar.py` were removed on 2026-09-16 when the bars above
+replaced them. That asset — `Assests/mech-healthbar.png` — had **no known
+origin at all**: a bare 60 x 30 PNG with no pack, readme or licence beside it,
+and the open question of whether it could be shipped. Retiring it closes that
+question. The source file is still in `Assests/` and the deleted script is in
+git history if the old bar is ever wanted back.

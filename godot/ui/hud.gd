@@ -1,58 +1,98 @@
 extends Control
 var game: Node2D
+## Dark ink on light paper, as before. The play HUD has no paper behind it any
+## more, so it carries its own: every string on it is drawn with a pale outline
+## and the same dark face on top.
+##
+## The halo goes under the ink rather than the other way round because the levels
+## are mostly light — First Steps is cream to the horizon — and pale text on pale
+## art disappears. The halo only has to survive the dark patches: the Magic
+## Cliffs sky, the slate ground, a cliff face.
 const INK := Color("25354a")
+const HALO := Color(0.96, 0.95, 0.91, 0.92)
+## Outline width in HUD pixels. Four reads as a one-pixel ring at 12 px and does
+## not close up the counters of the fallback font.
+const HALO_WIDTH := 4
+## Behind the two meters that have to read as a length rather than as text.
+const TROUGH := Color(0.11, 0.16, 0.21, 0.55)
 
-## The health bar is the mech-healthbar asset, cut into a full and an empty
-## version by scripts/extract_healthbar.py. The empty one is drawn, then the
-## full one clipped to the player's health, so the segments and the amber
-## under-bar fill together and a segment can sit half-lit at the clip edge.
-const HEALTHBAR := "res://ui/art/healthbar.json"
-const HEALTHBAR_ART := "res://ui/art/"
-## Drawn at twice its size. At 1:1 a 53 px bar is dwarfed by 12 px HUD text.
-const HB_SCALE := 2.0
+## Health and mana come from the same sheet, cut into a full and an empty version
+## each by scripts/extract_hud_bars.py. The empty one is drawn, then the full one
+## clipped to the player's fraction, so the lightning sweeps across a frame that
+## never moves.
+const BARS := "res://ui/art/hud_bars.json"
+const BAR_ART := "res://ui/art/"
+## Drawn at HALF its size in the 640x360 design space. Half looks backwards for a
+## HUD element, but the art is now extracted at the size it ends up on screen
+## rather than at a fourteenth of it: 0.5 here, x1.5 for the viewport and x4/3
+## for a 1280x720 window come back to 1, so a texture pixel is a screen pixel.
+## It was 2.0 against 80x13 art, which magnified every source pixel into a 4x4
+## block. The bar's size on screen is unchanged — only its resolution went up.
+const BAR_SCALE := 0.5
+## Where the two bars sit, and the gap between them.
+const BAR_AT := Vector2(20, 8)
+const BAR_STEP := 30.0
 
-var hb_empty: Texture2D
-## An AtlasTexture whose region is narrowed each frame, rather than
+## Replaced by whatever hud_bars.json reports; this is only what the fallback
+## rectangles are sized against if the art is missing. Keep it at NATIVE.
+var bar_size := Vector2(320, 52)
+## name -> {empty: Texture2D, clip: AtlasTexture, fill: Vector2}. `clip` is an
+## AtlasTexture whose region is narrowed each frame, rather than
 ## draw_texture_rect_region, which renders the art as flat white here.
-var hb_clip: AtlasTexture
-var hb_size := Vector2(53, 12)
-var hb_fill := Vector2(13, 44)
+var bars := {}
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_load_healthbar()
+	## Linear, because the bar art is a reduction of a painted sheet rather than
+	## pixel art, and because the HUD only lands texel-perfect at 1280x720 — at
+	## any other window size BAR_SCALE x 1.5 x magnification is not an integer and
+	## nearest sampling would break the frame's straight edges up unevenly.
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_load_bars()
 
-func _load_healthbar() -> void:
-	var text := FileAccess.get_file_as_string(HEALTHBAR)
+func _load_bars() -> void:
+	var text := FileAccess.get_file_as_string(BARS)
 	if text.is_empty():
-		push_warning("hud: %s is missing. Run scripts/extract_healthbar.py." % HEALTHBAR)
+		push_warning("hud: %s is missing. Run scripts/extract_hud_bars.py." % BARS)
 		return
 	var data: Dictionary = JSON.parse_string(text)
-	hb_size = Vector2(float(data.size[0]), float(data.size[1]))
-	hb_fill = Vector2(float(data.fill_x0), float(data.fill_x1))
-	var empty_path: String = HEALTHBAR_ART + str(data.files.empty)
-	var full_path: String = HEALTHBAR_ART + str(data.files.full)
-	if not ResourceLoader.exists(empty_path) or not ResourceLoader.exists(full_path):
-		push_warning("hud: health bar art not imported yet; falling back to a plain bar")
-		return
-	hb_empty = load(empty_path)
-	hb_clip = AtlasTexture.new()
-	hb_clip.atlas = load(full_path)
+	bar_size = Vector2(float(data.size[0]), float(data.size[1]))
+	for name in data.bars:
+		var spec: Dictionary = data.bars[name]
+		var empty_path: String = BAR_ART + str(spec.files.empty)
+		var full_path: String = BAR_ART + str(spec.files.full)
+		if not ResourceLoader.exists(empty_path) or not ResourceLoader.exists(full_path):
+			# The art is generated, so a fresh checkout that has not been
+			# imported yet falls back to plain rectangles rather than nothing.
+			push_warning("hud: %s bar art not imported yet; falling back to a plain bar" % name)
+			bars.clear()
+			return
+		var clip := AtlasTexture.new()
+		clip.atlas = load(full_path)
+		bars[name] = {
+			"empty": load(empty_path),
+			"clip": clip,
+			"fill": Vector2(float(spec.fill_x0), float(spec.fill_x1)),
+		}
 
 func text_at(text: String, position: Vector2, size_px: int = 14, color: Color = INK) -> void:
 	draw_string(ThemeDB.fallback_font, position, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, color)
+
+func over_level(text: String, position: Vector2, size_px: int = 12, color: Color = INK) -> void:
+	## A string on the play HUD, which has no panel behind it. The pale ring is
+	## the panel now, drawn per glyph so it follows the text instead of boxing it.
+	draw_string_outline(ThemeDB.fallback_font, position, text, HORIZONTAL_ALIGNMENT_LEFT,
+		-1, size_px, HALO_WIDTH, HALO)
+	text_at(text, position, size_px, color)
 
 func centered(text: String, y: float, font_size: int, color: Color = INK) -> void:
 	var width := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	text_at(text, Vector2((640-width)/2, y), font_size, color)
 
-func right_at(text: String, corner: Vector2, font_size: int, color: Color = INK) -> void:
-	## Right-aligned to `corner.x`. Level titles vary in length, so the old fixed
-	## left edge would have run off the panel on anything longer than the first.
+func _centred_over_level(text: String, y: float, font_size: int, color: Color = INK) -> void:
 	var width := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	text_at(text, Vector2(corner.x - width, corner.y), font_size, color)
+	over_level(text, Vector2((640-width)/2, y), font_size, color)
 
 ## --- the panel the menu, the pause screen and the results share -------------
 ##
@@ -91,43 +131,98 @@ func row_at(at: Vector2) -> int:
 			return i
 	return -1
 
-func _health(at: Vector2) -> void:
-	## He starts on very little health on purpose, so the bar reads as a problem
-	## before the bottle is ever found: one segment of five, and the heart is the
-	## only thing saying what it means.
-	var fraction: float = clampf(game.player.health_fraction(), 0.0, 1.0)
-	if hb_empty == null or hb_clip == null:
-		# The art is generated, so a fresh checkout that has not been imported
-		# yet still gets a readable bar rather than nothing at all.
-		text_at("HEALTH %d" % game.player.health, at + Vector2(0,15), 12)
-		draw_rect(Rect2(at.x+80, at.y+8, 110, 8), Color("daddd6"))
-		draw_rect(Rect2(at.x+80, at.y+8, 110*fraction, 8),
-			Color("a23e36") if fraction < 0.34 else Color("287c68"))
+func _bar(name: String, at: Vector2, fraction: float, empty_tint: Color) -> void:
+	## One bar of either kind. `fraction` is 0 to 1; `empty_tint` is only for the
+	## fallback rectangles, which is the one place the two bars need telling
+	## apart without their art.
+	fraction = clampf(fraction, 0.0, 1.0)
+	var spec: Dictionary = bars.get(name, {})
+	if spec.is_empty():
+		var box := Rect2(at.x, at.y + 6.0, bar_size.x * BAR_SCALE, 10.0)
+		draw_rect(box, TROUGH)
+		box.size.x *= fraction
+		draw_rect(box, empty_tint)
 		return
-	draw_texture_rect(hb_empty, Rect2(at, hb_size * HB_SCALE), false)
+	draw_texture_rect(spec.empty, Rect2(at, bar_size * BAR_SCALE), false)
 	# Rounded to whole source pixels, or the clip edge shimmers between two
-	# columns as health changes and the pixel art stops looking like pixel art.
-	var edge := roundf(lerpf(hb_fill.x, hb_fill.y, fraction))
+	# columns as the bar changes and the pixel art stops looking like pixel art.
+	var fill: Vector2 = spec.fill
+	var edge := roundf(lerpf(fill.x, fill.y, fraction))
 	if edge > 0.0:
-		hb_clip.region = Rect2(0, 0, edge, hb_size.y)
-		draw_texture_rect(hb_clip, Rect2(at, Vector2(edge, hb_size.y) * HB_SCALE), false)
-	# Baseline matched to the rest of the strip rather than to the bar.
-	text_at("%d" % game.player.health, Vector2(at.x + hb_size.x * HB_SCALE + 10, 353), 12)
+		var clip: AtlasTexture = spec.clip
+		clip.region = Rect2(0, 0, edge, bar_size.y)
+		draw_texture_rect(clip, Rect2(at, Vector2(edge, bar_size.y) * BAR_SCALE), false)
+
+func _meters() -> void:
+	## The two bars and their numbers, stacked in the corner.
+	##
+	## He starts on very little health on purpose, so the bar reads as a problem
+	## before the bottle is ever found. Mana starts at three blasts of five, for
+	## the same reason in the other direction: enough to learn what K does, not
+	## enough to lean on it.
+	var health_at := BAR_AT
+	var mana_at := BAR_AT + Vector2(0, BAR_STEP)
+	_bar("health", health_at, game.player.health_fraction(),
+		Color("a23e36") if game.player.health_fraction() < 0.34 else Color("287c68"))
+	_bar("mana", mana_at, game.player.mana_fraction(), Color("287c68"))
+	# Baselines set against the middle of each bar rather than its top edge, so
+	# the number reads as belonging to the bar beside it.
+	var number_x := BAR_AT.x + bar_size.x * BAR_SCALE + 10.0
+	var middle := bar_size.y * BAR_SCALE / 2.0 + 5.0
+	over_level("%d" % game.player.health, Vector2(number_x, health_at.y + middle), 13)
+	over_level("%d" % game.player.mana, Vector2(number_x, mana_at.y + middle), 13)
+
+## How near the gate he has to be before the chevron appears, and how far in
+## from the right edge of the screen it sits.
+const GATE_CUE_RANGE := 300.0
+const GATE_CUE_X := 596.0
+
+func _gate_cue() -> void:
+	## A chevron at the right edge once the section is clear: the way on is open.
+	## No word, because nothing on the play HUD is words any more — and an arrow
+	## pointing the way out needs none.
+	##
+	## Nothing is drawn while the gate is shut. The stopped camera is the message
+	## there: he can see he has run out of screen.
+	if game.gates.is_empty():
+		return
+	var index: int = game.section_of(game.player.position.x)
+	if index >= game.gates.size() or not game.section_clear(index):
+		return
+	var gate: float = float(game.gates[index])
+	if gate - game.player.position.x > GATE_CUE_RANGE:
+		return
+	# Pulsed off the attempt clock rather than a clock of its own, so it does not
+	# keep beating while the game is paused.
+	var pulse: float = 0.55 + 0.45 * sin(game.elapsed * 5.0)
+	var mid := 40.0
+	var tint := Color("2fb98a")
+	tint.a = pulse
+	for step in 2:
+		var x := GATE_CUE_X - 26.0 + float(step) * 13.0
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(x, mid - 11.0), Vector2(x + 9.0, mid), Vector2(x, mid + 11.0),
+			Vector2(x - 5.0, mid + 11.0), Vector2(x + 4.0, mid),
+			Vector2(x - 5.0, mid - 11.0)]), tint)
 
 func _drink_prompt() -> void:
 	## One key, three different jobs, so the prompt has to say which one is on
 	## offer. Nothing is picked up on contact: the point of the tutorial is that
 	## lifting and drinking are both actions you take.
+	## Nothing while he drinks. The countdown and its meter used to sit here to
+	## say that standing still is the mechanic rather than a fault, but the
+	## health bar already says it: the drink arrives mouthful by mouthful, so the
+	## bar is climbing the whole time he is stood there.
 	if game.player.is_drinking():
-		_drink_progress()
 		return
 	var label := ""
 	var dim := false
 	var held: Node2D = game.bottle_being_carried()
 	if held != null:
 		# Holding the bottle: the wait is whatever is left in that one, not a
-		# flat six seconds, or a part-drunk bottle looks unchanged.
-		dim = game.player.health >= game.player.MAX_HEALTH
+		# flat six seconds, or a part-drunk bottle looks unchanged. Which bar it
+		# fills decides whether "already full" is even the question.
+		dim = game.player.refill_full(held.refills)
 		label = "ALREADY FULL" if dim else "HOLD E  /  DRINK  %0.1fs" % held.drink_seconds(game.player)
 	elif game.player.is_carrying():
 		label = "J  /  THROW"
@@ -136,52 +231,41 @@ func _drink_prompt() -> void:
 	else:
 		return
 	# Clear of the ground line, so it never sits on top of the level geometry.
-	draw_rect(Rect2(245,256,150,26), Color("fffdf7"))
-	draw_rect(Rect2(245,256,150,3), Color("ef875f"))
-	centered(label, 275, 13, Color("daddd6") if dim else INK)
-
-func _drink_progress() -> void:
-	## Seconds of a looping animation and nothing else reads as the game having
-	## hung. The countdown is the only thing telling the player that standing
-	## still is the mechanic rather than a fault — and since health now arrives
-	## mouthful by mouthful, the bar beside it is moving too.
-	var progress: float = game.player.drink_progress()
-	var left: float = game.player.drink_remaining()
-	draw_rect(Rect2(245,250,150,34), Color("fffdf7"))
-	draw_rect(Rect2(245,250,150,3), Color("287c68"))
-	centered("KEEP STILL   %0.1fs" % left, 268, 13)
-	draw_rect(Rect2(255,273,130,5), Color("daddd6"))
-	draw_rect(Rect2(255,273,130*progress,5), Color("287c68"))
+	_centred_over_level(label, 275, 13, Color("8d98a2") if dim else INK)
 
 func _draw() -> void:
 	if not is_instance_valid(game):
 		return
-	draw_rect(Rect2(0,0,640,74), Color("f6f3ec"))
-	text_at("WALKER / JUMPMAN", Vector2(22,27), 18)
-	right_at(str(game.level.get("title", "")).to_upper(), Vector2(618,27), 14)
-	text_at("A/D: move  Space: jump  J: attack / throw  K: blast  E: lift / drink  R: retry  Esc: pause", Vector2(22,50), 12)
-	draw_rect(Rect2(22,63,596,3), Color("daddd6"))
+	## The play HUD is the two bars, their numbers and the progress line, and
+	## nothing else. The game title, the level name, the control list, the retry
+	## count and the timer were all cleared off the screen: they were static text
+	## that never changed while you played, sitting over the level art. What is
+	## left either moves (the bars, the progress line) or answers a question you
+	## are asking right now (the numbers, the prompts below).
+	##
+	## Not all of it is gone from the game: the level name is a row on the menu,
+	## and the retry count and finish time are on the results panel. They are
+	## read between attempts now rather than during one.
+	_meters()
 	## Spawn to flag, read off the level. It was (x-128)/1704 typed in, which is
 	## exactly First Steps' spawn and finish and silently wrong for any other level.
 	var from: float = float(game.level.spawn[0])
 	var to: float = float(game.level.finish[0])
 	var progress: float = clampf((game.player.position.x-from)/maxf(to-from, 1.0), 0, 1)
-	draw_rect(Rect2(22,63,596*progress,3), Color("287c68"))
-	# Five pixels taller than it was: the health bar is 24 px at double size and
-	# the old 25 px strip left it hanging off the bottom of the screen.
-	draw_rect(Rect2(0,330,640,30), Color("f6f3ec"))
-	_health(Vector2(22,333))
-	text_at("No lives. Just another try.", Vector2(176,353), 12)
-	text_at("RETRIES %02d     %04.1fs" % [game.deaths, game.elapsed], Vector2(440,353), 13)
+	draw_rect(Rect2(20,351,600,4), TROUGH)
+	draw_rect(Rect2(20,351,600*progress,4), Color("2fb98a"))
 	if game.state == game.State.PLAYING:
+		_gate_cue()
 		_drink_prompt()
 		return
 	if game.state == game.State.DYING:
-		draw_rect(Rect2(180,128,280,68), Color("fff9ee"))
-		centered(game.death_reason, 155, 21, Color("a23e36"))
-		centered("Back at the start in a moment.", 180, 13)
+		_centred_over_level(game.death_reason, 155, 21, Color("a23e36"))
+		_centred_over_level("Back at the start in a moment.", 180, 13)
 		return
-	draw_rect(Rect2(0,74,640,261), Color(0.10,0.16,0.20,0.16))
+	# Edge to edge. It used to stop short of the two cream strips, which hid the
+	# seam; with nothing bracketing the screen any more, a dimmed middle and two
+	# bright bands read as a rendering fault rather than as a modal panel.
+	draw_rect(Rect2(0,0,640,360), Color(0.10,0.16,0.20,0.16))
 	var top := _panel_top()
 	var h := _panel_height()
 	var left := (640.0 - PANEL_W) / 2.0

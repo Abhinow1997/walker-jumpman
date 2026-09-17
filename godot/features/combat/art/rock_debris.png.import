@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bpv81wsu1gk1k"
-path="res://.godot/imported/healthbar_empty.png-37e140f835aa212ffdccc40f853f9995.ctex"
+uid="uid://dt10kkqf50acv"
+path="res://.godot/imported/rock_debris.png-872aa41e0becad79f3b19450ed0f8cf9.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://ui/art/healthbar_empty.png"
-dest_files=["res://.godot/imported/healthbar_empty.png-37e140f835aa212ffdccc40f853f9995.ctex"]
+source_file="res://features/combat/art/rock_debris.png"
+dest_files=["res://.godot/imported/rock_debris.png-872aa41e0becad79f3b19450ed0f8cf9.ctex"]
 
 [params]
 

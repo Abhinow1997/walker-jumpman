@@ -13,6 +13,7 @@
   "hazards": [[800, 608, 48, 32]],
   "crates": [[260, 640]],
   "bottles": [[380, 576, 2]],
+  "brews": [[700, 640, 2]],
   "enemies": [[1000, 640, "mark"], [430, 640, "hunter"]],
   "enemies_note": "[x, ground_y] is a bandit; a third value picks the kind — \"bandit\" (the default), \"mark\" (white-tank LF2 fighter) or \"hunter\" (the bow-carrying archer, cut as a brawler). Hunter waits on the first platform near the spawn; Mark is met on the far platform after the gap. Two kinds, no two stacked.",
   "signs": [[66, 502, "01 / SAME RULES", "Nothing new. Just less floor."]],

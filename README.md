@@ -6,7 +6,13 @@ Standalone game repository: [nikbearbrown/walker-jumpman](https://github.com/nik
 
 Clone with `git clone https://github.com/nikbearbrown/walker-jumpman.git`, then import `walker-jumpman/godot/project.godot` in the regular Godot editor. No .NET runtime or external assets are required. On macOS, the launcher below also works when Godot is installed in Applications; on other platforms, use the editor or `godot --path godot` from the cloned folder.
 
-Double-click [walker-jumpman.command](walker-jumpman.command) to play. The game opens on a level menu: **W/S or up/down** to choose, **Enter** to start. In play, **A/D or left/right** to move, **Space** to jump, **J** to attack or throw, **K** to blast, **E** to lift or drink, **R** to retry, **Escape/P** to pause and **M** for the menu. Reach the flag. Retries are unlimited, and finishing a level goes straight to the next one.
+Double-click [walker-jumpman.command](walker-jumpman.command) to play. The game opens on the title screen: **NEW JOURNEY** starts the course in The Fractured Isles, **PRACTICE** drops into the First Steps greybox slice, and **LOAD GAME** opens the in-game level list (**W/S or up/down** to choose, **Enter** to start). In play, **A/D or left/right** to move, **Space** to jump, **J** to attack or throw, **K** to blast, **E** to lift or drink, **R** to retry, **Escape/P** to pause and **M** for the menu. Reach the flag. Retries are unlimited, and finishing a level goes straight to the next one.
+
+The title screen and The Fractured Isles share the Magic Cliffs loop — the pack ships one track — so starting a new journey carries the music straight on rather than restarting it. The greybox slices are silent. Music lives in [music.gd](godot/game/music.gd), the one node in the project that outlives a scene.
+
+The stage is cut into sections and you do not walk past a fight. While enemies are still standing in your section the camera stops dead, an invisible wall stands on the line, and you can see you have run out of screen rather than out of floor; put them down and both let go, with a chevron at the edge to say so. Walking back is never blocked. The Fractured Isles is four sections, the last being the Archway platform where the boss fight will go — it has no gate yet, so the flag ends it.
+
+Two bars sit in the top corner. Health is the cyan one: punks take it, the white milk bottles give it back, and spikes and pits ignore it entirely — those are still instant deaths. Mana is the green one, and the blast is the only thing that spends it: three blasts' worth to start, twenty a shot, and the brown bottles are the only way to earn more. Punching and kicking stay free, so an empty mana bar costs you the ranged option and nothing else.
 
 ![The actual First Steps game, captured during a scripted jump](evidence/screens/03-jump.png)
 
@@ -32,18 +38,25 @@ The first Walker example is a compact 2D platformer built around readable jumps,
 
 ## Adding a level
 
-Levels are data. One JSON file each in [godot/levels/](godot/levels), listed in
-play order by [index.json](godot/levels/index.json), which is the only file that
-knows there is more than one. First Steps is the tutorial and prototyping slice:
-it introduces every mechanic once, and later levels assume it has been played.
+Levels are data. One JSON file each in [godot/levels/](godot/levels), and
+[index.json](godot/levels/index.json) says which of them are *the course* and in
+what order — the only file that knows how long the game is. The course is The
+Fractured Isles and nothing else: NEW JOURNEY starts at the top of that list, and
+a new game should not open on a greybox.
 
-To add one, write `godot/levels/<id>.json` and put `<id>` in the index's `order`.
-Nothing else changes — the menu, the title, the progress bar, the background
-signs and the chain to the next level all read from the file.
+First Steps and Proving Ground are still shipped, still validated and still
+playable — First Steps is what PRACTICE boots — they are simply off the course.
+First Steps is the tutorial and prototyping slice: it introduces every mechanic
+once, and it is what the test suites are written against.
+
+To add one, write `godot/levels/<id>.json`; put `<id>` in the index's `order` to
+make it part of the course, or leave it out to keep it off. Nothing else changes
+— the menu, the title, the progress bar, the background signs and the chain to
+the next level all read from the file.
 
 | key | shape | meaning |
 |---|---|---|
-| `title` | string | shown top-right in play and as the menu row |
+| `title` | string | the menu row, and the results panel's "Next:" line |
 | `tagline`, `brief` | string | the results panel, and the menu blurb |
 | `width` | number | right wall; the camera stops half a viewport short of it |
 | `fall_y` | number | below this is a death, so it must be under every floor |
@@ -51,12 +64,15 @@ signs and the chain to the next level all read from the file.
 | `solids` | `[[x, y, w, h]]` | platforms and floor; `y` is the **top** edge |
 | `hazards` | `[[x, y, w, h]]` | spikes. Instant death, unchanged by health |
 | `finish` | `[x, y, w, h]` | the flag; `y + h` has to meet a solid's top |
-| `crates` | `[[x, y]]` | optional. Breakable, throwable, never an obstacle |
-| `bottles` | `[[x, y, bars]]` | optional. `bars` is **health-bar segments, 1–5**, not points |
-| `enemies` | `[[x, y]]` or `[[x, y, kind]]` | optional. One entry each. `kind` is `"bandit"` (the default), `"mark"` or `"hunter"`; each is a folder under `features/combat/art/` cut by `scripts/extract_<kind>.py` |
+| `crates` | `[[x, y]]` | optional. Breakable, throwable, never an obstacle. Drawn as the glowing rock; the key is the slot, not the art |
+| `bottles` | `[[x, y, bars]]` | optional. White milk bottles; `bars` is **health-bar segments, 1–5**, not points |
+| `brews` | `[[x, y, bars]]` | optional. Brown bottles, same units against the **mana** bar |
+| `enemies` | `[[x, y]]`, `[[x, y, kind]]` or `[[x, y, kind, "perch"]]` | optional. One entry each. `kind` is `"bandit"` (the default), `"mark"` or `"hunter"`; each is a folder under `features/combat/art/` cut by `scripts/extract_<kind>.py`. `"perch"` marks one that does **not** hold its section's gate |
+| `gates` | `[x, ...]` | optional. Section end walls, left to right. Three gates make four sections |
 | `signs` | `[[x, y, heading]]` or `[[x, y, heading, subtitle]]` | background text, in world coordinates |
 | `hills` | `[x, ...]` | optional, greybox only. Omit and six are spaced evenly across the width |
 | `theme` | string | optional. Names an art set in `features/world/art/`. Omit for the greybox look |
+| `music` | string | optional. Names a track in `godot/audio/` without its extension. Omit and the level is silent |
 | `decor` | `[[x, y, piece]]` | optional, themed only. Art with its bottom edge at `y`. Never collision |
 | `horizon` | number | optional, themed only. The waterline the parallax layers sit on |
 

@@ -82,8 +82,14 @@ const SURVIVES_FIRST_BLOW := true
 ## How long the wreckage lives. Long enough for pieces to bounce once and
 ## settle, which is what makes it read as breaking rather than vanishing.
 const BREAK_TIME := 0.95
-## Every debris strip is laid out as fragment type * 4 + rotation.
-const DEBRIS_SPINS := 4
+## How many drawn rotations each debris fragment has. The LF2 strips draw four
+## apiece and are laid out as fragment type * 4 + rotation; a sheet that draws
+## each piece once sets this to 1 and lists its pieces in `debris_types`.
+var debris_spins: int = 4
+## How many tumble steps make a full turn when an object spins its own sprite
+## rather than stepping through drawn angles. Eight, matching the eight drawn
+## rotations of the sheets that do have them, so both turn at the same rate.
+const SPRITE_TURN_STEPS := 8.0
 
 # --- configuration, set by the subclass in _configure() ---------------------
 
@@ -92,8 +98,22 @@ var max_health: int = 40
 ## edge does not miss.
 var body: Vector2 = Vector2(48, 48)
 var art_rest: String = ""
+## Frames per second of the resting animation, when `art_rest` holds more than
+## one frame. Zero — the default, and every LF2 prop — holds frame 0 forever.
+var rest_fps: float = 0.0
 var art_spin: String = ""
 var art_debris: String = ""
+## An in-place shatter strip: the object coming apart where it stood, played once
+## before its pieces are thrown. Empty for anything with no such art — the crate
+## and the bottle break straight into debris, exactly as they always have.
+var art_break: String = ""
+## Seconds per frame of that strip.
+var break_step: float = 0.07
+## Whether a tumbling object turns by rotating its one sprite instead of stepping
+## through drawn angles. False for anything with a drawn tumble: rotating the
+## crate on top of LF2's six angles would turn it twice. True for something
+## round with no angles drawn, which otherwise sails through the air rigid.
+var spins_sprite: bool = false
 ## One entry per debris piece, naming which fragment of the strip it is. Weight
 ## it toward the smaller fragments or a break looks like the thing split into a
 ## few identical lumps.
@@ -144,7 +164,15 @@ var carried: bool = false
 var thrown: bool = false
 var throw_struck: Array = []
 
+## Every frame of `art_rest`, for a prop whose resting art animates. The first
+## is `rest_frame`, which is all a still prop ever draws.
+var rest_frames: Array[Texture2D] = []
+var rest_clock: float = 0.0
 var break_t: float = 0.0
+## Inside the drawn shatter, before the pieces fly. Only ever true for a prop
+## with an `art_break` strip.
+var breaking: bool = false
+var break_frames: Array[Texture2D] = []
 var debris: Array = []
 var debris_seed: int = 0
 ## Floor height for the wreckage, relative to the prop, measured when it
@@ -172,6 +200,14 @@ func _on_ready() -> void:
 ## Extra per-step work: idle animation and the like.
 func _prop_process(_delta: float) -> void:
 	pass
+
+func _resting_frame() -> Texture2D:
+	## The frame of the resting animation showing now, or the only one there is.
+	## The clock runs whether it is on the floor or in the air, so a glow that
+	## pulses keeps pulsing while the thing is being carried or thrown.
+	if rest_fps <= 0.0 or rest_frames.size() < 2:
+		return rest_frame
+	return rest_frames[int(rest_clock * rest_fps) % rest_frames.size()]
 
 ## Where the resting sprite sits, for props that bob or lean in place.
 func _rest_offset() -> Vector2:
@@ -201,17 +237,23 @@ func _init() -> void:
 func _ready() -> void:
 	home = position
 	art_render = Items.render_scale()
-	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	## Linear, as for the cast: the crates and bottles are painted LF2 items on
+	## the same 0.75 and pick up the same uneven sampling at other window sizes.
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	if art_rest != "":
 		rest_frame = Items.frame(art_rest, 0)
+		for i in Items.frames(art_rest):
+			rest_frames.append(Items.frame(art_rest, i))
 	for i in Items.frames(art_spin):
 		spin_frames.append(Items.frame(art_spin, i))
 	for i in Items.frames(art_debris):
 		debris_frames.append(Items.frame(art_debris, i))
+	for i in Items.frames(art_break):
+		break_frames.append(Items.frame(art_break, i))
 	sprite = Sprite2D.new()
 	sprite.centered = true
 	sprite.scale = Vector2(art_render, art_render)
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	add_child(sprite)
 	_on_ready()
 	_update_sprite()
@@ -233,6 +275,8 @@ func reset() -> void:
 	spin_phase = 0.0
 	spin_rate = 0.0
 	break_t = 0.0
+	breaking = false
+	rest_clock = 0.0
 	debris.clear()
 	_update_sprite()
 	queue_redraw()
@@ -388,6 +432,25 @@ func _shatter() -> void:
 	broken = true
 	break_t = 0.0
 	at_rest = true
+	motion = Vector2.ZERO
+	# With a drawn shatter, the object comes apart where it stands first and the
+	# pieces are not thrown until that has played. Without one — the crate, the
+	# bottle — the pieces go immediately, which is what both have always done.
+	breaking = not break_frames.is_empty()
+	if breaking:
+		if is_instance_valid(sprite):
+			sprite.visible = true
+			sprite.texture = break_frames[0]
+			sprite.offset = Items.pivot(art_break)
+			sprite.position = Vector2.ZERO
+			sprite.rotation = 0.0
+		return
+	_scatter()
+
+func _scatter() -> void:
+	## Throws the pieces and takes the body off the screen. Called straight from
+	## _shatter for anything with no drawn break, and at the end of the strip for
+	## anything that has one.
 	var floor_y := _floor_below(position.y - 4.0)
 	debris_floor = 0.0 if floor_y == INF else maxf(0.0, floor_y - position.y)
 	debris.clear()
@@ -403,15 +466,27 @@ func _shatter() -> void:
 			"vel": Vector2((sx * 150.0 + shake_dir * 70.0) * ART_SCALE + motion.x * 0.4,
 						   (-60.0 - sy * 270.0) * ART_SCALE + motion.y * 0.3),
 			"spin": (0.4 + _noise(debris_seed * 7)) * 26.0 * (1.0 if sx > 0.0 else -1.0),
-			"phase": _noise(debris_seed * 11) * float(DEBRIS_SPINS),
+			"phase": _noise(debris_seed * 11) * float(debris_spins),
 			"rest": false,
 		})
-	motion = Vector2.ZERO
 	if is_instance_valid(sprite):
 		sprite.visible = false
 
-func _update_debris(delta: float) -> void:
+func _update_break(delta: float) -> void:
 	break_t += delta
+	if breaking:
+		var span := break_step * float(break_frames.size())
+		if break_t < span:
+			var index := clampi(int(break_t / break_step), 0, break_frames.size() - 1)
+			if is_instance_valid(sprite):
+				sprite.texture = break_frames[index]
+			return
+		# The drawn break has finished coming apart. Now the pieces go, and the
+		# debris clock starts from zero so BREAK_TIME still means what it says.
+		breaking = false
+		break_t = 0.0
+		_scatter()
+		return
 	if break_t >= BREAK_TIME:
 		debris.clear()
 		queue_redraw()
@@ -440,8 +515,9 @@ func _update_debris(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if flash > 0.0:
 		flash = maxf(0.0, flash - delta * 6.0)
+	rest_clock += delta
 	if broken:
-		_update_debris(delta)
+		_update_break(delta)
 		return
 	if carried:
 		# In his hands. The carrier places it; gravity and the floor do not.
@@ -458,19 +534,31 @@ func _update_sprite() -> void:
 	if not is_instance_valid(sprite):
 		return
 	if broken:
-		sprite.visible = false
+		# Visible through a drawn shatter; gone once the pieces are doing the work.
+		sprite.visible = breaking
 		return
 	sprite.visible = true
-	if at_rest or spin_frames.is_empty():
-		sprite.texture = rest_frame
+	if at_rest or (spin_frames.is_empty() and not spins_sprite):
+		sprite.texture = _resting_frame()
 		sprite.offset = Items.pivot(art_rest)
 		sprite.position = _rest_offset()
+		sprite.rotation = 0.0
+	elif spin_frames.is_empty():
+		# No drawn angles, so the one sprite turns. Its resting frame stands on
+		# its own base, so the texture is pushed down half a cell to sit centred
+		# on the node and the node is lifted to the object's middle — otherwise
+		# it would swing around its own feet like a hinge.
+		sprite.texture = _resting_frame()
+		sprite.offset = Items.pivot(art_rest) + Vector2(0, float(Items.cell(art_rest).y) * 0.5)
+		sprite.position = Vector2(0, -spin_lift)
+		sprite.rotation = spin_phase * TAU / SPRITE_TURN_STEPS
 	else:
 		sprite.texture = spin_frames[posmod(int(spin_phase), spin_frames.size())]
 		# The spin frames are originned to their middle, so the sprite is lifted
 		# half a body: a thing in the air turns about its centre, not its base.
 		sprite.offset = Items.pivot(art_spin)
 		sprite.position = Vector2(0, -spin_lift)
+		sprite.rotation = 0.0
 	var glare := 1.0 + flash * 1.2
 	sprite.modulate = Color(glare, glare, glare, 1.0)
 
@@ -485,8 +573,8 @@ func _draw() -> void:
 	# last third, so the break does not dissolve before it has finished landing.
 	var fade: float = clampf((BREAK_TIME - break_t) / (BREAK_TIME * 0.35), 0.0, 1.0)
 	for piece in debris:
-		var spin: int = posmod(int(piece.phase), DEBRIS_SPINS)
-		var index: int = int(piece.type) * DEBRIS_SPINS + spin
+		var spin: int = posmod(int(piece.phase), debris_spins)
+		var index: int = int(piece.type) * debris_spins + spin
 		if index < 0 or index >= debris_frames.size():
 			continue
 		draw_texture_rect(debris_frames[index], Rect2(piece.pos - half, size),

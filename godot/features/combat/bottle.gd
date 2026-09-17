@@ -1,20 +1,24 @@
 extends "res://features/combat/prop.gd"
 ## A bottle of milk: LF2's own health item.
 ##
+## The brown bottle in features/combat/brew.gd is this same class with different
+## art and mana in it, so everything below is written in terms of "what it
+## refills" rather than health — see `refills` and `refill_segments`.
+##
 ## Two things at once. It is a pickup — stand near it, get prompted, drink, and
 ## the character plays LF2's weapon_drink frames with the bottle on his hand's
 ## weapon point. It is also a prop, so it can be knocked about and smashed like
 ## the crate, on exactly the same physics, with LF2's own glass debris.
 ##
-## Smashing it destroys the health it was worth. That is a real choice rather
+## Smashing it destroys whatever it was worth. That is a real choice rather
 ## than an oversight: swinging at everything in the level has a cost.
 ##
 ## Drinking takes time, so a bottle has a third state between "on the floor" and
 ## "gone": lifted. It is off the ground and in his hand, but not yet spent.
 ##
 ## It also has contents, which is what makes stopping worth doing. Drinking
-## drains it and a punch spills it, and both the wait and the health are
-## proportional to what is left, so a half-drunk bottle is a half-length top-up
+## drains it and a punch spills it, and both the wait and what it gives back
+## are proportional to what is left, so a half-drunk bottle is a half-length top-up
 ## rather than a wasted one. An interrupted drink sets it back down; a drink
 ## broken by a hit knocks it out of his hand, and it falls and bounces on the
 ## same physics a punched bottle uses.
@@ -23,16 +27,23 @@ extends "res://features/combat/prop.gd"
 ## question for a crate as for a bottle, so the session asks it once for every
 ## prop — see carryable_in_reach() — instead of the bottle answering privately.
 
-const GLOW := Color("f2e6c8")
+## The halo it sits in, and the art it is drawn with. Both are set in
+## _configure() rather than fixed, because _init() runs _configure() before the
+## session can say which bottle this is — which is why the brown one is a
+## subclass and not a flag.
+var glow := Color("f2e6c8")
+var art_drink := "bottle_drink"
 ## How far below the weapon point an upright bottle hangs: roughly its middle,
 ## since a hand closes around it there rather than under its base.
-const UPRIGHT_ANCHOR := Vector2(0, 9.0)
+var upright_anchor := Vector2(0, 9.0)
 
-## How much one bottle is worth, counted in health-bar segments rather than
-## points, so "two bars" stays two bars whatever MAX_HEALTH is. The session
-## reads it rather than hard-coding a number, so a weaker bottle is a spawn
+## Which bar it fills, matching player.gd's REFILL_* constants, and how much of
+## that bar one whole bottle is worth. Counted in bar segments rather than
+## points, so "two bars" stays two bars whatever the maximum is. The session
+## reads both rather than hard-coding them, so a weaker bottle is a spawn
 ## argument.
-var heal_segments: int = 2
+var refills := "health"
+var refill_segments: int = 2
 ## How full it is, 0 to 1, in units of a whole bottle.
 var contents: float = 1.0
 ## Tipped to his mouth. LF2 draws a separate sprite for this rather than
@@ -57,7 +68,7 @@ func _configure() -> void:
 	# Light: carried in one hand, and drinking it is the point of carrying it.
 	heavy = false
 	throw_damage = 20
-	carry_anchor = UPRIGHT_ANCHOR
+	carry_anchor = upright_anchor
 	art_rest = "bottle"
 	art_spin = "bottle_spin"
 	art_debris = "bottle_debris"
@@ -87,13 +98,13 @@ func take_hit(damage: int, from: Vector2) -> bool:
 	return landed
 
 func _on_ready() -> void:
-	drink_frame = Items.frame("bottle_drink", 0)
+	drink_frame = Items.frame(art_drink, 0)
 
 func set_drinking(on: bool) -> void:
 	drinking = on
 	# The tipped sprite is drawn around its middle, so the weapon point is where
 	# its centre goes; the upright one stands on its base and hangs from a hand.
-	carry_anchor = Vector2.ZERO if on else UPRIGHT_ANCHOR
+	carry_anchor = Vector2.ZERO if on else upright_anchor
 	_update_sprite()
 
 func _update_sprite() -> void:
@@ -103,23 +114,22 @@ func _update_sprite() -> void:
 		return
 	if drinking and is_instance_valid(sprite) and drink_frame != null:
 		sprite.texture = drink_frame
-		sprite.offset = Items.pivot("bottle_drink")
+		sprite.offset = Items.pivot(art_drink)
 
 ## A bottle already drunk is not there to be hit. Being carried is handled by
 ## prop.gd, which refuses a hit on anything in his hands.
 func _hittable() -> bool:
 	return not consumed
 
-func _rest_offset() -> Vector2:
-	# A slow bob. Rounded to whole pixels: a pixel-art sprite sliding on
-	# fractional coordinates shimmers against the background grid.
-	return Vector2(0, roundf(sin(clock * 2.4) * 2.0) - 2.0)
+## No _rest_offset override: a bottle stands on the floor. It used to bob two to
+## four pixels off the ground to read as a pickup, which on a taller bottle just
+## looked like it was hovering. The halo below does that job without lifting it.
 
 func reset() -> void:
 	super.reset()
 	consumed = false
 	drinking = false
-	carry_anchor = UPRIGHT_ANCHOR
+	carry_anchor = upright_anchor
 	contents = 1.0
 	clock = 0.0
 
@@ -155,6 +165,6 @@ func _draw() -> void:
 	var pulse := 0.55 + 0.45 * sin(clock * 2.4)
 	var centre := Vector2(0, -13)
 	for i in 3:
-		var tint := GLOW
+		var tint := glow
 		tint.a = 0.10 * pulse * float(3 - i)
 		draw_circle(centre, 10.0 + float(i) * 5.0, tint)

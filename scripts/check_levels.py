@@ -1,4 +1,4 @@
-"""Validates every level in godot/levels/index.json against the movement tuning.
+"""Validates every level file in godot/levels/ against the movement tuning.
 
 The GDD asks for exactly this under "Content validation": valid start and
 finish, no mandatory gap beyond the reviewed jump envelope, no spawn/hazard
@@ -203,7 +203,7 @@ def check(level, tune):
             errors.append("hazard %s runs outside the level" % (h,))
 
     # --- everything that has to rest on the floor ---------------------------
-    for key in ("crates", "bottles", "enemies"):
+    for key in ("crates", "bottles", "brews", "enemies"):
         for entry in level.get(key, []):
             ex, ey = float(entry[0]), float(entry[1])
             if not standing_on(solids, ex, ey):
@@ -229,11 +229,42 @@ def check(level, tune):
 
     # The trap the level format already carries a warning about: this value used
     # to be health POINTS and is now bar segments, so an old 50 means fifty bars.
-    for entry in level.get("bottles", []):
-        if len(entry) > 2 and not 1 <= int(entry[2]) <= 5:
-            errors.append("bottle at x %g is worth %s bars, and the bar has five "
-                          "segments - this was probably written as health points"
-                          % (float(entry[0]), entry[2]))
+    # Brown bottles are written in the same units against the mana bar.
+    for key in ("bottles", "brews"):
+        for entry in level.get(key, []):
+            if len(entry) > 2 and not 1 <= int(entry[2]) <= 5:
+                errors.append("%s at x %g is worth %s bars, and the bar has five "
+                              "segments - this was probably written as health points"
+                              % (key[:-1], float(entry[0]), entry[2]))
+
+    # --- sections -----------------------------------------------------------
+    # `gates` cuts the level into sections the player may not leave until the
+    # enemies in one are down. The failure that matters is a gate that can never
+    # open, which strands the player for good, so the enemies that hold each one
+    # are counted here rather than discovered in play.
+    gates = [float(g) for g in level.get("gates", [])]
+    guards = [e for e in level.get("enemies", [])
+              if not (len(e) > 3 and str(e[3]) == "perch")]
+    perches = len(level.get("enemies", [])) - len(guards)
+    for i, gate in enumerate(gates):
+        if i and gate <= gates[i - 1]:
+            errors.append("gate %g is not past the one before it (%g); gates "
+                          "run left to right" % (gate, gates[i - 1]))
+        if not 0.0 < gate < width:
+            errors.append("gate %g is outside the level" % gate)
+        low = 0.0 if not i else gates[i - 1]
+        holding = [e for e in guards if low <= float(e[0]) < gate]
+        if not holding:
+            errors.append("the section %g..%g has a gate and nothing to hold it "
+                          "- it would open the moment the level loads" % (low, gate))
+        else:
+            notes.append("section %g..%g: %d enemy(s) hold the gate at %g"
+                         % (low, gate, len(holding), gate))
+    if gates:
+        tail = [e for e in guards if float(e[0]) >= gates[-1]]
+        notes.append("section %g..%g: no gate, %d enemy(s), %d perch(es) in the "
+                     "level hold nothing"
+                     % (gates[-1], width, len(tail), perches))
 
     return errors, warnings, notes
 
@@ -284,19 +315,24 @@ def main():
     absent = [i for i in order if i not in on_disk]
     if absent:
         sys.exit("index.json lists levels with no file: %s" % ", ".join(absent))
-    stray = sorted(on_disk - set(order))
-    if stray:
-        print("note: on disk but not in the index, so unreachable in game: %s\n"
-              % ", ".join(stray))
+    # Every level file is validated, not just the course. A level off the order
+    # is still shipped and still playable — First Steps is what the title
+    # screen's PRACTICE row boots — so it still has to hold together, and a
+    # course of one would otherwise leave two levels unchecked.
+    off_course = sorted(on_disk - set(order))
+    checked = list(order) + off_course
+    if off_course:
+        print("off the course, reachable another way: %s" % ", ".join(off_course))
+        print()
 
     failed = 0
-    for name in order:
+    for name in checked:
         failed += report(name, json.load(
             open(os.path.join(LEVELS, name + ".json"), encoding="utf-8")), tune)
 
     if failed:
         sys.exit("%d level(s) failed validation" % failed)
-    print("%d level(s) valid" % len(order))
+    print("%d level(s) valid (%d on the course)" % (len(checked), len(order)))
 
 
 if __name__ == "__main__":

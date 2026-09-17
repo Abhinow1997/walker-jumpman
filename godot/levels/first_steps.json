@@ -16,6 +16,8 @@
   "crates_note": "Breakable targets, [x, ground_y]. Area2D only, never solid, so they cannot block or alter the platforming route. Delete this array to remove them; the attacks work without any targets present.",
   "enemies": [[1350, 640]],
   "bottles": [[470, 640, 2]],
+  "brews": [[1200, 576, 2]],
+  "brews_note": "The brown bottle, same [x, ground_y, bars] but against the mana bar. He spawns with three blasts of five and nothing else refills them, so this one sits on the raised platform just short of the punk: spend mana on the crates and the climb buys it back before the fight.",
   "bottles_note": "Milk, [x, ground_y, bars]. The third value is health-BAR SEGMENTS, not points: 2 means two of the bar's five. It used to be raw points, so an older level file's 50 would now read as fifty bars. Player spawns on 25 of 100 health; this one sits between the first crate and the spikes, so it is found after the player has learnt to punch and before the first real hazard.",
   "signs": [[66, 502, "01 / GET MOVING", "Read the landing. Then jump."], [948, 454, "02 / MIND THE GAP"], [1756, 450, "FINISH"]],
   "signs_note": "Painted on the background, [x, y, heading] or [x, y, heading, subtitle]. World coordinates, drawn at a fixed font size because one world unit is one logical screen pixel.",

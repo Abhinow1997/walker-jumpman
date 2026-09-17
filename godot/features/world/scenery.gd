@@ -160,18 +160,14 @@ func _scene_backdrop() -> void:
 	var full := Vector2(tex.get_width(), tex.get_height()) * s
 	var right: float = float(bd.get("clip_right", at.x + full.x))
 	var wide: float = clampf(right - at.x, 0.0, full.x)
-	# The deep rock below the image, in the same cave rock the cliffs wear so the
-	# picture's cliff bodies run on into it rather than dropping to a flat void.
+	# The deep rock below the image, in the flat fill the pack's own ground
+	# interiors are: a photographed cliff body is one colour, so running on in
+	# that same colour is what makes the join invisible. This used to tile
+	# body_stone over it, which put a visible grid under the picture instead.
 	var below := PackedVector2Array([
 		Vector2(at.x, at.y + full.y), Vector2(at.x + wide, at.y + full.y),
 		Vector2(at.x + wide, at.y + full.y + 2200.0), Vector2(at.x, at.y + full.y + 2200.0)])
 	draw_colored_polygon(below, fill)
-	if pieces.has("body_stone"):
-		var cell := size_of("body_stone")
-		var uvs := PackedVector2Array()
-		for point in below:
-			uvs.append(Vector2(point.x / cell.x, point.y / cell.y))
-		draw_colored_polygon(below, Color(1, 1, 1, body_alpha), uvs, pieces["body_stone"])
 	draw_texture_rect_region(tex, Rect2(at, Vector2(wide, full.y)),
 							 Rect2(Vector2.ZERO, Vector2(wide / s, tex.get_height())))
 	backdrop_span = Vector2(at.x, right)
@@ -236,9 +232,9 @@ func _floor_y() -> float:
 ## plain grassed block anyway.
 const CAP_MIN_TILES := 6.0
 
-## How strongly the cave rock shows through the cliff body. At full strength one
-## 64x32 tile repeated down a 1600-unit face reads as wallpaper: you see the grid
-## before you see the rock. Half strength leaves texture without a pattern.
+## How strongly the cave rock shows through a placed rock mass - an archway leg
+## or a hanging stalactite, which are small enough that one tile reads as rock.
+## Cliff bodies are NOT textured: at that size the same tile read as wallpaper.
 const BODY_TEXTURE := 0.5
 
 func _terrain() -> void:
@@ -328,17 +324,11 @@ func _cliff(r: Rect2) -> void:
 	var shape := _silhouette(r, bottom, most if leans else 0.0)
 	draw_colored_polygon(shape, fill)
 
-	# The cave rock, over that same shape rather than over a rectangle inside it.
-	# Tiling a rect inset by a fixed amount left a hard vertical edge wherever the
-	# silhouette had not yet leaned that far in: a box outline with texture on it,
-	# which is exactly what it looked like.
-	if pieces.has("body_stone"):
-		var cell := size_of("body_stone")
-		var uvs := PackedVector2Array()
-		for point in shape:
-			uvs.append(Vector2(point.x / cell.x, point.y / cell.y))
-		draw_colored_polygon(shape, Color(1, 1, 1, body_alpha), uvs,
-							 pieces["body_stone"])
+	# Nothing over the fill. The pack's cliff interiors are one flat colour, and
+	# body_stone.png is a single fin shape, so UV-tiling it across the silhouette
+	# turned one accent into wallpaper - the grid you saw before you saw any rock.
+	# Fins inside a body are set dressing a level places as `body_stone` decor,
+	# where the author chooses how many and where; see _decor.
 
 	# The rock first, then the grass over its top: turf grows across the lip, and
 	# drawing the column last put bare rock on top of the grass at both corners.
@@ -402,7 +392,12 @@ func _silhouette(r: Rect2, bottom: float, lean: float) -> PackedVector2Array:
 		var lx: float = _face_x(r, r.position.x, y, lean)
 		var rx: float = _face_x(r, r.end.x, y, -lean)
 		var next: float = minf(y + brk_step, bottom)
-		if y >= bottom or rx - lx <= brk_step:
+		# The width test closes the wedge once the two faces have converged, so it
+		# only applies once a band exists. Without `not lefts.is_empty()` it also
+		# fired on the FIRST pass for any cliff narrower than one break step - a
+		# 12-wide ledge against break_step 48 - which returned a single point, drew
+		# no rock under its grass, and logged "pointcount < 3" every frame.
+		if y >= bottom or (not lefts.is_empty() and rx - lx <= brk_step):
 			var mid: float = (lx + rx) * 0.5
 			lefts.append(Vector2(mid, minf(y, bottom)))
 			break

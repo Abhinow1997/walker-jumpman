@@ -59,12 +59,36 @@ const CHARGE_FROM := 150.0
 ## blast animation's release frame, then scaled with the art (x0.75).
 const BLAST_MUZZLE := Vector2(22.5, -34.5)
 
-## Health starts low so the bottle has something to do, and the punks take it
-## away a bar at a time. Spikes and falls remain instant death — that rule is
-## the game's, and a health bar does not get to quietly replace it — so health
-## is what enemies spend and hazards still ignore.
+## He starts most of the way up, so the bar reads healthy at spawn rather than
+## looking like a punishment before the first fight. This was 25.
+##
+## 60 is not arbitrary and is the highest it can go: a bottle is worth two of the
+## bar's five segments, 40 points, and a drink that would overflow is clamped —
+## which also cuts the drink SHORT, because its six seconds are proportional to
+## how much he actually swallows. Above 60 a full bottle can no longer land in
+## full, so the drink gets quicker and quietly worth less the healthier he
+## starts. 60 + 40 is exactly 100. Raising this means raising MAX_HEALTH with it,
+## or accepting that the white bottle no longer delivers what it says.
+##
+## The punks take it away a bar at a time. Spikes and falls remain instant death
+## — that rule is the game's, and a health bar does not get to quietly replace
+## it — so health is what enemies spend and hazards still ignore.
 const MAX_HEALTH := 100
-const START_HEALTH := 25
+const START_HEALTH := 60
+
+## Mana is what the blast costs, and the blast is the only thing that spends it.
+## Punches and kicks stay free: the blast is the move that reaches across the
+## screen, and a ranged attack with no cost is the one that makes every other
+## move pointless.
+##
+## He starts with three blasts in him and no way to earn a fourth except the
+## brown bottle, so running the bar down is a decision about the next fight
+## rather than a punishment. Like health, nothing here kills him — out of mana
+## means the K key does nothing until he finds a bottle.
+const MAX_MANA := 100
+const START_MANA := 60
+const BLAST_COST := 20
+
 ## No two blows may land inside this window. Without it a punk standing inside
 ## the player lands on consecutive frames and empties the whole bar in a third
 ## of a second, which reads as a bug rather than a fight.
@@ -87,13 +111,23 @@ const THROW_LIGHT := Vector2(330.0, -210.0)
 
 ## Emitted when a carried object leaves his hands, with the velocity to give it.
 signal threw(object: Node2D, velocity: Vector2)
-## The health bar draws five slots (ui/art/healthbar.json), so health is counted
-## in segments and "a bottle is worth two bars" stays true whatever MAX_HEALTH is.
+## A bottle is worth so many fifths of a bar rather than so many points, so
+## "worth two bars" stays true whatever MAX_HEALTH or MAX_MANA is. Five is what
+## the old segmented health asset drew; the bars are a continuous fill now, but
+## the level files are written in these units and a fifth is still the step the
+## eye can read off one.
 const HEALTH_SEGMENTS := 5
+const MANA_SEGMENTS := 5
+
+## Which bar a bottle fills. The drink machinery is identical either way — the
+## same animation, the same wait, the same mouthful-by-mouthful arrival — so the
+## kind is carried through it rather than duplicated.
+const REFILL_HEALTH := "health"
+const REFILL_MANA := "mana"
 
 ## Seconds to drink a completely full bottle. A part-full one takes its share:
-## a bottle half drunk, or cracked by a punch, is half the wait and half the
-## health. Nothing here is all-or-nothing — he keeps whatever he swallowed and
+## a bottle half drunk, or cracked by a punch, is half the wait and half of
+## whatever it was worth. Nothing here is all-or-nothing — he keeps whatever he swallowed and
 ## the bottle keeps the rest — so stopping is a decision about how long to stand
 ## still, not a gamble on losing the lot.
 const FULL_DRINK_TIME := 6.0
@@ -124,6 +158,7 @@ var require_jump_release: bool = true
 var facing: float = 1.0
 var jumps: int = 0
 var health: int = START_HEALTH
+var mana: int = START_MANA
 var test_control: bool = false
 var test_axis: float = 0.0
 var test_jump_pressed: bool = false
@@ -149,6 +184,8 @@ var drink_t: float = 0.0
 var drink_fill: float = 1.0
 var drink_segments: int = 0
 var drink_pool: float = 0.0
+## Which bar the bottle in his hand fills, one of the REFILL_* constants.
+var drink_kind: String = REFILL_HEALTH
 ## Time left on the window above.
 var hurt_cooldown: float = 0.0
 ## Time left on the stun, and how far into the hurt animation he is. Separate
@@ -202,6 +239,7 @@ func reset_at(spawn: Vector2) -> void:
 	test_jump_pressed = false
 	jumps = 0
 	health = START_HEALTH
+	mana = START_MANA
 	drink_pool = 0.0
 	hurt_cooldown = 0.0
 	hurt_stun = 0.0
@@ -267,6 +305,28 @@ func take_damage(amount: int, from: Vector2) -> bool:
 func is_hurt() -> bool:
 	return hurt_stun > 0.0
 
+# --- mana ------------------------------------------------------------------
+
+func restore_mana(amount: int) -> int:
+	## The mana twin of heal(), and reports the same way: how much actually went
+	## in, which is nothing on a full bar.
+	var before := mana
+	mana = clampi(mana + amount, 0, MAX_MANA)
+	return mana - before
+
+func mana_fraction() -> float:
+	return float(mana) / float(MAX_MANA)
+
+func segment_mana() -> int:
+	## One fifth of the mana bar, in points.
+	return int(round(float(MAX_MANA) / float(MANA_SEGMENTS)))
+
+func can_blast() -> bool:
+	## Whether there is a blast left in him. Asked before the move starts, so an
+	## empty bar means the key does nothing rather than playing the animation and
+	## firing a projectile that was never paid for.
+	return mana >= BLAST_COST
+
 # --- carrying ---------------------------------------------------------------
 
 func is_carrying() -> bool:
@@ -306,17 +366,29 @@ func segment_health() -> int:
 	## One slot of the health bar, in points.
 	return int(round(float(MAX_HEALTH) / float(HEALTH_SEGMENTS)))
 
-func begin_drink(segments: int, fill: float) -> bool:
+func refill_segment(kind: String) -> int:
+	## One fifth of whichever bar `kind` names, in that bar's points.
+	return segment_mana() if kind == REFILL_MANA else segment_health()
+
+func refill_full(kind: String) -> bool:
+	return mana >= MAX_MANA if kind == REFILL_MANA else health >= MAX_HEALTH
+
+func begin_drink(segments: int, fill: float, kind: String = REFILL_HEALTH) -> bool:
 	## Starts a drink on a bottle that is `fill` full (0 to 1) and worth
-	## `segments` bars when whole. The caller has already decided the drink is
-	## allowed; this only refuses when he is not in a position to start —
-	## mid-move, or off the ground.
+	## `segments` bars of `kind` when whole. The caller has already decided the
+	## drink is allowed; this only refuses when he is not in a position to start
+	## — mid-move, or off the ground.
 	if not can_attack() or not is_on_floor():
 		return false
 	if fill <= 0.0:
 		return false
 	if not begin_attack("drink"):
 		return false
+	if kind != drink_kind:
+		# The carried fraction below is in the units of whichever bar it came
+		# from, so it cannot follow him from a milk bottle to a brown one.
+		drink_pool = 0.0
+	drink_kind = kind
 	drink_segments = segments
 	drink_fill = clampf(fill, 0.0, 1.0)
 	drink_t = 0.0
@@ -375,14 +447,17 @@ func _advance_drink(delta: float) -> void:
 	# bottle than was in it.
 	var step: float = minf(delta, maxf(0.0, span - drink_t))
 	drink_t += step
-	# Health arrives as he swallows rather than in a lump at the end, so a drink
-	# cut short is worth exactly the part of it he got through.
-	drink_pool += step / FULL_DRINK_TIME * float(drink_segments * segment_health())
+	# Health or mana arrives as he swallows rather than in a lump at the end, so
+	# a drink cut short is worth exactly the part of it he got through.
+	drink_pool += step / FULL_DRINK_TIME * float(drink_segments * refill_segment(drink_kind))
 	var whole := int(floor(drink_pool))
 	if whole > 0:
 		drink_pool -= float(whole)
-		heal(whole)
-	if health >= MAX_HEALTH:
+		if drink_kind == REFILL_MANA:
+			restore_mana(whole)
+		else:
+			heal(whole)
+	if refill_full(drink_kind):
 		# Topped up with some still in the bottle. Stop rather than pour the
 		# rest away — he can come back for it.
 		_finish_drink(true, DRINK_FULL)
@@ -460,6 +535,11 @@ func _advance_attack(delta: float) -> void:
 			threw.emit(object, Vector2(speed.x * facing, speed.y))
 	if rules.has("spawn_frame") and not blast_released and attack_frame >= int(rules.spawn_frame):
 		blast_released = true
+		# Paid for on the frame that lets go, not on the key press: a blast a
+		# punch interrupts before his hand comes up costs him nothing. Clamped
+		# rather than asserted — can_blast() has already refused an empty bar,
+		# and a mid-move drain is not worth a crash.
+		mana = maxi(0, mana - BLAST_COST)
 		blast_fired.emit(global_position + Vector2(BLAST_MUZZLE.x * facing, BLAST_MUZZLE.y), facing)
 
 	_resolve_hits()
@@ -550,7 +630,7 @@ func _physics_process(delta: float) -> void:
 			# rather than swinging through it.
 			if attack_pressed or blast_pressed:
 				begin_throw()
-		elif blast_pressed:
+		elif blast_pressed and can_blast():
 			begin_attack("blast")
 		elif attack_pressed:
 			begin_attack(_choose_attack())

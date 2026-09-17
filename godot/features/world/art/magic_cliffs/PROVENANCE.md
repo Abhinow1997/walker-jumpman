@@ -1,6 +1,6 @@
 # Magic Cliffs Environment — provenance
 
-**The only licensed art in this project.**
+**The only licensed art in this project, and the only music.**
 
 | | |
 |---|---|
@@ -18,16 +18,40 @@ is why the licence was confirmed against the author's own listing rather than
 assumed from the filename. The OpenGameArt page states CC0 and the attribution
 notice "By Ansimuz.com".
 
+## The music
+
+The pack ships one track beside the sheets, at
+`Assets/magic cliffs music/magic cliffs.ogg`: a 96-second stereo loop, 48 kHz,
+192 kbps nominal. `scripts/extract_magic_cliffs.py` copies it to
+`godot/audio/magic_cliffs.ogg` — copied rather than processed, since there is
+nothing to cut out of an ogg — and `godot/game/music.gd` loops it.
+
+It is used in two places, and they name the same track because the pack has only
+one: the title screen, and The Fractured Isles. That is why a new journey does
+not restart it. The two greybox levels name no track and are silent.
+
+**Its licence rests on the same evidence as the art's**, and no more: the music
+came inside the CC0 download from the OpenGameArt listing, and that listing is
+what was read on 2026-09-14. The file carries no licence of its own and no
+separate verification was made for it. If the project ever needs a rights audit
+rather than a coursework note, the music should be re-checked against the
+listing alongside the sheets — it is the same download, so the same answer is
+expected, but it has not been confirmed independently.
+
+The track is 48 kHz and so is Godot's mixer here, so nothing is resampled on the
+way out.
+
 Same author as `Assests/Streets of Fight files/`, which is also CC0 and carries
 its own `public-license.pdf`.
 
 ## Why this matters here
 
-Every other sheet in this project is ripped commercial art — the Anti-Davis
-player is a Little Fighter 2 fan mod, the Bandit and the items are LF2 rips, and
-`mech-healthbar.png` has no known origin at all. That is fine for coursework and
-would be a takedown on itch.io or Steam, both of which require you to warrant
-you hold the rights.
+Every other sheet in this project is either ripped commercial art or generated:
+the Anti-Davis player is a Little Fighter 2 fan mod, the Bandit and the items are
+LF2 rips, and the title screen and the HUD bars were generated. That is fine for
+coursework and would be a takedown on itch.io or Steam, both of which require you
+to warrant you hold the rights. (The unattributable `mech-healthbar.png` that
+used to be named here is no longer used — see `ui/art/PROVENANCE.md`.)
 
 This pack is the first art in the game that carries no such problem. Terrain,
 background and set dressing for The Fractured Isles are all CC0.
