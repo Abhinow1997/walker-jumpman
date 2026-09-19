@@ -29,9 +29,10 @@ func run() -> void:
 	game.player.test_control = true
 	await step()
 
-	# The pair by the tree at x 1620, and the spawn is at x 120.
-	var hunter: Area2D = _nearest("hunter", 1560.0)
-	var bandit: Area2D = _nearest("bandit", 1680.0)
+	# The first of each kind, found by position rather than named: the level is
+	# still being authored and hard-coded coordinates go stale silently.
+	var hunter: Area2D = _first("hunter")
+	var bandit: Area2D = _first("bandit")
 	var hx: float = hunter.position.x
 	var bx: float = bandit.position.x
 	print("spawn x=%.0f  hunter x=%.0f (aggro %.0f)  bandit x=%.0f (aggro %.0f)"
@@ -46,8 +47,10 @@ func run() -> void:
 		{"was": bx, "now": snappedf(bandit.position.x, 0.1)})
 	check("neither-has-fired", game.arrows.is_empty(), {"arrows": game.arrows.size()})
 
-	# Now walk the player up to them and confirm the fight actually starts.
-	game.player.position = Vector2(1240.0, 648.0)
+	# Now walk the player up to the archer and confirm the fight actually starts.
+	# 300 short of him is inside both his aggro (520) and his fire range (430),
+	# and is measured off where he actually is rather than assumed.
+	game.player.position = Vector2(hx - 300.0, hunter.position.y)
 	for i in range(150): await step()
 	var engaged: bool = not game.arrows.is_empty() \
 		or absf(hunter.position.x - hx) > 8.0 or absf(bandit.position.x - bx) > 8.0
@@ -59,15 +62,14 @@ func run() -> void:
 	print("AGGRO DIAG: %d failure(s)" % failures)
 	quit()
 
-func _nearest(kind: String, to_x: float) -> Area2D:
+## The one of this kind the player meets first, which is the one the
+## complaint was about.
+func _first(kind: String) -> Area2D:
 	var best: Area2D = null
-	var gap := INF
 	for foe in game.enemies:
 		if foe.kind != kind:
 			continue
-		var d: float = absf(foe.position.x - to_x)
-		if d < gap:
-			gap = d
+		if best == null or foe.position.x < best.position.x:
 			best = foe
 	assert(best != null, "no %s in the level" % kind)
 	return best

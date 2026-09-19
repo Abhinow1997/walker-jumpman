@@ -27,6 +27,3 @@ func _configure() -> void:
 	art_spin = "brew_spin"
 	art_debris = "brew_debris"
 	art_drink = "brew_drink"
-	# Amber, to read as the same light the mana bar is lit with rather than the
-	# cream halo the milk bottle sits in.
-	glow = Color("e8a838")

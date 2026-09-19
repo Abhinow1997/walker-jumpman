@@ -76,6 +76,7 @@ var contact_settle_ticks: int = 0
 func _ready() -> void:
 	process_physics_priority = 10
 	setup_input()
+	_make_fade()
 	_build_world()
 
 ## Which level is loaded. Set it before add_child() to boot straight into one;
@@ -97,6 +98,8 @@ func _clear_world() -> void:
 	## remove_child before queue_free: freeing is deferred, and a solid still in
 	## the tree for one more frame would collide with the level replacing it.
 	for child in get_children():
+		if child == fade_layer:
+			continue  # the black covering the swap outlives the world under it
 		remove_child(child)
 		child.queue_free()
 	hazard_areas.clear()
@@ -320,9 +323,104 @@ func advance_level() -> bool:
 	var next := next_level_id()
 	if next == "":
 		return false
-	load_level(next)
-	start_session()
+	_swap_now(next)
 	return true
+
+# --- the swap between levels -------------------------------------------------
+
+## Changing level is a cut: one frame the flag, the next the new spawn, with
+## every pixel on screen different and the music with it. It reads worst at the
+## finish, which is where it is always seen — the flag sits about 350 past the
+## point the camera stops, so the player is already pressed against the edge of
+## a frame that then changes all at once. The screen dips to black and back
+## instead, and the swap happens while it is dark.
+##
+## Presentation only. load_level() and advance_level() still do the work in one
+## synchronous call, and test_mode takes that path directly, so a test can call
+## confirm(), step two frames and read the result as it always could.
+const FADE_OUT := 0.22
+const FADE_IN := 0.30
+## A moment held at full black between the two halves. Without it the darkest
+## frame lasts a single tick and the dip reads as a blink, not a transition.
+const FADE_HOLD := 0.09
+
+## Which half is running. Deliberately NOT part of State: the game is still
+## COMPLETE or MENU while the screen happens to be dark, and State is recorded
+## by the tests as a number that must not shift.
+enum Fade { NONE, OUT, HOLD, IN }
+var fade_phase: Fade = Fade.NONE
+var fade_clock: float = 0.0
+## Built in _ready and skipped by _clear_world, because the whole point is that
+## it is still covering the screen while the world underneath it is replaced.
+var fade_layer: CanvasLayer
+var fade_rect: ColorRect
+## The level to load once the screen is black. Empty replays the current one.
+var swap_to: String = ""
+
+func _make_fade() -> void:
+	fade_layer = CanvasLayer.new()
+	# Above the HUD, which _build_world adds at the default layer 0.
+	fade_layer.layer = 100
+	fade_rect = ColorRect.new()
+	fade_rect.color = Color(0.0, 0.0, 0.0, 0.0)
+	fade_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fade_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	fade_layer.add_child(fade_rect)
+	add_child(fade_layer)
+
+## Take the next level behind a fade. `next_id` empty replays this one.
+func begin_swap(next_id: String) -> void:
+	if test_mode:
+		_swap_now(next_id)
+		return
+	if fade_phase != Fade.NONE:
+		return  # already going; a second confirm must not stack another swap
+	swap_to = next_id
+	fade_phase = Fade.OUT
+	fade_clock = 0.0
+
+func _swap_now(next_id: String) -> void:
+	## The swap itself, in one place so the faded path and the immediate one
+	## cannot drift. Empty means stay on this level and start it again.
+	if next_id != "":
+		load_level(next_id)
+	start_session()
+
+## Drives the dip. Returns true on the tick the world was replaced, so the
+## caller can end its frame there and let the new level start on the next one.
+func _advance_fade(delta: float) -> bool:
+	fade_clock += delta
+	var swapped := false
+	match fade_phase:
+		Fade.OUT:
+			if fade_clock >= FADE_OUT:
+				_swap_now(swap_to)
+				swap_to = ""
+				swapped = true
+				fade_phase = Fade.HOLD
+				fade_clock = 0.0
+		Fade.HOLD:
+			if fade_clock >= FADE_HOLD:
+				fade_phase = Fade.IN
+				fade_clock = 0.0
+		Fade.IN:
+			if fade_clock >= FADE_IN:
+				fade_phase = Fade.NONE
+				fade_clock = 0.0
+	if is_instance_valid(fade_rect):
+		fade_rect.color.a = fade_alpha()
+	return swapped
+
+## How black the screen is, 0 to 1. Public so a capture can assert the dip.
+func fade_alpha() -> float:
+	match fade_phase:
+		Fade.OUT:
+			return clampf(fade_clock / FADE_OUT, 0.0, 1.0)
+		Fade.HOLD:
+			return 1.0
+		Fade.IN:
+			return clampf(1.0 - fade_clock / FADE_IN, 0.0, 1.0)
+	return 0.0
 
 ## The course order, from levels/index.json. Static because it is the same for
 ## every session and the menu reads it before a session has been started.
@@ -657,6 +755,10 @@ func resolve_contacts(fatal: bool, finished: bool) -> void:
 		player.velocity = Vector2.ZERO
 
 func _physics_process(delta: float) -> void:
+	# Ahead of the state machine, and a swap ends the tick: the world it just
+	# built should start on the next one, not half way through this one.
+	if fade_phase != Fade.NONE and _advance_fade(delta):
+		return
 	if state == State.DYING:
 		retry_remaining -= delta
 		if retry_remaining <= 0:
@@ -753,13 +855,10 @@ func confirm() -> void:
 		State.MENU:
 			var order := catalogue()
 			var pick: String = order[clampi(menu_index, 0, order.size() - 1)]
-			if pick != level_id:
-				load_level(pick)
-			start_session()
+			begin_swap(pick if pick != level_id else "")
 		State.COMPLETE:
 			# The last level has nowhere to advance to, so it replays instead.
-			if not advance_level():
-				start_session()
+			begin_swap(next_level_id())
 		State.PAUSED:
 			set_paused(false)
 

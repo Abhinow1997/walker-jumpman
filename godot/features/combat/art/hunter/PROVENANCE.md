@@ -53,9 +53,17 @@ shoot run is the bow-draw, and the punch is the melee jab further down the sheet
 | `shoot` | 10, 13, 14, 15 | reach, full draw, aim, loose — the arrow leaves on 15 |
 | `punch` | 50, 52, 53 | fist forward, full extension, retract |
 | `hurt` | 30, 36, 33, 34 | two recoils, knocked off his feet, flat |
+| `jump` | 63, 64 | rising, legs swept back; falling, knees up |
 
 `hurt` keeps the shape `enemy.gd` expects — first two frames are the stagger, the
 whole run plays out on death — so his manifest drops into the same script.
+
+`jump` was added when the enemies learned to leave the ground. 63 and 64 are the
+only two pics on the whole sheet whose feet clear the floor line — every standing
+pose plants them 1 px above it, these sit 8 to 13 px clear — so the extractor
+checks that clearance on every run rather than trusting the indices. A re-rip
+that shifts the grid fails loudly instead of leaving him sliding through the air
+in a walk cycle.
 
 ## Geometry
 

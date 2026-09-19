@@ -24,6 +24,15 @@
    "frames": 4,
    "loop": true
   },
+  "jump": {
+   "durations": [
+    0.3,
+    0.3
+   ],
+   "file": "jump.png",
+   "frames": 2,
+   "loop": false
+  },
   "punch": {
    "durations": [
     0.1,

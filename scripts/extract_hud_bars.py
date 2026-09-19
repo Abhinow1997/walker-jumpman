@@ -15,9 +15,9 @@ hole in the screen.
 Like scripts/extract_healthbar.py, this writes the two extremes rather than the
 one state the sheet is drawn in:
 
-    bar_health_full.png    lightning across the whole track
+    bar_health_full.png    green lightning across the whole track
     bar_health_empty.png   dark track across the whole track
-    bar_mana_full.png      as above, green
+    bar_mana_full.png      as above, in the blue the blast is drawn with
     bar_mana_empty.png
 
 hud.gd draws the empty one, then the full one clipped to the player's health or
@@ -78,20 +78,26 @@ NATIVE = (320, 52)
 # px wide, the green one 969), so each is reduced by its own factor to the one
 # NATIVE size. Stacking two bars of different lengths in a corner would read as
 # a mistake, and seven percent of stone-block width does not.
+#
+# Which colour is which bar is decided HERE rather than in the HUD, so the file
+# named bar_health_full.png really does hold the health bar. Green is health and
+# blue is mana — green for life is the convention a player arrives with, and the
+# blue lightning belongs to the blast it pays for. The sheet draws the cyan one
+# first, which is the only reason these two boxes look out of order.
 BARS = {
     "health": {
-        "box": (105, 744, 1202, 938),
-        "band": (60, 134),
-        "track": (195, 1070),
-        "lit": (205, 680),
-        "dark": (780, 1050),
-    },
-    "mana": {
         "box": (191, 959, 1160, 1110),
         "band": (50, 100),
         "track": (154, 944),
         "lit": (165, 340),
         "dark": (400, 930),
+    },
+    "mana": {
+        "box": (105, 744, 1202, 938),
+        "band": (60, 134),
+        "track": (195, 1070),
+        "lit": (205, 680),
+        "dark": (780, 1050),
     },
 }
 

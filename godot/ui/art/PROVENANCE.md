@@ -20,6 +20,13 @@ track together at one scale. The COMPONENT BREAKDOWN frames look like the
 obvious source and are not: their interiors are page grey, so an unfilled bar cut
 from one would be a hole in the screen.
 
+Which colour becomes which bar is set in the extractor's `BARS` table rather
+than tinted in the HUD, so `bar_health_full.png` really does hold the health
+bar. **Green is health, blue is mana** — green for life is the convention a
+player arrives with, and the blue lightning belongs to the blast it pays for.
+The sheet draws the cyan one first, which is the only reason the two boxes in
+that table look out of order.
+
 Each bar is reduced to 80 x 13 native pixels, which `hud.gd` draws at x2 in its
 640x360 design space — x3 on the 960x540 screen, so one art pixel is exactly a
 3 x 3 block. Both bars are forced to that one size even though the sheet draws

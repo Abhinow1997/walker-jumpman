@@ -27,11 +27,10 @@ extends "res://features/combat/prop.gd"
 ## question for a crate as for a bottle, so the session asks it once for every
 ## prop — see carryable_in_reach() — instead of the bottle answering privately.
 
-## The halo it sits in, and the art it is drawn with. Both are set in
-## _configure() rather than fixed, because _init() runs _configure() before the
-## session can say which bottle this is — which is why the brown one is a
-## subclass and not a flag.
-var glow := Color("f2e6c8")
+## The drink frame it is tipped to his mouth with. Set in _configure() rather
+## than fixed, because _init() runs _configure() before the session can say
+## which bottle this is — which is why the brown one is a subclass and not a
+## flag.
 var art_drink := "bottle_drink"
 ## How far below the weapon point an upright bottle hangs: roughly its middle,
 ## since a hand closes around it there rather than under its base.
@@ -54,7 +53,6 @@ var drink_frame: Texture2D
 ## cracked bottle is worth three quarters of a whole one.
 const SPILL_PER_HIT := 0.25
 var consumed: bool = false
-var clock: float = 0.0
 
 func _configure() -> void:
 	max_health = 20  # glass: anything breaks it in two hits
@@ -123,7 +121,7 @@ func _hittable() -> bool:
 
 ## No _rest_offset override: a bottle stands on the floor. It used to bob two to
 ## four pixels off the ground to read as a pickup, which on a taller bottle just
-## looked like it was hovering. The halo below does that job without lifting it.
+## looked like it was hovering.
 
 func reset() -> void:
 	super.reset()
@@ -131,7 +129,6 @@ func reset() -> void:
 	drinking = false
 	carry_anchor = upright_anchor
 	contents = 1.0
-	clock = 0.0
 
 func consume() -> void:
 	## Vanishes on the spot rather than fading away. The drink animation puts the
@@ -150,21 +147,8 @@ func _prop_process(_delta: float) -> void:
 	if consumed or carried:
 		if is_instance_valid(sprite):
 			sprite.visible = false
-		return
-	clock += _delta
-	queue_redraw()
 
-func _draw() -> void:
-	super._draw()
-	if consumed or broken or carried or not at_rest:
-		return
-	## Halo behind the bottle. Drawn here rather than as a sprite so it stays
-	## under the art: a parent CanvasItem draws before its children. Only while
-	## it is sitting still — a bottle skidding across the floor with a glow
-	## following it reads as a bug.
-	var pulse := 0.55 + 0.45 * sin(clock * 2.4)
-	var centre := Vector2(0, -13)
-	for i in 3:
-		var tint := glow
-		tint.a = 0.10 * pulse * float(3 - i)
-		draw_circle(centre, 10.0 + float(i) * 5.0, tint)
+## No _draw override: a bottle is its sprite and nothing else. It used to sit in
+## a pulsing halo of three stacked circles, to make it findable at this size,
+## but soft round gradients under crisp pixel art read as a smudge rather than a
+## glow. prop.gd's own _draw still runs and still draws the debris.

@@ -48,6 +48,21 @@ func fresh() -> void:
 		bandit.target = null
 	await steps(3)
 
+## An enemy of the test's own, wired the way the session wires the level's ones.
+## The signal matters: an enemy whose struck_player goes nowhere can swing all it
+## likes and the player's health never moves, so a jump attack would look like a
+## miss.
+func spawn_foe(kind: String, at: Vector2) -> Area2D:
+	var foe := Enemy.new()
+	foe.kind = kind
+	foe.position = at
+	foe.fall_limit = float(game.level.fall_y)
+	foe.struck_player.connect(game._on_player_struck)
+	game.add_child(foe)
+	await steps(2)
+	foe.target = game.player
+	return foe
+
 ## Point the bandits at the player. Only for tests that are about the bandits.
 func arm_enemies() -> void:
 	for bandit in game.enemies:
@@ -361,6 +376,245 @@ func run() -> void:
 	await steps(120)
 	check("blast-expires", game.blasts.is_empty(), {"live": game.blasts.size()})
 
+	# --- a fight, once started, is not walked away from ---------------------
+	# Two rules pulling against each other. An enemy must not set off across the
+	# level the moment it loads — that is what `aggro` is for. But one that lets
+	# you take three steps back and then forgets you, turns round and stands
+	# there, reads as broken rather than as an escape. So aggro decides when the
+	# fight STARTS, and after that he follows.
+	await fresh()
+	var slow: Area2D = game.enemies[0]
+	for other in game.enemies:
+		if other != slow:
+			other.target = null
+	slow.armor = true            # stand in for the bruiser on a greybox level
+	slow.position = Vector2(700, 640)
+	slow.home = slow.position
+	slow.target = game.player
+	# Well outside his aggro, on the same floor.
+	game.player.position = Vector2(700 - slow.aggro - 120.0, 640)
+	game.player.velocity = Vector2.ZERO
+	await steps(40)
+	check("he-stays-put-until-the-fight-starts",
+		not slow.engaged and absf(slow.position.x - 700.0) < 2.0,
+		{"engaged": slow.engaged, "x": slow.position.x, "aggro": slow.aggro})
+
+	# Walk into his range: that is the fight starting.
+	game.player.position = Vector2(700 - slow.aggro + 80.0, 640)
+	await steps(20)
+	check("walking-into-his-range-starts-it", slow.engaged,
+		{"engaged": slow.engaged, "gap": absf(slow.position.x - game.player.position.x)})
+
+	# Back off well past aggro. He has to keep coming.
+	var stood_at: float = slow.position.x
+	game.player.position = Vector2(700 - slow.aggro - 200.0, 640)
+	await steps(180)
+	check("and-then-he-follows-you-out-of-range",
+		slow.engaged and stood_at - slow.position.x > 40.0,
+		{"closed": stood_at - slow.position.x,
+		 "gap": absf(slow.position.x - game.player.position.x),
+		 "aggro": slow.aggro})
+
+	# A blast from outside aggro must start it too, or the ranged option would be
+	# a way to poke a statue that never answers.
+	await fresh()
+	var sniped: Area2D = game.enemies[0]
+	for other in game.enemies:
+		if other != sniped:
+			other.target = null
+	sniped.target = game.player
+	sniped.position = Vector2(900, 640)
+	sniped.home = sniped.position
+	game.player.position = Vector2(900 - sniped.aggro - 150.0, 640)
+	await steps(20)
+	check("still-idle-before-the-shot", not sniped.engaged, {"engaged": sniped.engaged})
+	var _sniped_hit: bool = sniped.take_hit(10, game.player.position)
+	await steps(4)
+	check("a-hit-from-out-of-range-starts-it", sniped.engaged,
+		{"engaged": sniped.engaged})
+
+	# And a retry puts him back on his mark, forgetting the fight.
+	game.restart_attempt()
+	await steps(6)
+	check("a-retry-un-engages-him",
+		not sniped.engaged and absf(sniped.position.x - sniped.home.x) < 2.0,
+		{"engaged": sniped.engaged, "x": sniped.position.x, "home": sniped.home.x})
+
+	# --- jumping: the terrain stops being a free win ------------------------
+	# Three things the ground used to do for the player. A gap ended a chase, or
+	# ate the enemy — and an enemy who fell in his own section's pit opened that
+	# section's gate for free. A ledge 60 px up made him harmless, because every
+	# attack in this game is thrown dead flat. And jumping clean over his head
+	# was a way past him with no answer at all.
+	#
+	# Staged on a private patch of ground 600 px above the level, where there is
+	# nothing else, so the widths below are exactly the widths under test and
+	# stay that way the next time the course is re-authored.
+	await fresh()
+	var deck := -600.0
+	for parked in game.enemies:
+		parked.target = null
+	game._add_solid(Rect2(0, deck, 400, 200))          # near floor
+	game._add_solid(Rect2(484, deck, 400, 200))        # an 84 px gap, same height
+	game._add_solid(Rect2(1000, deck, 400, 200))       # and a 220 px one
+	game._add_solid(Rect2(1620, deck, 400, 200))
+	game._add_solid(Rect2(2200, deck, 500, 200))       # flat, with a shelf over it
+	game._add_solid(Rect2(2400, deck - 64.0, 120, 24))
+	await steps(2)
+
+	# Flat ground first, because the failure mode of a jump planner is jumping.
+	# An enemy who hops his way along level floor reads as a broken animation,
+	# not as intelligence.
+	var hopper: Area2D = await spawn_foe("bandit", Vector2(2240, deck))
+	game.player.position = Vector2(2560, deck)
+	game.player.velocity = Vector2.ZERO
+	var pogo := false
+	for i in range(90):
+		await steps(1)
+		if hopper.state == hopper.State.JUMP:
+			pogo = true
+			break
+	check("flat-ground-is-walked-not-hopped",
+		not pogo and hopper.position.x > 2250.0,
+		{"jumped": pogo, "x": hopper.position.x})
+
+	# A player 90 px over his head — the height his own jump reaches, and half
+	# again the 60 px band every ground attack is stuck inside. He goes up after
+	# him, and the swing he throws on the way is the same swing with the same
+	# box: it is simply higher, because he is.
+	#
+	# The player stands on a ledge rather than being held in mid-air: steps() is
+	# a PROCESS frame and Godot runs up to eight physics ticks inside one, so a
+	# player pinned once per step falls most of a jump's height between pins and
+	# the two arcs never meet. See tests/diag_jump.gd.
+	#
+	# The enemy starts 50 px to one side, not underneath, and is reset() first.
+	# A fist reaches FORWARD, 12 to 30 px ahead of him, so an enemy directly
+	# below the player swings past him on both sides and connects with nothing —
+	# which is exactly where a bandit ends up if he carries a charge in from the
+	# walk above, because he overruns.
+	game._add_solid(Rect2(2600, deck - 90.0, 200, 20))
+	await steps(2)
+	hopper.reset()
+	hopper.position = Vector2(2570, deck)
+	hopper.home = hopper.position
+	hopper.engaged = true
+	game.player.position = Vector2(2620, deck - 90.0)
+	game.player.velocity = Vector2.ZERO
+	await steps(2)
+	var before_hop: int = game.player.health
+	var went_up := false
+	var caught_airborne := false
+	for i in range(150):
+		await steps(1)
+		if hopper.position.y < deck - 20.0:
+			went_up = true
+		if game.player.health < before_hop:
+			caught_airborne = not hopper.grounded
+			break
+	check("a-player-above-him-is-followed-up", went_up,
+		{"state": hopper.state, "y": hopper.position.y, "deck": deck,
+		 "apex": hopper.jump_apex()})
+	check("and-caught-by-a-punch-thrown-out-of-the-jump", caught_airborne,
+		{"health": game.player.health, "before": before_hop,
+		 "y": hopper.position.y, "grounded": hopper.grounded})
+
+	# The shelf: 64 px up, which is over the 60 px band every ground attack is
+	# limited to. Standing on it used to be immunity.
+	hopper.position = Vector2(2560, deck)
+	hopper.velocity = Vector2.ZERO
+	hopper.hop_cooldown = 0.0
+	game.player.position = Vector2(2460, deck - 64.0)
+	game.player.velocity = Vector2.ZERO
+	var climbed := false
+	for i in range(180):
+		await steps(1)
+		if hopper.grounded and absf(hopper.position.y - (deck - 64.0)) < 4.0:
+			climbed = true
+			break
+	check("a-ledge-is-climbed-not-stared-at", climbed,
+		{"x": hopper.position.x, "y": hopper.position.y, "shelf": deck - 64.0})
+
+	# The 84 px gap. From the lip that is (84 + 20 + 18) / 0.75 = 163 px/s of the
+	# bandit's 215 — inside his reach with room to spare. Which of the course's
+	# own gaps that works out to is tests/diag_gaps.gd's question, not this one's:
+	# it crosses 24, 60, 72, 96 and 120 px on the Isles and holds the lip at 132
+	# and up.
+	var leaper: Area2D = await spawn_foe("bandit", Vector2(340, deck))
+	game.player.position = Vector2(560, deck)
+	game.player.velocity = Vector2.ZERO
+	var across := false
+	for i in range(180):
+		await steps(1)
+		if leaper.grounded and leaper.position.x > 484.0:
+			across = true
+			break
+	check("a-gap-he-can-clear-is-leapt", across and leaper.alive(),
+		{"x": leaper.position.x, "y": leaper.position.y, "alive": leaper.alive(),
+		 "reach": leaper.leap_speed * leaper.air_time()})
+
+	# And the other half, which matters more: a gap too wide for him stops him at
+	# the lip. He does not walk in. Falling in used to be how an enemy opened his
+	# own gate, and it is the difference between reckless and broken.
+	var stopper: Area2D = await spawn_foe("bandit", Vector2(1340, deck))
+	game.player.position = Vector2(1660, deck)
+	game.player.velocity = Vector2.ZERO
+	await steps(150)
+	check("a-gap-he-cannot-clear-stops-him-at-the-lip",
+		stopper.alive() and absf(stopper.position.y - deck) < 4.0
+			and stopper.position.x > 1340.0 and stopper.position.x < 1404.0,
+		{"x": stopper.position.x, "y": stopper.position.y, "lip": 1400.0,
+		 "alive": stopper.alive(),
+		 "reach": stopper.leap_speed * stopper.air_time()})
+
+	# The archer is the exception, and on purpose: one who leaps at you has given
+	# up the only thing he is for. He jumps to keep his footing, never at you.
+	var archer: Area2D = await spawn_foe("hunter", Vector2(2300, deck))
+	game.player.position = Vector2(2460, deck - 64.0)
+	game.player.velocity = Vector2.ZERO
+	archer.engaged = true
+	var archer_hopped := false
+	for i in range(120):
+		await steps(1)
+		if archer.state == archer.State.JUMP:
+			archer_hopped = true
+			break
+	check("an-archer-never-leaps-at-you", not archer_hopped,
+		{"state": archer.state, "style": archer.style})
+
+	# --- and the jump must not reach the perches ----------------------------
+	# The hunters on the Isles' high shelves sit 144 px up and more. The whole
+	# section-gate design rests on them being out of the fight — see holds_gate
+	# in enemy.gd — so a jump that could carry one down into it, or carry a deck
+	# enemy up onto it, would be a level design change wearing an AI change's
+	# clothes. 101 px of jump and a 120 px drop limit keep them where they are.
+	await fresh()
+	game.load_level("fractured_isles")     # the only level that has any
+	game.start_session()
+	game.player.test_control = true
+	await steps(3)
+	game.player.position = Vector2(3950, 660)
+	game.player.velocity = Vector2.ZERO
+	var roosts := {}
+	for foe in game.enemies:
+		# Only the perches are armed: a deck enemy killing the player would end
+		# the attempt, and a retry puts everybody back on their mark, which would
+		# pass this check without ever testing it.
+		foe.target = null if foe.holds_gate else game.player
+		if not foe.holds_gate:
+			roosts[foe] = foe.position
+	await steps(180)
+	# Height, not position: an archer shuffling along his own shelf to hold his
+	# range is doing his job. Coming DOWN off it is the thing that would be a
+	# level redesign, and it is the only thing this asserts.
+	var worst := 0.0
+	for foe in roosts:
+		worst = maxf(worst, absf(foe.position.y - float(roosts[foe].y)))
+	check("a-perch-is-still-out-of-reach", worst < 8.0 and roosts.size() > 0,
+		{"perches": roosts.size(), "drifted": worst,
+		 "apex": Enemy.JUMP_VELOCITY * Enemy.JUMP_VELOCITY / (2.0 * Enemy.GRAVITY),
+		 "drop_limit": Enemy.DROP_LIMIT})
+
 	# --- the two paths the rock needs ---------------------------------------
 	# Neither is used by the crate or the bottle: both break straight into flying
 	# debris and both have drawn tumble angles. The rock sheet has five break
@@ -514,10 +768,11 @@ func run() -> void:
 	# being a bar of "may I play".
 	await fresh()
 	var mana_before: int = game.player.mana
-	check("starts-with-three-blasts",
+	check("starts-with-twelve-blasts",
 		mana_before == game.player.START_MANA
-		and mana_before / game.player.BLAST_COST == 3,
-		{"mana": mana_before, "cost": game.player.BLAST_COST})
+		and mana_before / game.player.BLAST_COST == 12,
+		{"mana": mana_before, "cost": game.player.BLAST_COST,
+		 "blasts": mana_before / game.player.BLAST_COST})
 	game.player.test_blast_pressed = true
 	await steps(1)
 	check("mana-not-spent-on-keypress",
@@ -537,7 +792,11 @@ func run() -> void:
 	await stand_to_punch(game.crates[0])
 	game.player.test_attack_pressed = true
 	await finish_attack()
-	check("punching-is-free", game.player.mana == mana_before, {"mana": game.player.mana})
+	# Not equality: the bar trickles back the whole time, and a punch takes long
+	# enough that a point can land during it. What must not happen is a punch
+	# taking any off.
+	check("punching-is-free", game.player.mana >= mana_before,
+		{"mana": game.player.mana, "before": mana_before})
 
 	# Empty: the key does nothing at all. Not a shorter blast, not a punch
 	# instead — nothing, so the bar is the whole explanation.
@@ -561,6 +820,59 @@ func run() -> void:
 		{"attack": game.player.attack, "mana": game.player.mana})
 	await finish_attack()
 
+	# --- the bar refills itself ---------------------------------------------
+	# Slowly, and on its own. Without this the blast was something to hoard: run
+	# the bar down and only a brown bottle brought it back.
+	await fresh()
+	check("a-blast-is-ten-seconds-of-trickle",
+		is_equal_approx(float(game.player.BLAST_COST) / game.player.MANA_REGEN, 10.0),
+		{"cost": game.player.BLAST_COST, "per_second": game.player.MANA_REGEN})
+	game.player.mana = 0
+	game.player.mana_pool = 0.0
+	await steps(2)
+	var from_fraction: float = game.player.mana_fraction()
+	var from_clock: float = game.elapsed
+	await steps(60)
+	var gained: float = game.player.mana_fraction() - from_fraction
+	var over: float = game.elapsed - from_clock
+	var wanted: float = game.player.MANA_REGEN * over / float(game.player.MAX_MANA)
+	check("mana-trickles-back-at-the-stated-rate",
+		gained > 0.0 and absf(gained - wanted) < wanted * 0.3,
+		{"gained": gained, "wanted": wanted, "seconds": over})
+	# And it moves BETWEEN whole points: the bar would tick once every two
+	# seconds rather than flow if the fraction only counted banked points.
+	check("the-bar-moves-between-whole-points",
+		game.player.mana == 0 and game.player.mana_fraction() > 0.0,
+		{"mana": game.player.mana, "fraction": game.player.mana_fraction()})
+	game.player.mana = game.player.MAX_MANA
+	await steps(20)
+	check("the-trickle-stops-at-full",
+		game.player.mana == game.player.MAX_MANA
+		and is_equal_approx(game.player.mana_fraction(), 1.0),
+		{"mana": game.player.mana, "fraction": game.player.mana_fraction()})
+
+	# --- the bars slide rather than snapping ---------------------------------
+	# The HUD draws an eased fill, so a drop is something you watch happen. The
+	# number beside it is the real value and changes at once.
+	await fresh()
+	game.player.mana = game.player.MAX_MANA
+	await steps(10)
+	var before_shown: float = float(game.hud.shown["mana"])
+	game.player.mana -= 40
+	await steps(1)
+	var lagging: float = float(game.hud.shown["mana"])
+	check("the-bar-lags-the-number-it-is-chasing",
+		lagging > game.player.mana_fraction() + 0.05 and lagging <= before_shown,
+		{"shown": lagging, "real": game.player.mana_fraction(),
+		 "before": before_shown})
+	var ease_ticks := 0
+	while absf(float(game.hud.shown["mana"]) - game.player.mana_fraction()) > 0.01 			and ease_ticks < 120:
+		await steps(1)
+		ease_ticks += 1
+	check("and-catches-up-within-the-second", ease_ticks < 60,
+		{"ticks": ease_ticks, "shown": float(game.hud.shown["mana"]),
+		 "real": game.player.mana_fraction()})
+
 	# --- the brown bottle is mana ------------------------------------------
 	await fresh()
 	var brew: Node2D = null
@@ -575,10 +887,14 @@ func run() -> void:
 		await stand_near(brew, -4.0)
 		var two_bars_mana: int = brew.refill_segments * game.player.segment_mana()
 		var drank_it: bool = await finish_drink()
+		# At least the bottle's worth, and not a point of health. Not an exact
+		# figure: the drink takes six seconds and the bar trickles back through
+		# all of them, so the total is the bottle plus about three.
 		check("brown-bottle-fills-mana-not-health",
-			drank_it and game.player.mana == two_bars_mana
+			drank_it and game.player.mana >= two_bars_mana
+			and game.player.mana <= two_bars_mana + 6
 			and game.player.health == game.player.MAX_HEALTH,
-			{"mana": game.player.mana, "expected": two_bars_mana,
+			{"mana": game.player.mana, "bottle_worth": two_bars_mana,
 			 "health": game.player.health})
 		# Full mana refuses the drink for the same reason full health refuses
 		# milk: the bottle is worth keeping.
@@ -1432,10 +1748,16 @@ func run() -> void:
 		mk != null and hn != null and game.enemies.size() == 2,
 		{"count": game.enemies.size(),
 		 "first_kind": game.enemies[0].kind if game.enemies.size() > 0 else "<none>"})
+	# Named animations rather than a count: the count moved the day he learned to
+	# jump, and a manifest that has grown a frame is not a manifest that is wrong.
 	check("mark-loads-his-own-manifest",
-		mk != null and mk.data().get("animations", {}).size() == 4
+		mk != null and mk.data().get("animations", {}).has("idle")
+		and mk.data().get("animations", {}).has("walk")
+		and mk.data().get("animations", {}).has("punch")
+		and mk.data().get("animations", {}).has("hurt")
 		and str(mk.data().get("_source", "")).contains("Mark"),
-		{"source": mk.data().get("_source", "") if mk != null else "<none>"})
+		{"source": mk.data().get("_source", "") if mk != null else "<none>",
+		 "anims": mk.data().get("animations", {}).keys() if mk != null else []})
 	check("hunter-loads-his-own-manifest",
 		hn != null and hn.data().get("animations", {}).size() >= 4
 		and hn.data().get("animations", {}).has("shoot")

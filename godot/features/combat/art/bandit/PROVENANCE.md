@@ -48,10 +48,18 @@ is close to but not identical to Davis's.
 | `walk` | 4, 5, 6, 7 | the chase |
 | `punch` | 10, 13, 11 | wind-up, full extension, follow-through |
 | `hurt` | 36, 37, 31, 34 | two recoils, knocked off his feet, flat |
+| `jump` | 63, 64 | rising, legs swept back; falling, knees up |
 
 `hurt` is deliberately shaped like the enemy it replaced, because `enemy.gd`
 reads its first two frames as the stagger and runs the whole thing out on death.
 That is why an unrelated pack's manifest drops straight in.
+
+`jump` was added when the enemies learned to leave the ground. 63 and 64 are the
+only two pics on the whole sheet whose feet clear the floor line — every standing
+pose plants them 1 px above it, these sit 8 to 13 px clear — so the extractor
+checks that clearance on every run rather than trusting the indices. A re-rip
+that shifts the grid fails loudly instead of leaving him sliding through the air
+in a walk cycle.
 
 ## Geometry
 

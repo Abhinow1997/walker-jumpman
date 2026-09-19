@@ -7,7 +7,7 @@
     "empty": "bar_health_empty.png",
     "full": "bar_health_full.png"
    },
-   "fill_x0": 56,
+   "fill_x0": 50,
    "fill_x1": 312
   },
   "mana": {
@@ -15,7 +15,7 @@
     "empty": "bar_mana_empty.png",
     "full": "bar_mana_full.png"
    },
-   "fill_x0": 50,
+   "fill_x0": 56,
    "fill_x1": 312
   }
  },

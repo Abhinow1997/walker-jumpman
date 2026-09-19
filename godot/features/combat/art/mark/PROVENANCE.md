@@ -43,11 +43,19 @@ and idle line up, but Mark's punch and hurt runs do not.
 | `walk` | 4, 5, 6, 7 | the chase |
 | `punch` | 10, 11, 12 | wind-up, full extension, follow-through |
 | `hurt` | 30, 36, 33, 34 | two recoils, knocked off his feet, flat |
+| `jump` | 63, 64 | rising, legs swept back; falling, knees up |
 
 The Bandit's punch is `10, 13, 11`; Mark's extension is pic 11, so his is
 `10, 11, 12`. `hurt` keeps the shape `enemy.gd` expects — it reads the first two
 frames as the stagger and runs the whole run out on death — so his manifest drops
 into the same script with nothing enemy-specific in it.
+
+`jump` was added when the enemies learned to leave the ground. 63 and 64 are the
+only two pics on the whole sheet whose feet clear the floor line — every standing
+pose plants them 1 px above it, these sit 8 to 13 px clear — so the extractor
+checks that clearance on every run rather than trusting the indices. A re-rip
+that shifts the grid fails loudly instead of leaving him sliding through the air
+in a walk cycle.
 
 ## Geometry
 

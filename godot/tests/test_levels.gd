@@ -258,14 +258,22 @@ func run() -> void:
 		{"x": game.player.position.x, "gate": float(game.gates[0]),
 		 "state": game.state})
 
-	# The perches must not be what holds it, or nothing would ever open: they sit
-	# 240 px up, and both the blast and the arrow fly flat.
+	# The perches must not be what holds a gate, or it could never open: they sit
+	# 240 px up, and both the blast and the arrow fly flat. Counted against the
+	# level file rather than pinned to a number — the enemy list is content and
+	# gets edited, and this check is about the rule, not the roster.
+	var marked := 0
+	for entry in game.level.enemies:
+		if entry.size() > 3 and str(entry[3]) == "perch":
+			marked += 1
 	var perches := 0
 	for foe in game.enemies:
 		if not foe.holds_gate:
 			perches += 1
-	check("perched-enemies-hold-no-gate", perches == 6,
-		{"perches": perches, "enemies": game.enemies.size()})
+	check("perched-enemies-hold-no-gate",
+		marked > 0 and perches == marked,
+		{"perches": perches, "marked_in_level": marked,
+		 "enemies": game.enemies.size()})
 
 	# Clear it, and both the wall and the camera let go. The walk key goes up
 	# first: left held down he strolls through the moment it opens, into the next

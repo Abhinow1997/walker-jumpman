@@ -139,8 +139,11 @@ Every item is re-originned to **bottom centre**, the point that should touch the
 ground. That is why placing one is just a world position with no per-item
 offset. `items.json` carries the cell size and origin; `items.gd` reads it.
 
-The milk bottle is drawn only 13 x 23 px and the brown one 14 x 32. Their pickup
-areas are deliberately far larger than the art, and a halo is drawn behind each,
-because otherwise they are neither findable nor plausibly standable-on at this
-scale. Both are in `bottle.gd` and `brew.gd` — game feel, not changes to the
-asset.
+The milk bottle is drawn only 13 x 23 px and the brown one 14 x 32, so their
+pickup areas are deliberately far larger than the art — `bottle.gd`'s `body`,
+game feel rather than a change to the asset. Each also used to sit in a pulsing
+halo, for the same reason: at this size they are easy to walk past. That was
+removed on 2026-09-18 — a soft round gradient under crisp pixel art reads as a
+smudge rather than a glow — so the bottles are now harder to spot than they
+were. If they turn out to be too easy to miss, the answer is a drawn sparkle in
+the sheet's own palette, not another gradient.

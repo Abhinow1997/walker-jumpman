@@ -131,6 +131,41 @@ func capture(kind: String, foe: Area2D) -> void:
 		foe.position = spot
 		foe.home = spot
 
+	# Jump: the player takes the platform at x320..416, 64 px up — over the 60 px
+	# band every attack in this game is stuck inside, his own included. Caught in
+	# the air on the way up after him.
+	#
+	# Melee kinds only. The archer's answer to height is to back off and shoot,
+	# and he never leaps at the player; he jumps to keep his footing and nothing
+	# else, which there is nowhere on this level to show.
+	if foe.style != "archer":
+		var under := Vector2(420, 640)
+		foe.reset()
+		foe.position = under
+		foe.home = under
+		foe.visible = true
+		game.player.position = Vector2(370, 576)
+		game.player.velocity = Vector2.ZERO
+		game.player.facing = 1.0
+		foe.target = game.player
+		foe.engaged = true
+		var flew := false
+		for i in range(240):
+			await steps(1)
+			if not foe.grounded and foe.position.y < 620.0:
+				foe.set_physics_process(false)
+				await shot(kind + "-07-jump", Vector2(395, 588), 330)
+				foe.set_physics_process(true)
+				flew = true
+				break
+		if not flew:
+			print(kind + ": jump not caught")
+		foe.reset()
+		foe.position = spot
+		foe.home = spot
+	else:
+		print(kind + ": no jump shot — an archer never leaps at you")
+
 	# Hurt: the player strikes back; catch the recoil.
 	foe.target = null
 	foe.position = spot

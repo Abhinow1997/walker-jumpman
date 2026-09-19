@@ -32,6 +32,16 @@ const BAR_SCALE := 0.5
 ## Where the two bars sit, and the gap between them.
 const BAR_AT := Vector2(20, 8)
 const BAR_STEP := 30.0
+## How fast a bar's fill chases the real value, as an exponential rate. The bars
+## do not snap: a blast takes five points off a hundred and the trickle puts
+## them back a fifth of a point at a time, and both should be something you
+## watch happen rather than a number that has already changed by the time you
+## look. Nine is about a third of a second to close most of a gap — quick enough
+## that a hit still reads as a hit, slow enough to see the level move.
+const BAR_EASE := 9.0
+## Below this the chase is over and the bar is set exactly, so it lands on the
+## real value instead of creeping at it forever.
+const BAR_SETTLED := 0.0005
 
 ## Replaced by whatever hud_bars.json reports; this is only what the fallback
 ## rectangles are sized against if the art is missing. Keep it at NATIVE.
@@ -40,6 +50,10 @@ var bar_size := Vector2(320, 52)
 ## AtlasTexture whose region is narrowed each frame, rather than
 ## draw_texture_rect_region, which renders the art as flat white here.
 var bars := {}
+## What each bar is currently showing, chasing what the player actually has.
+## Negative until the first frame, which is how a bar knows to start at the real
+## value rather than sliding up from empty the moment a level loads.
+var shown := {"health": -1.0, "mana": -1.0}
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -50,6 +64,31 @@ func _ready() -> void:
 	## nearest sampling would break the frame's straight edges up unevenly.
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_load_bars()
+
+func _process(delta: float) -> void:
+	## Eases both bars toward the player. Separate from _draw because the draw
+	## has no delta, and separate from the session's step because a bar that is
+	## still settling has to keep redrawing after the value behind it stopped
+	## moving.
+	if not is_instance_valid(game) or not is_instance_valid(game.player):
+		return
+	var moved := false
+	for name in shown:
+		var target: float = clampf(_reading(name), 0.0, 1.0)
+		var was: float = shown[name]
+		if was < 0.0:
+			shown[name] = target
+		else:
+			shown[name] = was + (target - was) * (1.0 - exp(-BAR_EASE * delta))
+			if absf(target - float(shown[name])) < BAR_SETTLED:
+				shown[name] = target
+		if absf(float(shown[name]) - was) > 0.00001:
+			moved = true
+	if moved:
+		queue_redraw()
+
+func _reading(name: String) -> float:
+	return game.player.mana_fraction() if name == "mana" else game.player.health_fraction()
 
 func _load_bars() -> void:
 	var text := FileAccess.get_file_as_string(BARS)
@@ -156,15 +195,18 @@ func _bar(name: String, at: Vector2, fraction: float, empty_tint: Color) -> void
 func _meters() -> void:
 	## The two bars and their numbers, stacked in the corner.
 	##
-	## He starts on very little health on purpose, so the bar reads as a problem
-	## before the bottle is ever found. Mana starts at three blasts of five, for
-	## the same reason in the other direction: enough to learn what K does, not
-	## enough to lean on it.
+	## Green is life, blue is the blast: the bars are cut that way round by
+	## scripts/extract_hud_bars.py, so the colour lives in the art rather than in
+	## a tint here, and the fallback rectangles below match it.
+	##
+	## Both draw their EASED fill, not the player's raw fraction — see _process.
+	## The numbers beside them are the real values, so the figure is right the
+	## instant it changes while the bar is still catching up to it.
 	var health_at := BAR_AT
 	var mana_at := BAR_AT + Vector2(0, BAR_STEP)
-	_bar("health", health_at, game.player.health_fraction(),
-		Color("a23e36") if game.player.health_fraction() < 0.34 else Color("287c68"))
-	_bar("mana", mana_at, game.player.mana_fraction(), Color("287c68"))
+	_bar("health", health_at, float(shown["health"]),
+		Color("a23e36") if game.player.health_fraction() < 0.34 else Color("2f9e5a"))
+	_bar("mana", mana_at, float(shown["mana"]), Color("2f7fb9"))
 	# Baselines set against the middle of each bar rather than its top edge, so
 	# the number reads as belonging to the bar beside it.
 	var number_x := BAR_AT.x + bar_size.x * BAR_SCALE + 10.0

@@ -12,7 +12,9 @@ The title screen and The Fractured Isles share the Magic Cliffs loop — the pac
 
 The stage is cut into sections and you do not walk past a fight. While enemies are still standing in your section the camera stops dead, an invisible wall stands on the line, and you can see you have run out of screen rather than out of floor; put them down and both let go, with a chevron at the edge to say so. Walking back is never blocked. The Fractured Isles is four sections, the last being the Archway platform where the boss fight will go — it has no gate yet, so the flag ends it.
 
-Two bars sit in the top corner. Health is the cyan one: punks take it, the white milk bottles give it back, and spikes and pits ignore it entirely — those are still instant deaths. Mana is the green one, and the blast is the only thing that spends it: three blasts' worth to start, twenty a shot, and the brown bottles are the only way to earn more. Punching and kicking stay free, so an empty mana bar costs you the ranged option and nothing else.
+Two bars sit in the top corner. Health is the green one: punks take it, the white milk bottles give it back, and spikes and pits ignore it entirely — those are still instant deaths. Mana is the blue one, and the blast is the only thing that spends it: five a shot out of a hundred, so twelve shots from a spawn and twenty on a full bar. It also trickles back on its own, a shot's worth every ten seconds, and the brown bottles top it up faster. Punching and kicking stay free, so an empty mana bar costs you the ranged option for a few seconds and nothing else.
+
+Neither bar snaps. Both slide to their new level over about a third of a second, while the number beside them changes at once — so a hit or a blast is something you watch land, and the slow refill is visible as movement rather than a figure that is quietly different next time you look.
 
 ![The actual First Steps game, captured during a scripted jump](evidence/screens/03-jump.png)
 
@@ -200,9 +202,47 @@ with `[x, y, "kind"]` in a level's `enemies` array.
 | `mark` | bruiser | the tank: far more health, a heavier blow, and **super-armour on his own swing** — catch him mid-punch and he eats it and follows through, so you cannot trade jabs and win. Slow, though; the answer is footwork, not standing your ground. |
 | `hunter` | archer | keeps his distance and **looses arrows** across the gap, kiting backwards to hold the range. Draws the bow, fires a straight-flying arrow, and is forced to his fists only if you close on him. Fragile. |
 
+Every kind stands where the level put it until the fight starts — walk inside its
+`aggro` range, or hit it from outside — and **after that it follows you**, however
+far you back off. Aggro decides when a fight begins, not whether it continues: an
+enemy that lets you take three steps back and then turns round and stands there
+reads as broken rather than as an escape, and the section gates will not let you
+leave the fight anyway. A retry puts everyone back on their mark and forgets it.
+
+**They jump.** Once a fight is on, the terrain is their problem rather than your
+free win: a gap is leapt, a ledge is climbed, and a player who jumps clean over
+their heads is followed up and swung at on the way. The swing is the same swing —
+the hit box rides the sprite, so it is high when they are. Three rules keep it
+from being oppressive:
+
+* **They only jump when jumping is the answer.** Level floor is walked. The
+  triggers are a gap or a step in the way, or you being above them.
+* **A jump they cannot make is not attempted.** Each kind carries a `leap` speed,
+  which with a fixed 0.75 s of air time sets how wide a gap it can cross: on the
+  Fractured Isles a bandit takes the 24, 60, 72, 96 and 120 px gaps and stops at
+  the lip of the 132s and the 168; Mark, heavier, gets the short ones and nothing
+  else. Nothing walks into a pit any more — falling in used to open that
+  section's own gate for free. `tests/diag_gaps.gd` prints the whole table for a
+  level, which is how you find out whether a chasm you just authored is one the
+  fight can follow you across.
+* **Their jump is smaller than yours.** 101 px against your 107, so there is
+  nowhere you can climb to that they can follow but you cannot leave — and the
+  hunters perched on the Isles' high shelves, 144 px up, stay out of the fight,
+  which is what the gate design rests on.
+
+A leap is committed: there is no steering once they are off the ground, so it can
+be sidestepped like the bandit's charge. Hit one in mid-air and the stagger takes
+its momentum with it — it drops out of the leap rather than finishing it. And
+landing leaves them flat-footed for a moment, so being somewhere else when they
+come down is the answer to one that follows you up.
+
+The hunter jumps for terrain only, never at you. An archer who leaps has given up
+the one thing he is for; his answer to a player on a ledge is to back off and
+shoot.
+
 The personality lives entirely in `PROFILES` — health, speed, damage, cooldown,
-knockback, and how it closes (walk, charge, or shoot and kite). A kind with no row
-falls back to a plain walker. Art, reach and hit geometry still come from each
+knockback, leap, and how it closes (walk, charge, or shoot and kite). A kind with
+no row falls back to a plain walker. Art, reach and hit geometry still come from each
 kind's manifest, so you can retune a bruiser without recutting a sprite. The
 hunter's arrow is its own object ([`features/combat/arrow.gd`](godot/features/combat/arrow.gd)) —
 the LF2 rip has his bow-draw frames but no arrow, so the shaft is drawn, not cut.

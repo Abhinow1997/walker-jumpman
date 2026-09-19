@@ -82,6 +82,13 @@ ANIMS = {
               "hold": [0.100, 0.200, 0.120]},
     "hurt":  {"pics": [30, 36, 33, 34],  "loop": False,
               "hold": [0.100, 0.100, 0.140, 0.500]},
+    # The jump: rising, then falling. These are the only two pics on the whole
+    # sheet whose feet leave the floor line, which is what the check in main()
+    # asserts - a grounded pose cannot be substituted for one of them by
+    # accident. 63 has the legs swept back under him, 64 the knees up in front,
+    # the same pair the player's own rise and fall are drawn from.
+    "jump":  {"pics": [63, 64],          "loop": False,
+              "hold": [0.300, 0.300]},
 }
 
 ## Index into punch's pics, not an LF2 pic: the frame with the arm out (pic 11).
@@ -98,6 +105,12 @@ HIT_DAMAGE = 20
 ## ORIGIN. Re-checked every run so a different rip cannot silently leave the hit
 ## box pointing at empty air. Mark reaches less far and higher than the Bandit.
 ARM_EXPECTED = (30, -51, -40)
+## A jump frame has to be drawn in the air. Every grounded pose on these rips
+## plants its feet 1 px above the floor line; the airborne ones sit 8 to 13 px
+## clear, so this tells them apart with room to spare and a re-rip that shifts
+## the grid fails loudly instead of leaving him sliding along the ground.
+AIRBORNE_CLEAR = 5
+
 
 
 def load_sheet():
@@ -190,6 +203,17 @@ def main():
             "loop": spec["loop"], "durations": spec["hold"],
         }
         print("%-6s %d frame(s) from pics %s" % (name, len(tiles), spec["pics"]))
+
+    for n in ANIMS["jump"]["pics"]:
+        box = pic(sheet, n).getbbox()
+        if box is None:
+            sys.exit("jump: pic %d is empty" % n)
+        clear = ORIGIN[1] - (box[3] - 1)
+        if clear < AIRBORNE_CLEAR:
+            sys.exit("jump: pic %d has its feet %d px off the floor line, needs %d "
+                     "- that is a standing pose, not an airborne one"
+                     % (n, clear, AIRBORNE_CLEAR))
+        print("jump   pic %d clears the floor line by %d px" % (n, clear))
 
     arm = arm_extent(pic(sheet, ANIMS["punch"]["pics"][HIT_FRAME]))
     if arm is None:

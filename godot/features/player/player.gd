@@ -81,13 +81,21 @@ const START_HEALTH := 60
 ## screen, and a ranged attack with no cost is the one that makes every other
 ## move pointless.
 ##
-## He starts with three blasts in him and no way to earn a fourth except the
-## brown bottle, so running the bar down is a decision about the next fight
-## rather than a punishment. Like health, nothing here kills him — out of mana
-## means the K key does nothing until he finds a bottle.
+## A blast is cheap and the bar refills itself, slowly: five points a shot
+## against a hundred, and five points back every ten seconds. So a full bar is
+## twenty blasts, a spawn is twelve, and one free shot arrives every ten seconds
+## whatever happens. At twenty a shot the bar emptied in five and only a brown
+## bottle brought it back, which made the blast something to hoard rather than
+## use — the opposite of the point of giving him one.
+##
+## The trickle also means he can never be permanently disarmed. Nothing here
+## kills him either: out of mana just means the K key does nothing for a moment.
 const MAX_MANA := 100
 const START_MANA := 60
-const BLAST_COST := 20
+const BLAST_COST := 5
+## Points a second. BLAST_COST every ten seconds, by construction — change the
+## cost and the shot-per-ten-seconds promise follows it.
+const MANA_REGEN := float(BLAST_COST) / 10.0
 
 ## No two blows may land inside this window. Without it a punk standing inside
 ## the player lands on consecutive frames and empties the whole bar in a third
@@ -159,6 +167,11 @@ var facing: float = 1.0
 var jumps: int = 0
 var health: int = START_HEALTH
 var mana: int = START_MANA
+## The part of a point trickled back but not yet banked. Held apart from `mana`,
+## which is an integer everything else reasons about, and counted by
+## mana_fraction() so the bar rises smoothly instead of ticking a pixel every
+## two seconds.
+var mana_pool: float = 0.0
 var test_control: bool = false
 var test_axis: float = 0.0
 var test_jump_pressed: bool = false
@@ -240,6 +253,7 @@ func reset_at(spawn: Vector2) -> void:
 	jumps = 0
 	health = START_HEALTH
 	mana = START_MANA
+	mana_pool = 0.0
 	drink_pool = 0.0
 	hurt_cooldown = 0.0
 	hurt_stun = 0.0
@@ -315,7 +329,21 @@ func restore_mana(amount: int) -> int:
 	return mana - before
 
 func mana_fraction() -> float:
-	return float(mana) / float(MAX_MANA)
+	## Counts the part-point still in the pool, so the bar shows the trickle as
+	## it happens rather than jumping a whole point at a time.
+	return clampf((float(mana) + mana_pool) / float(MAX_MANA), 0.0, 1.0)
+
+func _regenerate_mana(delta: float) -> void:
+	## The slow trickle. Runs whenever he is on his feet — not in a menu, not
+	## mid-death — and banks whole points as they arrive.
+	if mana >= MAX_MANA:
+		mana_pool = 0.0
+		return
+	mana_pool += MANA_REGEN * delta
+	var whole := int(floor(mana_pool))
+	if whole > 0:
+		mana_pool -= float(whole)
+		mana = mini(MAX_MANA, mana + whole)
 
 func segment_mana() -> int:
 	## One fifth of the mana bar, in points.
@@ -591,6 +619,9 @@ func _physics_process(delta: float) -> void:
 	if not enabled:
 		return
 	tick += 1
+	# Gated on `enabled` by the return above, so it does not tick on a menu or
+	# through a death: the bar he comes back with is the one he spawned with.
+	_regenerate_mana(delta)
 	if hurt_cooldown > 0.0:
 		hurt_cooldown = maxf(0.0, hurt_cooldown - delta)
 	if hurt_stun > 0.0:
