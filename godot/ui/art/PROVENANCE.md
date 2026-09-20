@@ -84,6 +84,13 @@ the mix is the thing the cuts were timed to. Re-render it and run
 `tests/diag_audio.gd`, which fails if the new length no longer reaches the
 0:45 cut.
 
+The voice stem earns its keep even though the game never loads it. The caption
+cues in `ui/storyboard.gd` are measured off it by `tests/diag_speech.gd` — see
+that file's header for the two-line procedure — because the merged mix has a
+continuous bed under the voice and no silence in it to find. Copy the stem to
+`godot/audio/_stem_probe.mp3` to re-measure, and **delete it afterwards**:
+`godot/audio/*.mp3` is tracked on purpose and one left behind would ship.
+
 **Where the bed came from is not recorded.** If it is not the author's own or a
 CC0 track it is a third thing to clear before release, alongside the two below.
 

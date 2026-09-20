@@ -558,7 +558,8 @@ func _follow_y(current: float) -> float:
 static func setup_input() -> void:
 	## W/S and the up/down arrows are free during play — movement is A/D and the
 	## left/right arrows — so the menu can have them without a mode switch.
-	var actions := {"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT], "jump": [KEY_SPACE], "drink": [KEY_E], "attack": [KEY_J, KEY_X], "blast": [KEY_K, KEY_C], "pause": [KEY_ESCAPE, KEY_P], "restart": [KEY_R], "confirm": [KEY_ENTER], "menu": [KEY_M], "menu_up": [KEY_W, KEY_UP], "menu_down": [KEY_S, KEY_DOWN]}
+	var actions := {"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT], "jump": [KEY_SPACE], "drink": [KEY_E], "attack": [KEY_J, KEY_X], "blast": [KEY_K, KEY_C], "pause": [KEY_ESCAPE, KEY_P], "restart": [KEY_R], "confirm": [KEY_ENTER], "menu": [KEY_M], "menu_up": [KEY_W, KEY_UP], "menu_down": [KEY_S, KEY_DOWN],
+			"music": [KEY_N]}
 	for action in actions:
 		if InputMap.has_action(action):
 			continue
@@ -935,12 +936,20 @@ func _unhandled_input(event: InputEvent) -> void:
 		restart_attempt()
 	elif event.is_action_pressed("menu") and state in [State.PAUSED, State.COMPLETE]:
 		open_menu()
+	elif event.is_action_pressed("music") and state == State.PAUSED:
+		# Offered on the pause screen only, which is where it is labelled. N rather
+		# than M, which is already the way back to the main menu.
+		Music.toggle(get_tree())
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var at: Vector2 = hud.get_local_mouse_position()
 		var row: int = hud.row_at(at)
 		if state == State.MENU and row >= 0:
 			menu_index = row
 			confirm()
+		elif hud.music_rect().has_point(at):
+			# Ahead of the confirm button: the two share a row while paused, and a
+			# click that missed this one used to fall through and resume the game.
+			Music.toggle(get_tree())
 		elif hud.button_rect().has_point(at):
 			confirm()
 

@@ -25,9 +25,24 @@ const DIR := "res://audio/"
 const LEVEL_DB := -12.0
 ## The name it is found by. Anything already called this under the root is it.
 const NODE := "Music"
+## Silence. Godot treats anything at or below -80 dB as off.
+const SILENT_DB := -80.0
 
 ## Which track is loaded, as the bare name a level or the title asked for.
 var track: String = ""
+
+## Whether the player has silenced the music from the pause screen.
+##
+## Static rather than a field on the node, for two reasons: the HUD can read it
+## to label the toggle without holding a reference to anything, and it outlives
+## the node if the node is ever rebuilt.
+##
+## Silenced by VOLUME and not by stop(). A level change cues its own track, so
+## with a stop() every one of those calls would have to consult this first and a
+## missed one would start the music up again behind a player who had turned it
+## off. Turning the volume down is a thing cue() cannot undo by accident — and
+## coming back on lands in time with the loop rather than restarting it.
+static var muted: bool = false
 
 
 static func cue(tree: SceneTree, name: String) -> void:
@@ -60,6 +75,27 @@ static func cue(tree: SceneTree, name: String) -> void:
 	node.play()
 
 
+## What the player hears: the mix level, or silence.
+static func _level_db() -> float:
+	return SILENT_DB if muted else LEVEL_DB
+
+
+static func silence(tree: SceneTree, value: bool) -> void:
+	## Sets the mute and applies it to whatever is playing. Safe before any music
+	## exists: the flag is remembered and the node picks it up when it is made.
+	muted = value
+	var node := _node(tree, false)
+	if node != null:
+		node.volume_db = _level_db()
+
+
+static func toggle(tree: SceneTree) -> bool:
+	## Flips the mute and reports the new state, which is what the caller wants
+	## for a button that has to relabel itself.
+	silence(tree, not muted)
+	return muted
+
+
 static func hush(tree: SceneTree) -> void:
 	## Stops whatever is playing. Used by the levels that have no music of their
 	## own, so walking out of a themed level into a greybox one goes quiet
@@ -81,7 +117,9 @@ static func _node(tree: SceneTree, create: bool) -> AudioStreamPlayer:
 		return null
 	var node = new()
 	node.name = NODE
-	node.volume_db = LEVEL_DB
+	# Not LEVEL_DB: a node made while the player has the music off must come
+	# up silent, or muting then changing level turns it back on.
+	node.volume_db = _level_db()
 	# Keeps playing while the session is paused: the pause screen is a breath,
 	# not a scene change, and silence there reads as the game having crashed.
 	node.process_mode = Node.PROCESS_MODE_ALWAYS

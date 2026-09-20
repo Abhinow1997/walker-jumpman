@@ -232,5 +232,72 @@ func run() -> void:
 	check("it-is-out-of-the-level", gone,
 		{"visible": wyrm.visible, "up": DECK - wyrm.position.y})
 
+	# --- and the same dragon on the other level it fights on -----------------
+	# The Archway platform at the end of The Fractured Isles, which is now its
+	# fight rather than the Dragon Lord's. Worth its own shots because the
+	# arena is somebody else's: a deck at 660 instead of 648, a flag inside the
+	# fight rather than past a gate, and two islands added for this.
+	await isles()
+
 	print("DRAGON CAPTURE: %d failures -> %s" % [failures, output])
 	quit(1 if failures else 0)
+
+func isles() -> void:
+	game.load_level("fractured_isles")
+	game.start_session()
+	game.player.test_control = true
+	await step()
+	var boss: Area2D = null
+	for foe in game.enemies:
+		if foe.kind == "dragon":
+			boss = foe
+		else:
+			foe.target = null      # everything else is a thousand px away
+	check("the-isles-boss-is-the-dragon", boss != null,
+		{"enemies": game.enemies.size(),
+		 "kinds": game.enemies.map(func(f): return f.kind)})
+	if boss == null:
+		return
+	wyrm = boss
+	var deck := 660.0
+	var stones: Array = game.level.solids.filter(
+		func(s): return s.size() > 4 and float(s[1]) == 564.0 and float(s[0]) > 6912.0)
+	check("the-boss-platform-has-two-islands",
+		stones.size() == 2 and absf(deck - 564.0 - 96.0) < 1.0,
+		{"islands": stones, "above_the_deck": deck - 564.0})
+
+	# 14 — perched at the end of the Archway, seen from the platform's mouth.
+	game.player.position = Vector2(boss.home.x - 620.0, deck)
+	game.player.velocity = Vector2.ZERO
+	for i in range(20):
+		game.player.position = Vector2(boss.home.x - 620.0, deck)
+		await step()
+	await shoot("isles-01-the-archway")
+	check("it-waits-at-the-end-of-the-isles",
+		not boss.aloft and absf(boss.position.y - deck) < 1.0,
+		{"aloft": boss.aloft, "y": boss.position.y})
+
+	# 15 — up over its own deck, with the player on one of the new islands.
+	# The gap between them is the shot: from the floor he reaches 143 and it
+	# cruises at 156, so this is the only place the fight can be had.
+	var stone: Array = stones[1] if stones.size() > 1 else stones[0]
+	var on_stone := float(stone[0]) + float(stone[2]) * 0.5
+	boss.reset()
+	boss.target = game.player
+	boss.engaged = true
+	boss.aloft = true
+	boss.grounded = false
+	boss.deck_y = deck
+	boss.position.y = deck - float(boss.prof.get("cruise", 150.0))
+	boss.air_left = 20.0
+	boss.mark_y = deck
+	for i in range(40):
+		game.player.position = Vector2(on_stone, 564.0)
+		game.player.velocity = Vector2.ZERO
+		game.player.health = game.player.MAX_HEALTH
+		await step()
+	await shoot("isles-02-met-from-an-island")
+	check("the-islands-reach-its-cruise",
+		564.0 - 107.0 - 36.0 < boss.position.y and boss.position.y < deck - 100.0,
+		{"dragon_y": boss.position.y, "island_top": 564.0,
+		 "a_jumped_punch_from_it_reaches": 564.0 - 107.0 - 36.0})

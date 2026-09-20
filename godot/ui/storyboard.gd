@@ -7,6 +7,9 @@ extends Control
 ## THE CUTS ARE THE RECORDING'S, NOT A TIMER'S. Every panel change is taken from
 ## the voice-over's own playback position — the isles hold until 0:18, he is
 ## asleep on the ledge until 0:30, the screech lands there, and he runs at 0:45.
+## Which of those changes dissolve and which cut hard is a per-cue decision in
+## PANELS below. The captions run off the same clock and their own table, so a
+## line arrives with the words rather than with the picture.
 ## A Timer counts process frames, so one hitch while a level streams in would
 ## slide the wake-up off the line it was written for and never catch up. Reading
 ## the stream instead means a late frame shows the right panel late rather than
@@ -35,12 +38,74 @@ const TITLE_CARD := preload("res://ui/art/title_bg.png")
 ## Where each panel takes over, in seconds into the voice-over. Held here and
 ## nowhere else; tests/diag_audio.gd checks they still fall inside the track,
 ## which is what catches a re-recorded mp3 that ends before the last cue.
+##
+## `fade` is optional and is how long the panel takes to dissolve in over the
+## one before it, starting AT its cue — so the cue is still the moment the
+## change begins, not the moment it finishes. A cue without one is a hard cut.
+##
+## Only the ledge has it. The isles and the ledge are two held shots of a quiet
+## morning and the eye should be carried between them; the screech and the run
+## are the opposite, a noise that wakes him and a decision to move, and a
+## dissolve would soften the exact thing those cuts are for. Hard cuts are also
+## what keeps 0:30 and 0:45 landing on the mark rather than around it.
 const PANELS := [
 	{"at": 0.0, "name": "the isles", "tex": preload("res://ui/art/storyboard/panel_0.png")},
-	{"at": 18.0, "name": "the ledge", "tex": preload("res://ui/art/storyboard/panel_1.png")},
+	{"at": 18.0, "fade": 1.2, "name": "the ledge", "tex": preload("res://ui/art/storyboard/panel_1.png")},
 	{"at": 30.0, "name": "the screech", "tex": preload("res://ui/art/storyboard/panel_2.png")},
 	{"at": 45.0, "name": "the run", "tex": preload("res://ui/art/storyboard/panel_3.png")},
 ]
+
+## What he says, and when — read from ui/captions.json rather than written here.
+##
+## It is data because it is retimed, not edited: the words are fixed by the
+## recording and only the numbers move, and they move every time the mp3 is
+## re-rendered. tests/time_captions.gd plays the recording and writes that file
+## back from one key press per line, which is the only way these have ever been
+## right — they were first derived by measuring where speech starts in the stem,
+## and a measurement can say WHEN a sound happens but not WHICH words are in it.
+##
+## The delivery tags are not in the file. [exhales], [sighs], [curious],
+## [whispers], [excited] and [laughs] are instructions to the voice, not words
+## he says, and a subtitle that prints them is captioning the score rather than
+## the film. The one bracket that stays is [EXPLOSION], which is the convention
+## the other way round: a sound with no words in it still has to be captioned.
+const CAPTION_FILE := "res://ui/captions.json"
+static var _captions: Array = []
+
+
+static func captions() -> Array:
+	## The cue list, read once. Static and lazy like session.gd's catalogue(),
+	## because the diagnostics want it before any opening has been built.
+	if _captions.is_empty():
+		_read_captions()
+	return _captions
+
+
+static func _read_captions() -> void:
+	if not ResourceLoader.exists(CAPTION_FILE) and not FileAccess.file_exists(CAPTION_FILE):
+		push_warning("captions: nothing at %s; the opening will play silent-titled"
+					 % CAPTION_FILE)
+		return
+	var file := FileAccess.open(CAPTION_FILE, FileAccess.READ)
+	if file == null:
+		push_warning("captions: could not open %s" % CAPTION_FILE)
+		return
+	var parsed = JSON.parse_string(file.get_as_text())
+	file.close()
+	if typeof(parsed) != TYPE_DICTIONARY or not parsed.has("lines"):
+		push_warning("captions: %s has no `lines` array" % CAPTION_FILE)
+		return
+	_captions = parsed["lines"]
+
+
+## The column the captions wrap in, the baseline the last line sits on, and how
+## long each takes to arrive and leave. The bottom is above the skip hint rather
+## than on it: both are bottom-centred text and for the first six seconds they
+## are both on screen.
+const CAPTION_WIDTH := 760.0
+const CAPTION_BOTTOM := 486.0
+const CAPTION_SIZE := 17
+const CAPTION_FADE := 0.18
 
 ## The screen the opening starts on. NEW JOURNEY cuts from a lit menu straight
 ## into somebody else's picture, so the first panel is brought up out of black
@@ -77,6 +142,13 @@ var clock: float = 0.0
 var shown: float = 0.0
 ## Which panel is up.
 var index: int = 0
+## How far that panel has dissolved in over the one before it, 0 to 1. Always 1
+## for a cue with no `fade`, which is every cue but the ledge.
+var blend: float = 1.0
+## Which caption is up, -1 between lines, and how far it has faded in or out.
+## Resolved here rather than in _draw so the draw stays a blit and two alphas.
+var said: int = -1
+var said_alpha: float = 0.0
 ## Whether the title card has been reached. A skipped opening goes straight to
 ## black from whatever panel was up, so the card must not draw over it.
 var card_up: bool = false
@@ -132,7 +204,11 @@ func _process(delta: float) -> void:
 	shown += delta
 	match phase:
 		Phase.VOICE:
-			index = panel_at(voice_time())
+			var at := voice_time()
+			index = panel_at(at)
+			blend = blend_at(at)
+			said = caption_at(at)
+			said_alpha = caption_alpha(at)
 		Phase.CARD:
 			clock += delta
 			if clock >= CARD_IN + CARD_HOLD:
@@ -173,6 +249,43 @@ func panel_at(seconds: float) -> int:
 	return found
 
 
+func blend_at(seconds: float) -> float:
+	## How far the panel at `seconds` has dissolved in over the one before it.
+	## Pure, like panel_at, and 1.0 for a hard cut — so a panel with no `fade`
+	## costs nothing and draws exactly as it did before any of this existed.
+	var i := panel_at(seconds)
+	if i == 0:
+		return 1.0
+	var span := float(PANELS[i].get("fade", 0.0))
+	if span <= 0.0:
+		return 1.0
+	return clampf((seconds - float(PANELS[i]["at"])) / span, 0.0, 1.0)
+
+
+func caption_at(seconds: float) -> int:
+	## Which caption is being spoken at `seconds`, or -1 in the gaps between
+	## them. Pure, like panel_at and blend_at, so the cue table can be checked
+	## without an audio device. Linear over eighteen entries once a frame, which
+	## is nothing next to the two full-screen blits underneath it.
+	for i in range(captions().size()):
+		if seconds >= float(captions()[i]["at"]) and seconds < float(captions()[i]["until"]):
+			return i
+	return -1
+
+
+func caption_alpha(seconds: float) -> float:
+	## How far the caption at `seconds` has faded in, or back out. Derived from
+	## the time rather than accumulated, so seeking the recording — which every
+	## capture does — lands on the right opacity instead of the one left over
+	## from wherever the playhead used to be.
+	var i := caption_at(seconds)
+	if i < 0:
+		return 0.0
+	var since := seconds - float(captions()[i]["at"])
+	var left := float(captions()[i]["until"]) - seconds
+	return clampf(minf(since, left) / CAPTION_FADE, 0.0, 1.0)
+
+
 func _begin_card() -> void:
 	## The voice-over is out; the logo comes up and the game's music with it.
 	if phase != Phase.VOICE:
@@ -181,6 +294,11 @@ func _begin_card() -> void:
 	clock = 0.0
 	card_up = true
 	index = PANELS.size() - 1
+	# Whatever was dissolving is finished with: the card draws over the last
+	# panel, and half of the one before it showing through would be a smear.
+	blend = 1.0
+	# He has stopped talking, so nothing is being said over the logo.
+	said = -1
 	Music.cue(get_tree(), TRACK)
 	queue_redraw()
 
@@ -195,6 +313,8 @@ func skip() -> void:
 	if is_instance_valid(voice):
 		voice.stop()
 	Music.cue(get_tree(), TRACK)
+	blend = 1.0
+	said = -1
 	phase = Phase.OUT
 	clock = 0.0
 	queue_redraw()
@@ -270,7 +390,16 @@ func _draw() -> void:
 	# while it dissolves in, then the black over both. Which of them are visible
 	# is left to the three alphas, so a skip from any point draws correctly
 	# without a branch per phase.
-	draw_texture_rect(PANELS[index]["tex"], frame, false)
+	# The panel under this one is still on screen while a cue with a `fade`
+	# crosses. Drawn as two full-frame blits rather than a shader or a second
+	# Control: both are opaque and viewport-sized, so the top one at `blend`
+	# over the bottom one is the whole dissolve.
+	if blend < 1.0 and index > 0:
+		draw_texture_rect(PANELS[index - 1]["tex"], frame, false)
+		draw_texture_rect(PANELS[index]["tex"], frame, false,
+						  Color(1.0, 1.0, 1.0, blend))
+	else:
+		draw_texture_rect(PANELS[index]["tex"], frame, false)
 	var card := card_alpha()
 	if card > 0.0:
 		draw_texture_rect(TITLE_CARD, frame, false, Color(1.0, 1.0, 1.0, card))
@@ -284,6 +413,29 @@ func _draw() -> void:
 					DESIGN.x, 15, Color(0.0, 0.0, 0.0, 0.7 * hint))
 		draw_string(font, Vector2(0.0, 522.0), text, HORIZONTAL_ALIGNMENT_CENTER,
 					DESIGN.x, 15, Color(0.95, 0.97, 0.98, hint))
+	if said >= 0 and said_alpha > 0.0:
+		_draw_caption(str(captions()[said]["text"]), said_alpha)
 	var black := black_alpha()
 	if black > 0.0:
 		draw_rect(frame, Color(0.0, 0.0, 0.0, black))
+
+
+func _draw_caption(text: String, alpha: float) -> void:
+	## Bottom-centred, wrapped, on a scrim. The scrim is not decoration: these
+	## sit over bright cloud in one panel and dark cliff in the next, and a
+	## shadowed outline alone loses the thin strokes against the clouds.
+	var font := ThemeDB.fallback_font
+	var block := font.get_multiline_string_size(
+		text, HORIZONTAL_ALIGNMENT_CENTER, CAPTION_WIDTH, CAPTION_SIZE)
+	var left := (DESIGN.x - CAPTION_WIDTH) * 0.5
+	var top := CAPTION_BOTTOM - block.y
+	# draw_multiline_string takes the baseline of the FIRST line, not its top.
+	var baseline := top + font.get_ascent(CAPTION_SIZE)
+	draw_rect(Rect2(Vector2(0.0, top - 9.0), Vector2(DESIGN.x, block.y + 17.0)),
+			  Color(0.0, 0.0, 0.0, 0.44 * alpha))
+	draw_multiline_string(font, Vector2(left + 1.0, baseline + 1.0), text,
+						  HORIZONTAL_ALIGNMENT_CENTER, CAPTION_WIDTH,
+						  CAPTION_SIZE, -1, Color(0.0, 0.0, 0.0, 0.75 * alpha))
+	draw_multiline_string(font, Vector2(left, baseline), text,
+						  HORIZONTAL_ALIGNMENT_CENTER, CAPTION_WIDTH,
+						  CAPTION_SIZE, -1, Color(0.96, 0.97, 0.98, alpha))

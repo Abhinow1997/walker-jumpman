@@ -93,6 +93,16 @@ func run() -> void:
 	check("pause-wears-the-pop-up", game.hud._panel_name() == "panel_popup",
 		{"panel": game.hud._panel_name(), "state": game.state})
 	await shoot("03-paused")
+	# And with the music turned off, which is what that second plate is for.
+	var Music = load("res://game/music.gd")
+	Music.silence(self, true)
+	for i in range(2): await step()
+	check("the-toggle-relabels-when-silenced",
+		game.hud.music_label().contains("ON"),
+		{"label": game.hud.music_label(), "muted": Music.muted})
+	await shoot("03b-paused-music-off")
+	Music.silence(self, false)
+	for i in range(2): await step()
 
 	game.set_paused(false)
 	game.state = Game.State.COMPLETE

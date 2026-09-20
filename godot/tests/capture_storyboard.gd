@@ -1,7 +1,7 @@
 extends SceneTree
 ## The opening, taken the way a player takes it: NEW JOURNEY on the title, up
-## out of black, four panels against the voice-over, the title card, then the
-## level.
+## out of black, four panels against the voice-over — one of them dissolving
+## rather than cutting — the title card, then the level.
 ##
 ## Two things are checked here that nothing else can check. The cut times are
 ## asserted as maths — panel_at() is pure, so both sides of every boundary can
@@ -65,9 +65,45 @@ func run() -> void:
 		if i > 0:
 			assert(board.panel_at(cue - 0.01) == i - 1,
 				   "'%s' is already up before %.2fs" % [shot, cue])
-		times.append("%d:%02d %s" % [int(cue) / 60, int(cue) % 60, shot])
+		# A cue with a `fade` dissolves in FROM its mark rather than onto it, so
+		# the index still changes at the exact second and only the picture takes
+		# its time. A cue without one is 1.0 the instant it lands — which is the
+		# property that keeps the screech a cut and not a smear.
+		var span := float(Storyboard.PANELS[i].get("fade", 0.0))
+		if span > 0.0:
+			assert(is_zero_approx(board.blend_at(cue)),
+				   "'%s' does not start its dissolve at %.2fs" % [shot, cue])
+			assert(absf(board.blend_at(cue + span * 0.5) - 0.5) < 0.01,
+				   "'%s' is not half dissolved halfway through" % shot)
+			# A hair past the end rather than exactly on it: cue + span is not
+			# bit-exact in floating point, so the dissolve can read 0.99999
+			# at its own boundary. Visually identical, and the next frame is
+			# past it — but an assertion on the nose fails on the rounding.
+			assert(board.blend_at(cue + span + 0.01) >= 1.0,
+				   "'%s' has not finished dissolving after %.2fs" % [shot, span])
+			times.append("%d:%02d %s (%.1fs dissolve)"
+						 % [int(cue) / 60, int(cue) % 60, shot, span])
+		else:
+			assert(board.blend_at(cue) >= 1.0,
+				   "'%s' has no fade but is not fully up at its cue" % shot)
+			times.append("%d:%02d %s" % [int(cue) / 60, int(cue) % 60, shot])
+	# Every caption reachable, in order, and gone by the time it says it is.
+	for i in range(Storyboard.captions().size()):
+		var line: Dictionary = Storyboard.captions()[i]
+		var from := float(line["at"])
+		var to := float(line["until"])
+		assert(board.caption_at(from) == i,
+			   "caption %d is not up at its own cue %.2fs" % [i, from])
+		assert(board.caption_at((from + to) * 0.5) == i,
+			   "caption %d is not up in the middle of itself" % i)
+		assert(board.caption_at(to) != i,
+			   "caption %d is still up at %.2fs, where it ends" % [i, to])
+		assert(is_zero_approx(board.caption_alpha(from)),
+			   "caption %d is already opaque as it arrives" % i)
 	board.free()
 	print("cut times: " + String(", ").join(times))
+	print("captions: %d lines, all reachable and in order"
+		  % Storyboard.captions().size())
 
 	# --- reached the way the player reaches it ------------------------------
 	change_scene_to_file("res://ui/title.tscn")
@@ -110,8 +146,24 @@ func run() -> void:
 	# shot: it is the path the player's machine takes to reach that panel.
 	for i in range(Storyboard.PANELS.size()):
 		var at := float(Storyboard.PANELS[i]["at"])
-		opening.voice.seek(at + 0.25)
-		var up := await settle(func(): return opening.index == i, 60)
+		var span := float(Storyboard.PANELS[i].get("fade", 0.0))
+		var shot := str(Storyboard.PANELS[i]["name"]).replace(" ", "-")
+		# Caught mid-dissolve first, while both panels are on screen at once.
+		if span > 0.0:
+			opening.voice.seek(at + span * 0.45)
+			var mixing := await settle(
+				func(): return opening.index == i and opening.blend > 0.2 \
+						and opening.blend < 0.8, 60)
+			if mixing:
+				await capture("storyboard-%02d-%s-dissolving" % [i + 1, shot])
+			else:
+				print("panel %d: dissolve not photographed, playback is not advancing"
+					  % (i + 1))
+		# Then past the end of it, so the shot below is the panel on its own
+		# rather than the one before it showing through.
+		opening.voice.seek(at + span + 0.25)
+		var up := await settle(
+			func(): return opening.index == i and opening.blend >= 1.0, 60)
 		if not up:
 			# Nothing is advancing playback, so the seek never reaches
 			# _process. Stop the driver and set the panel directly: the art is
@@ -120,11 +172,46 @@ func run() -> void:
 			print("panel %d: forced, playback is not advancing" % (i + 1))
 			opening.set_process(false)
 			opening.index = i
+			opening.blend = 1.0
 			opening.queue_redraw()
 			for j in range(2): await step()
-		await capture("storyboard-%02d-%s"
-					  % [i + 1, str(Storyboard.PANELS[i]["name"]).replace(" ", "-")])
+		await capture("storyboard-%02d-%s" % [i + 1, shot])
 		opening.set_process(true)
+
+	# --- a caption on screen ------------------------------------------------
+	# Taken over a panel rather than in isolation, because the thing worth
+	# photographing is whether the scrim holds the words up against the art
+	# underneath. The longest line is used for the same reason: it is the one
+	# that wraps, and wrapping is where a bottom-anchored block gets it wrong.
+	var longest := 0
+	for i in range(Storyboard.captions().size()):
+		var span := str(Storyboard.captions()[i]["text"]).length()
+		if span > str(Storyboard.captions()[longest]["text"]).length():
+			longest = i
+	var spoken: Dictionary = Storyboard.captions()[longest]
+	var midpoint := (float(spoken["at"]) + float(spoken["until"])) * 0.5
+	opening.voice.seek(midpoint)
+	var reading := await settle(
+		func(): return opening.said == longest and opening.said_alpha >= 1.0, 90)
+	if reading:
+		await capture("storyboard-%02d-caption-line" % (Storyboard.PANELS.size() + 1))
+		print("caption shown: \"%s\"" % spoken["text"])
+	else:
+		print("caption not photographed, playback is not advancing")
+
+	# And the one caption that is not speech. The delivery tags are stripped
+	# from the rest, so this is the only bracket left on screen and the only
+	# line that would look like a mistake if the stripping ever took it too.
+	var sound := -1
+	for i in range(Storyboard.captions().size()):
+		if str(Storyboard.captions()[i]["text"]).begins_with("["):
+			sound = i
+	assert(sound >= 0, "no bracketed caption left; the explosion lost its line")
+	var noise: Dictionary = Storyboard.captions()[sound]
+	opening.voice.seek((float(noise["at"]) + float(noise["until"])) * 0.5)
+	if await settle(func(): return opening.said == sound and opening.said_alpha >= 1.0, 90):
+		await capture("storyboard-%02d-caption-sound" % (Storyboard.PANELS.size() + 1))
+		print("sound caption shown: %s" % noise["text"])
 
 	# --- one cut taken off the playing stream -------------------------------
 	# The screech, because it is the cut the opening is built around. Dropped in
@@ -172,7 +259,7 @@ func run() -> void:
 
 	# Numbered after the panels rather than at fixed digits: with three panels
 	# the card was 04, and adding panel 0 would have quietly overwritten it.
-	var n := Storyboard.PANELS.size()
+	var n := Storyboard.PANELS.size() + 1
 	await settle(func(): return opening.card_alpha() > 0.35, 60)
 	await capture("storyboard-%02d-card-dissolving" % (n + 1))
 	await settle(func(): return opening.card_alpha() >= 1.0, 120)

@@ -32,7 +32,7 @@ same place.
 | | |
 |---|---|
 | 0:00 | the isles, faded up out of black over a second |
-| 0:18 | the ledge, where he is asleep |
+| 0:18 | the ledge, where he is asleep — dissolves in over 1.2s |
 | 0:30 | the screech |
 | 0:45 | the run |
 | 0:56 | the title card, and the game's music starts |
@@ -44,6 +44,14 @@ time. The cut times live in [storyboard.gd](godot/ui/storyboard.gd) and nowhere
 else, and everything that reads them — the capture, the diagnostic — derives its
 boundaries from that table rather than repeating the numbers.
 
+One cue dissolves and the rest cut. The isles and the ledge are two held shots
+of a quiet morning, so the eye is carried between them; the screech and the run
+are the opposite — a noise that wakes him and a decision to move — and a
+dissolve would soften the exact thing those cuts are for. It is a per-cue
+`fade` in the same table, so any other change can be softened by adding one
+number, and the cut still begins on its mark either way: a dissolve fades in
+FROM the cue rather than onto it.
+
 The opening fades up rather than cutting in because NEW JOURNEY is leaving a lit
 menu. Panel 0 is the establishing shot and the only one he is not in, which is
 what makes it the one to arrive out of black: there is no character to read yet,
@@ -54,6 +62,23 @@ recording carries its own bed and two would collide; it is cued again on the
 title card, and First Steps names that same track — so the cue in `_build_world`
 finds it already playing and does nothing. The loop runs unbroken from the logo
 into play, which is why there is no cross-fade here and no silence to cover.
+
+Every line he speaks is captioned along the bottom, one at a time, on a dark
+scrim — the panels are busy enough that outlined text alone loses its thin
+strokes against the clouds. The delivery tags in the recording script
+(`[whispers]`, `[curious]`, `[excited]` and the rest) are **not** shown: they
+are instructions to the voice, not words, and a subtitle that prints them is
+captioning the score rather than the film. One bracket stays, `[EXPLOSION]`,
+which is the same convention the other way round — a sound with no words in it
+still has to be captioned.
+
+The caption times were measured rather than estimated.
+[diag_speech.gd](godot/tests/diag_speech.gd) plays the voice-only stem through
+a capture bus, sums its energy into 20 ms windows and prints every run of sound;
+fifteen runs came back against fourteen spoken lines and one explosion, so the
+pairing is one to one and in order. Re-render the recording and that script is
+how the eighteen cues get their new numbers. It needs the stem, not the merged
+mix — the mix has a bed under the voice and contains no silence to find.
 
 `godot --path godot --script tests/capture_storyboard.gd` takes the whole thing
 the way a player does and writes eight frames into `evidence/screens/`; it
@@ -99,10 +124,11 @@ Five levels ship, all validated by `scripts/check_levels.py`:
 * **First Steps** is the practice course and the first level of the journey.
   Same cliffs, sea and cast as The Fractured Isles, cut into five short stretches
   that each ask for one thing you have not done yet — see below.
-* **The Fractured Isles** is the course proper.
+* **The Fractured Isles** is the course proper, and it ends on the Archway platform with the dragon — two floating islands were added there to fight it from.
 * **The Dragon's Roost** is the final boss fight and nothing else: a hop in, a
-  flat arena with two floating stones to take height from, and the dragon. It is
-  the end of the course, so finishing it replays it.
+  flat arena with two floating stones to take height from, and the dragon again,
+  this time with nothing else in the level and a gate that will not open until it
+  is beaten. It ends the course, so finishing it replays it.
 * **Proving Ground** is the greybox prototyping slice: somewhere to try a
   mechanic without dressing a level around it. Listed, so you can pick it; not on
   the course, so it chains to nothing.
@@ -293,7 +319,7 @@ with `[x, y, "kind"]` in a level's `enemies` array.
 | `bandit` | charger | rushes you: from mid-range he commits a fast dash, so standing still in front of him is punished. An even match otherwise — one bar of health, one bar of damage. Even the charge stays slower than your run, so leaving is always an answer. |
 | `mark` | bruiser | the tank: far more health, a heavier blow, and **super-armour on his own swing** — catch him mid-punch and he eats it and follows through, so you cannot trade jabs and win. Slow, though; the answer is footwork, not standing your ground. |
 | `hunter` | archer | keeps his distance and **looses arrows** across the gap, kiting backwards to hold the range. Draws the bow, fires a straight-flying arrow, and is forced to his fists only if you close on him. Fragile. |
-| `dragon_lord` | bruiser | the boss at the end of The Fractured Isles. A mark turned up: twice the health, a longer reach measured off his own flame, and two specials picked by distance. No guard — he **burns** a thrown blast out of the air instead, see below. |
+| `dragon_lord` | bruiser | a mark turned up: twice the health, a longer reach measured off his own flame, and two specials picked by distance. No guard — he **burns** a thrown blast out of the air instead, see below. **Currently placed in no level**: he was the Archway boss until the dragon took that fight. Art, profile and tests are all still here, so putting him back is one entry in an `enemies` array. |
 | `dragon` | flyer | the final boss, and the only thing in the game that fights in two phases. It sits on its perch until you walk in, **roars**, and takes off; in the air it cruises out of reach, **swoops**, and breathes fire along the deck. Then it **lands** and fights you on its feet — walking in, clawing, and breathing standing fire — before going back up. No guard: its answer to a blast is to **climb over it**. See below. |
 
 Every kind stands where the level put it until the fight starts — walk inside its

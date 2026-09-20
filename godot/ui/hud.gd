@@ -1,4 +1,7 @@
 extends Control
+
+const Music = preload("res://game/music.gd")
+
 var game: Node2D
 ## Dark ink on light paper, as before. The play HUD has no paper behind it any
 ## more, so it carries its own: every string on it is drawn with a pale outline
@@ -169,10 +172,17 @@ const PANEL_SCALE := 0.5
 ## overlay sits in the same place whichever of the two is showing.
 const PANEL_BOTTOM := 282.0
 const BUTTON_AT := Rect2(235, 290, 170, 40)
+## Paused, the confirm button shares its row with the music toggle, so the PAIR
+## is centred on the screen rather than the one button.
+const PAUSED_BUTTON_AT := Rect2(150, 290, 170, 40)
+const MUSIC_AT := Rect2(330, 290, 160, 40)
 ## Borrowed off the kit's own START plate. The kit's buttons are not used — see
 ## the note in extract_panels.py — but its green is.
 const BUTTON_FACE := Color("498c69")
 const BUTTON_LIP := Color("6fb98a")
+## The toggle while the music is off, so the state reads without the label.
+const BUTTON_OFF := Color("57606b")
+const BUTTON_OFF_LIP := Color("7d8894")
 
 ## Only the fallback shape, for a checkout that has not imported the art yet.
 const PANEL_W := 340.0
@@ -229,7 +239,20 @@ func _face(key: String) -> Rect2:
 				 (float(f[3]) - float(f[1])) * r.size.y)
 
 func button_rect() -> Rect2:
+	if is_instance_valid(game) and game.state == game.State.PAUSED:
+		return PAUSED_BUTTON_AT
 	return BUTTON_AT
+
+## The music toggle. Empty off the pause screen, which is the only place it is
+## offered — and which is what stops a click landing on one that is not drawn.
+func music_rect() -> Rect2:
+	if not is_instance_valid(game) or game.state != game.State.PAUSED:
+		return Rect2()
+	return MUSIC_AT
+
+func music_label() -> String:
+	## What pressing it will DO, not what the music is doing now.
+	return "N  /  MUSIC ON" if Music.muted else "N  /  MUSIC OFF"
 
 func _row_rect(i: int) -> Rect2:
 	## The level list sits on the parchment, between the heading and the card
@@ -440,13 +463,25 @@ func _draw() -> void:
 	else:
 		_message_panel()
 	# Drawn rather than taken from the kit, whose plates all have their word baked
-	# in — this one says four different things. Its colours are the kit's.
-	var button := button_rect()
-	draw_rect(button, BUTTON_FACE)
-	draw_rect(Rect2(button.position, Vector2(button.size.x, 3.0)), BUTTON_LIP)
-	draw_rect(button, BUTTON_LIP, false, 2.0)
-	centered(_button_label(), button.position.y + button.size.y * 0.66, 14,
-			Color("f4efe2"))
+	# in — these say several different things. Their colours are the kit's.
+	_plate(button_rect(), _button_label(), BUTTON_FACE, BUTTON_LIP)
+	var music := music_rect()
+	if music.size.x > 0.0:
+		var off: bool = Music.muted
+		_plate(music, music_label(),
+				BUTTON_OFF if off else BUTTON_FACE,
+				BUTTON_OFF_LIP if off else BUTTON_LIP)
+
+func _plate(box: Rect2, label: String, face: Color, lip: Color) -> void:
+	## A button. Its label is centred on the BOX rather than on the screen, which
+	## is why this does not go through centered().
+	draw_rect(box, face)
+	draw_rect(Rect2(box.position, Vector2(box.size.x, 3.0)), lip)
+	draw_rect(box, lip, false, 2.0)
+	var w := ThemeDB.fallback_font.get_string_size(
+			label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+	text_at(label, Vector2(box.get_center().x - w / 2.0,
+			box.position.y + box.size.y * 0.66), 14, Color("f4efe2"))
 
 func _button_label() -> String:
 	if game.state == game.State.PAUSED:

@@ -153,10 +153,15 @@ const PROFILES := {
 		# not much behind the bow, and his pool is the shallowest of the three.
 		"guard": 1.2, "react": 0.26,
 	},
-	# The boss at the end of the course. A bruiser turned up: twice a mark's
+	# A bruiser turned up: twice a mark's
 	# health, hits harder, and barely rocks when hit. His reach is not set here
 	# — it is measured off the flame in the art by extract_dragon_lord.py — and
 	# it is long, so the gap that is safe against a mark is not safe against him.
+	#
+	# NO LEVEL PLACES HIM at the moment: he held the Archway platform at the end
+	# of The Fractured Isles until the dragon took that fight. Everything about
+	# him still works and test_combat still exercises all of it, so putting him
+	# back is one entry in a level's `enemies` array and nothing else.
 	# Slow on purpose: the answer is the footwork the course has been teaching,
 	# and at twice the cast's size he is easy to read coming. He does not leap;
 	# the arena is flat and a boss who follows you over a chasm leaves nowhere
