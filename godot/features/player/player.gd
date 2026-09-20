@@ -126,6 +126,37 @@ const HURT_INVULNERABLE := 0.6
 ## turn one punch into a death — and it is short enough not to be a sentence.
 const HURT_STUN := 0.25
 
+## Being FLUNG is heavier than being stunned, and only the Dragon Lord does it —
+## his blows carry a knockback the rest of the cast does not (see fling_for() in
+## enemy.gd). A flung blow throws him away from the fist and lifts him off his
+## feet, so the fall is the second half of the blow: "hit, then thrown, then
+## down." While he is flung his own momentum carries him — no walking, no air
+## steering — exactly like an enemy's committed jump, and it ends when he lands.
+##
+## FLING_LIFT is the upward pop the horizontal throw is paired with. Well under
+## his own -640 jump, so it reads as being knocked off balance rather than
+## launched, and its 0.42 s of air outlasts the 0.25 s stun so control comes back
+## as he is getting up rather than in the air.
+const FLING_LIFT := -400.0
+## The cap on how long the thrown momentum is held if he never finds a floor —
+## flung out over the sea, say. In the ordinary case landing clears it first.
+const FLING_TIME := 0.6
+## How long a flung blow keeps him off his feet ALTOGETHER — the tumble, the
+## landing and a beat on the deck before he is up again. Longer than
+## FLING_TIME, which only protects his thrown momentum, and much longer than
+## HURT_STUN, which is what an ordinary blow costs.
+##
+## LF2 draws it: frames 180-184, the falling sequence, which
+## scripts/extract_anti_davis.py writes out as `death` because being put down
+## for good is the other thing they are used for. Five frames at 9 fps is
+## 0.56 s and the last is held for what is left.
+##
+## Only the dragon and the Dragon Lord fling at all, and the dragon's breath
+## flings hardest — see fling_for() in features/combat/enemy.gd. So this is
+## what being caught by the fire costs: the damage, the throw, and a second on
+## the floor while the thing that threw you comes back round.
+const DOWN_TIME := 0.95
+
 ## Carrying something heavy costs him speed. He can still outrun a bandit, but
 ## only just, so hauling a crate across the level is a decision.
 const CARRY_SPEED := 0.55
@@ -222,6 +253,12 @@ var hurt_cooldown: float = 0.0
 ## clocks because the stun can be re-tuned without the animation changing speed.
 var hurt_stun: float = 0.0
 var hurt_clock: float = 0.0
+## Time left being flung. While it runs his thrown momentum is preserved — the
+## normal ground friction and air control are skipped — and it is cleared the
+## moment he lands. Zero for every blow that does not fling. See FLING_LIFT.
+var fling_t: float = 0.0
+## Seconds left of a knockdown. See DOWN_TIME.
+var down_t: float = 0.0
 ## What he is holding, and whether it is the two-handed kind. The object is a
 ## real prop in the world, not a texture: the visual drives its position from
 ## the current frame's weapon point, so throwing it is just handing it back its
@@ -281,6 +318,8 @@ func reset_at(spawn: Vector2) -> void:
 	hurt_cooldown = 0.0
 	hurt_stun = 0.0
 	hurt_clock = 0.0
+	fling_t = 0.0
+	down_t = 0.0
 	carrying = null
 	carry_heavy = false
 	thrown_this_move = false
@@ -311,10 +350,15 @@ func heal(amount: int) -> int:
 func health_fraction() -> float:
 	return float(health) / float(MAX_HEALTH)
 
-func take_damage(amount: int, from: Vector2) -> bool:
+func take_damage(amount: int, from: Vector2, fling: float = 0.0) -> bool:
 	## Spends health and breaks whatever he was concentrating on. Returns true
 	## only when the blow actually landed, so an attacker can tell a hit from a
 	## swing that arrived inside the invulnerable window.
+	##
+	## `fling` is the horizontal knockback the blow carries, in px/s, and is zero
+	## for all but the Dragon Lord — see fling_for() in enemy.gd. A flung blow
+	## throws him away from the fist and lifts him off his feet; everything else
+	## still stuns him where he stands.
 	##
 	## Deliberately does NOT decide what an empty bar means. The session owns
 	## death and retry timing, exactly as it does for spikes and pits.
@@ -324,6 +368,18 @@ func take_damage(amount: int, from: Vector2) -> bool:
 	hurt_stun = HURT_STUN
 	hurt_clock = 0.0
 	health = maxi(0, health - amount)
+	if fling > 0.0:
+		# Off his feet, away from the blow. He faces what hit him as he goes back,
+		# and his momentum is held until he lands — see fling_t in _physics_process.
+		var away := signf(global_position.x - from.x)
+		if away == 0.0:
+			away = -facing
+		facing = -away
+		velocity = Vector2(away * fling, FLING_LIFT)
+		fling_t = FLING_TIME
+		# And off his feet properly rather than merely shoved: the falling
+		# sequence plays and he has no control until he is up. See DOWN_TIME.
+		down_t = DOWN_TIME
 	# A drink cannot survive a punch. This is what DRINK_HIT was built for: the
 	# bottle is knocked out of his hand rather than set down, and he keeps only
 	# the mouthfuls he had already swallowed.
@@ -339,8 +395,22 @@ func take_damage(amount: int, from: Vector2) -> bool:
 		visual.on_hurt()
 	return true
 
+func is_downed() -> bool:
+	## Flung, and on the way to the floor or on it. A harder is_hurt: it gates
+	## the same things for longer and draws a different animation.
+	return down_t > 0.0
+
+func down_clock() -> float:
+	## How far into the knockdown he is, for the sprite to pick a frame with.
+	return DOWN_TIME - down_t
+
 func is_hurt() -> bool:
-	return hurt_stun > 0.0
+	## Reeling, and not free to act. A knockdown counts: everything that asks
+	## this — the input gate, the attack gate, the pick-up gate — should treat
+	## being on the floor as at least as disabling as being rocked, and this is
+	## the one place to say so. The SPRITE tells them apart, because they are
+	## drawn differently; nothing else has to.
+	return hurt_stun > 0.0 or down_t > 0.0
 
 # --- mana ------------------------------------------------------------------
 
@@ -652,6 +722,16 @@ func _physics_process(delta: float) -> void:
 	if hurt_stun > 0.0:
 		hurt_stun = maxf(0.0, hurt_stun - delta)
 		hurt_clock += delta
+	if fling_t > 0.0:
+		fling_t = maxf(0.0, fling_t - delta)
+		# Landed and no longer reeling: he has his feet back. Kept off the stun so
+		# a flung blow that ends its stun in mid-air still rides the arc to ground.
+		if is_on_floor() and velocity.y >= 0.0 and hurt_stun <= 0.0:
+			fling_t = 0.0
+	if down_t > 0.0:
+		# The knockdown outlives the thrown momentum: he is on the floor for
+		# the rest of it whether or not he has stopped sliding. See DOWN_TIME.
+		down_t = maxf(0.0, down_t - delta)
 	var axis := test_axis if test_control else Input.get_axis("move_left", "move_right")
 	var held := test_jump_held if test_control else Input.is_action_pressed("jump")
 	var pressed := test_jump_pressed if test_control else Input.is_action_just_pressed("jump")
@@ -715,7 +795,12 @@ func _physics_process(delta: float) -> void:
 		opportunity_consumed = false
 	if pressed and not require_jump_release:
 		jump_request_tick = tick
-	if rules.has("drive"):
+	if fling_t > 0.0:
+		# Thrown, and committed to it: neither friction nor air control touches his
+		# horizontal speed, so the knockback carries its full distance and gravity
+		# below brings him down. The same shape as an enemy's uninterruptible jump.
+		pass
+	elif rules.has("drive"):
 		velocity.x = move_toward(velocity.x, facing * float(rules.drive), tuning.acceleration * delta)
 	else:
 		var rate: float = tuning.acceleration if not is_zero_approx(axis) else tuning.deceleration

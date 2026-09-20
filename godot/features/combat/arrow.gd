@@ -21,13 +21,23 @@ const WORLD := 1    # physics layer 1: a wall stops it
 signal struck_player(damage: int, from: Vector2)
 
 var direction: float = 1.0
+## The full heading, so the hunter on a shelf can shoot DOWN at the deck rather
+## than only along it. Left unset it falls back to a flat shot in `direction`, so
+## every level shot the archer ever took is unchanged.
+var heading: Vector2 = Vector2.ZERO
 var damage: int = 12
 var travelled: float = 0.0
 var finished: bool = false
 
 func _ready() -> void:
-	# Mirror the shaft by heading; carry the cast's three-quarter scale.
-	scale = Vector2(direction, 1.0) * 0.75
+	if heading == Vector2.ZERO:
+		heading = Vector2(direction if direction != 0.0 else 1.0, 0.0)
+	heading = heading.normalized()
+	# The shaft is drawn pointing +x; rotating the node by the heading aims it,
+	# which is what lets it point down a slope as well as left or right. Carries
+	# the cast's three-quarter scale, no mirror — the rotation is the heading.
+	rotation = heading.angle()
+	scale = Vector2.ONE * 0.75
 	z_index = 4
 	queue_redraw()
 
@@ -35,7 +45,7 @@ func _physics_process(delta: float) -> void:
 	if finished:
 		return
 	var step := SPEED * delta
-	position.x += step * direction
+	position += heading * step
 	travelled += step
 	if travelled >= RANGE:
 		_done()
@@ -45,7 +55,8 @@ func _physics_process(delta: float) -> void:
 	var shape := RectangleShape2D.new()
 	shape.size = Vector2(20.0, 8.0)
 	query.shape = shape
-	query.transform = Transform2D(0.0, global_position)
+	# Aligned with the shaft, so a steeply angled arrow queries where it points.
+	query.transform = Transform2D(rotation, global_position)
 	query.collision_mask = PLAYER | WORLD
 	query.collide_with_areas = false
 	query.collide_with_bodies = true

@@ -168,16 +168,29 @@ const PROFILES := {
 	# to put the fight down.
 	"dragon_lord": {
 		"style": "bruiser", "health": 420, "speed": 52.0, "damage": 38,
-		"cooldown": 1.35, "stagger": 0.10, "knock": 0.15, "aggro": 460.0,
+		"cooldown": 1.35, "stagger": 0.10, "knock": 0.0, "aggro": 460.0,
 		"armor": true, "leap": 0.0, "body": Vector2(44, 88),
 		# No guard — the pack ships no defend frame, so there is nothing to put on
 		# screen and a block nobody can see is worse than no block. He answers a
 		# thrown blast by breathing on it instead: see `burns` and the burning
 		# block above. Better suited to him anyway.
-		"guard": 0.0, "burns": true,
+		"guard": 0.0, "burns": true, "boss": true,
+		# He hits THROUGH the player's blows: unflinching means no blow staggers
+		# him or turns him, whether or not he is mid-swing — only being put down
+		# stops him, and the counter is footwork, not trading. The red flash still
+		# fires on every hit, so the blows read even though nothing rocks him. See
+		# take_hit. `knock` is 0 to match: a boss you cannot interrupt should not
+		# be visibly shoved either.
+		"unflinching": true,
+		# His blows knock the player off his feet — the px/s of horizontal throw a
+		# hit carries, turned into a fling-and-fall by the player. The leap-slam
+		# throws hardest; see fling_for(). Nothing else in the cast flings at all.
+		"fling": 240.0,
 		# Seconds between specials. Long: they are the beats of the fight, and
 		# a boss who breathes fire every time he is in range is just a longer
-		# punch. Between them he swings like the bruiser he is.
+		# punch. Between them he swings like the bruiser he is. His close-range
+		# special is a leap-slam whose landing shocks the ground — see the slam
+		# block below and _advance_slam.
 		"special_cooldown": 5.0,
 	},
 	# The dragon: the last fight on the course, and the only enemy that is
@@ -203,29 +216,69 @@ const PROFILES := {
 	# jumped strike reaches 239 and lands. That is the air half of the fight —
 	# take the height, or wait for it to come down. It always does.
 	"dragon": {
-		"style": "flyer", "health": 240, "speed": 150.0, "damage": 34,
-		"cooldown": 1.2, "stagger": 0.24, "knock": 0.35, "aggro": 560.0,
+		# 1500, which is twenty-five clean hits of the hardest thing the player
+		# owns — the jumped kick at 60 — and thirty-three of the blast. It was
+		# 240: four kicks, and the fight was over before either phase had run
+		# once. See tests/diag_dragonfight.gd, which prints the hit counts for
+		# every attack he has and is the check on any change to this number.
+		"style": "flyer", "health": 1500, "speed": 165.0, "damage": 34,
+		"cooldown": 0.85, "stagger": 0.24, "knock": 0.0, "aggro": 560.0,
 		# Armoured, like the other boss and for the same reason turned up: you
 		# cannot stagger it out of a swoop it has already committed to. The red
 		# flash still fires on every blow, so the hits read even when nothing
 		# visibly stops.
 		"armor": true, "leap": 0.0, "body": Vector2(118, 96),
+		# It hits THROUGH the player, the way the Dragon Lord does and for the
+		# same reason: a boss you can interrupt by mashing punch is a boss you
+		# beat by standing in front of it. Nothing staggers it, nothing turns a
+		# swing it has committed to, and `knock` is 0 so nothing visibly shoves
+		# it either. The red flash still fires on every blow, so the hits read.
+		# The counter is footwork — and the two stones, which is what they are
+		# for.
+		"unflinching": true,
+		# And its blows put the player down: `fling` is the horizontal throw in
+		# px/s, paired by the player with a lift and a knockdown — see
+		# take_damage and DOWN_TIME in features/player/player.gd. The breath
+		# throws hardest, which is FLING_BREATH below.
+		"fling": 190.0,
 		# It does not stay up. After `air_time` in the air it comes down and
 		# fights on its feet for `ground_time`, then takes off again — see the
 		# phase block below. Both halves are drawn: the pack has a ground idle,
 		# a walk, a claw and a standing fire breath, and none of them would
 		# ever be seen by a dragon that only ever circled.
-		"air_time": 9.0, "ground_time": 7.0,
+		"air_time": 11.0, "ground_time": 6.0,
 		# Seconds between fire breaths, which are the specials of both phases.
-		"special_cooldown": 4.0,
+		# Short, because on The Dragon's Roost it no longer fights alone — the
+		# Dragon Lord holds the ground and the dragon's job is to keep the air
+		# thick with fire over him. It was 4.0 when it was the whole fight; 2.5
+		# roughly doubles the breaths without turning the swoop into a fire hose.
+		"special_cooldown": 2.5,
+		# HOW FAR OUT IT DECIDES TO BREATHE, as opposed to how far the flame
+		# reaches. They are different numbers and conflating them is why the
+		# breath used to be drawn, shipped and never once thrown: the only test
+		# was the flame's own band, 121..180, and a flyer holding a standoff of
+		# 340 to 470 is never in it. Measured at zero breaths in thirty seconds
+		# of fighting. From `fire_from` it now drops to the player's level and
+		# closes until the band is under it, which is also the one time in the
+		# fight it is low and slow enough to be punished.
+		"fire_from": 440.0,
+		# Extra reach on top of what the art measures, per move. Only the two
+		# breaths have any: the flame is drawn 180 long and a boss breath the
+		# player can stand 20 px outside of and watch is not a threat. 60 px of
+		# heat past the plume, and nothing else in the cast gets any — every
+		# other box in the game is exactly the drawing.
+		"reach_bonus": {"fire": 60.0, "fire_air": 60.0},
 		# No guard. There is no block anywhere in the pack's fourteen clips,
 		# and a guard nobody can see is worse than none — the same call the
 		# Dragon Lord's `burns` was. Its answer is `climbs`: it goes over the
 		# top of a blast, which costs it the pass it was in the middle of.
 		# Grounded it has no answer at all, which is part of why coming down is
 		# a real risk to it and not just a change of scenery.
-		"guard": 0.0, "climbs": true, "react": 0.30,
-		"cruise": 156.0, "dive": 320.0, "swoop_cooldown": 1.4,
+		"guard": 0.0, "climbs": true, "react": 0.30, "boss": true,
+		# Pass after pass. 1.4 between them was three swoops in thirty seconds
+		# with the player stood still in front of it; 0.55 is the circle it
+		# needs to turn round in and nothing on top of that.
+		"cruise": 156.0, "dive": 380.0, "swoop_cooldown": 0.55,
 	},
 }
 
@@ -266,6 +319,31 @@ const STEP_RECOVER := 0.25
 ## Landing from his own jump leaves him briefly flat-footed — the counter to an
 ## enemy who follows you into the air.
 const LAND_RECOVER := 0.16
+
+# --- the leap-slam -----------------------------------------------------------
+#
+# The Dragon Lord's close-range special, and the one attack in the cast that is
+# a jump. He rears up on the spot, launches on the same arc everything else
+# jumps — apex 101 — toward the player, and the blow is the LANDING: a shock
+# through the ground that catches anyone near where he comes down, in front of
+# him or not. See _advance_slam and _slam_impact, and the `slam` move in
+# art/dragon_lord/dragon_lord.json for the box and the damage.
+#
+# The timing is built around his own sheet so the picture and the physics agree.
+# The slam clip runs 1.725 s and its blow is drawn on frame 20, at 1.5 s. Launch
+# at SLAM_WINDUP, spend one standard jump in the air (apex 101 is 0.75 s round
+# trip), and he touches down exactly as the drawn slam lands — 0.75 + 0.75 = 1.5.
+## How long he rears up, planted, before he leaves the ground (~frame 10 of 20).
+const SLAM_WINDUP := 0.75
+## Forward speed through the leap. 150 over 0.75 s of air closes ~112 px, most of
+## the slam's 0..126 commit band, so the shock lands about where the player was.
+const SLAM_LUNGE := 150.0
+## The ground shock's reach from where he lands — a box, not the swing's frontal
+## rectangle. Wide enough to punish a player who only side-stepped, tight enough
+## that clearing the landing is a real dodge; the height keeps it to bodies on
+## his own deck rather than a player up on a stone.
+const SLAM_SHOCK_RADIUS := 156.0
+const SLAM_SHOCK_HEIGHT := 96.0
 
 # --- the guard ---------------------------------------------------------------
 #
@@ -397,9 +475,47 @@ const DEPART_SPEED := 300.0
 const DEPART_CLIMB := -180.0
 ## How long the departure runs before the body is cleared.
 const DEPART_TIME := 2.4
+## How long a beaten flyer stays down, measured from the moment it reaches the
+## deck. The collapse plays INSIDE this and its last frame is held for what is
+## left over — the dragon's fold takes 0.86 s, so it lies there for the other
+## 1.14 — which means retiming the death animation changes how much of the
+## beat is movement and not how long the beat is.
+##
+## It exists because the pack's collapse is short and the departure started the
+## frame it ended: beaten, the dragon folded up and was immediately back on its
+## feet beating its wings, and the death read as a stumble. Two seconds is long
+## enough to be a death and short enough not to be a wait. The level's second
+## story card is cued off the end of it — see fallen(), and `boss_down` in
+## game/session.gd.
+const DOWN_TIME := 2.0
+## How long a beaten flyer may glide looking for somewhere to land before it
+## gives up and drops wherever it is. It should never reach this — `home` is
+## always over a solid — and it is here so that a level which breaks that rule
+## stalls for six seconds rather than for ever.
+const GLIDE_MAX := 6.0
 ## And how long a body killed in mid-air is allowed to fall before the collapse
 ## starts anyway. Only reached by a dragon put down over a hole.
 const FLYER_FALL_MAX := 1.2
+## What the breath multiplies `fling` by. The claw and the swoop knock the
+## player away; the fire picks him up and throws him.
+const FLING_BREATH := 1.8
+## --- answering a spammed blast ----------------------------------------------
+##
+## A flyer goes over the top of a blast rather than guarding it, and one blast
+## costs it the pass it was in the middle of — which makes throwing them from
+## a safe distance a way to keep it off you indefinitely. It reads the pattern
+## instead: every blast it dodges stacks, the stack decays, and while it is up
+## the dragon climbs higher out of the flat line the blast flies on and comes
+## back down without waiting out its swoop cooldown.
+##
+## SPAM_ANGRY is where "it is dodging" becomes "it is being kept away", and
+## where a grounded one cuts its ground phase short and takes off rather than
+## stand there being shot.
+const SPAM_MAX := 4.0
+const SPAM_ANGRY := 2.0
+const SPAM_DECAY := 0.55
+## How much higher each stacked blast sends it, on top of DODGE_LIFT.
+const SPAM_LIFT := 70.0
 
 # --- the two phases ----------------------------------------------------------
 #
@@ -423,10 +539,15 @@ const TOUCH_AT := 0.55
 enum State { IDLE, WALK, PUNCH, HURT, DEAD, CHARGE, SHOOT, JUMP, BLOCK }
 
 ## The session connects this; it owns the player's health, not the enemy.
-signal struck_player(damage: int, from: Vector2)
+## `fling` is the knockback the blow carries, in px/s — zero for every kind but
+## the Dragon Lord, whose blows throw the player off his feet. See fling_for().
+## The arrow and the falling stone emit the same signal with two arguments; the
+## session's handler defaults the third, so their hits simply do not fling.
+signal struck_player(damage: int, from: Vector2, fling: float)
 ## The archer looses an arrow: the session spawns it as its own travelling object,
-## so it outlives the archer that fired it.
-signal fired_arrow(at: Vector2, direction: float, damage: int)
+## so it outlives the archer that fired it. `heading` is the full aim, so a shelf
+## sniper can shoot down onto the deck rather than only flat along it.
+signal fired_arrow(at: Vector2, heading: Vector2, damage: int)
 
 ## Which enemy this is: the folder under art/ and the stem of its manifest. Set
 ## by the spawner before add_child(); left at the default it is the bandit.
@@ -466,6 +587,11 @@ var move: String = "punch"
 var special_ready: float = 0.0
 ## One punch may only land once, however many frames its box is open for.
 var landed_this_punch: bool = false
+## The leap-slam, mid-move. `slam_launched` flips when his feet leave the ground
+## at the end of the wind-up; `slam_hit` when the landing shock has gone off, so
+## it fires exactly once. Both cleared by _start_attack and reset().
+var slam_launched: bool = false
+var slam_hit: bool = false
 ## One draw of the bow looses one arrow, however long the release frame is held.
 var fired: bool = false
 ## Set by whoever spawns him.
@@ -485,17 +611,20 @@ var home: Vector2 = Vector2.ZERO
 ## Cleared only by a retry: see reset().
 var engaged: bool = false
 ## Whether this one holds its section's gate shut — see the sections block in
-## session.gd. True for anything standing on ground the player runs along.
-##
-## The level marks the exceptions with "perch". The four on the Isles' high
-## ledges stand 144 px above the deck and more: the player's jump apexes at 107,
-## and both the blast and the arrow fly dead flat, so there is no way at all to
-## kill them. A gate waiting on one of those could never open, and an unopenable
-## gate is a worse bug than a sniper you have to run past.
-##
-## Their own jump does not change that: it is smaller than the player's, and
-## DROP_LIMIT stops them stepping off a shelf that high — see the jump block.
+## session.gd. True for anything the player has to clear to move on, which is now
+## everything, perches included: standing there sniping and never having to be
+## dealt with was the bug this fixed.
 var holds_gate: bool = true
+## A perch hunter — placed on a high shelf over a fight it snipes into with the
+## angled shot in _advance_archer. It holds its gate like anyone else, but it
+## cannot be reached up there, so it does not have to be: once the GROUND below it
+## is clear it comes down (see `descend`) and is finished off on the deck. The
+## level marks it "perch"; session.gd sets this and holds_gate together.
+var perched: bool = false
+## Flipped on by session.gd once this perch's section has no live ground holders
+## left — the cue to come off the shelf. It raises drop_limit() so the sniper can
+## take the step down its perch height normally forbids. Cleared by reset().
+var descend: bool = false
 var fall_limit: float = INF
 var target: Node2D = null
 
@@ -511,6 +640,21 @@ var style: String = "walker"
 var max_health: int = MAX_HEALTH
 var speed: float = WALK_SPEED
 var aggro: float = AGGRO_RANGE
+## The stretch of world a flyer may fly in, as [min x, max x]. Unbounded for
+## everything else, and unbounded here until the session sets it from the gated
+## section the thing lives in — see _fence_flyers in game/session.gd.
+##
+## It exists because of one measured failure. A flyer holds a standoff of
+## STANDOFF_NEAR to STANDOFF_FAR and backs AWAY from a player who comes closer
+## than that, and a shut gate pins the camera's far edge to the wall. Put those
+## together and a player standing in the right-hand corner of a gated arena
+## pushes the boss out through the side of the frame: on The Fractured Isles,
+## 272 of 900 frames off screen and up to 284 px past the edge. Fenced, it runs
+## out of room instead and has to fight him in the corner.
+##
+## tests/diag_arena.gd is the measurement, and re-running it is how to tell
+## whether a new arena needs a wider one.
+var fly_bounds := Vector2(-INF, INF)
 var attack_cooldown: float = ATTACK_COOLDOWN
 var stagger_time: float = STAGGER_TIME
 var knock: float = 1.0
@@ -596,6 +740,12 @@ var shift_up: bool = false
 ## When a dead flyer reached the deck, so the collapse starts on landing rather
 ## than in mid-air. Negative until it does.
 var down_at: float = -1.0
+## When the drop toward the deck began, in dead_t seconds. Not the moment of
+## the blow: a flyer beaten over open water glides back over solid ground
+## first, and FLYER_FALL_MAX is a cap on the FALL rather than on the death.
+var fall_from: float = 0.0
+## How hard the player is leaning on the blast right now. See SPAM_MAX.
+var spam: float = 0.0
 
 func profile() -> Dictionary:
 	return PROFILES.get(kind, DEFAULT_PROFILE)
@@ -695,6 +845,38 @@ func move_data(name: String) -> Dictionary:
 ## The special whose band this gap falls in, or "" for none. The bands do not
 ## overlap — see the manifest — so this is a straight lookup by distance and not
 ## a priority order.
+func reach_bonus(name: String) -> float:
+	## Extra reach the PROFILE gives one of its moves, on top of what the art
+	## measures. Deliberately not in the manifest: that file is generated from
+	## the sheet and says how long the flame is drawn, which is a fact about
+	## the picture. This is a decision about the fight, so it lives with the
+	## other decisions. Zero for every move of every kind but the dragon's two
+	## breaths — see `reach_bonus` in its profile.
+	var extra: Dictionary = prof.get("reach_bonus", {})
+	return float(extra.get(name, 0.0))
+
+func band_top(name: String) -> float:
+	## The far edge of the distance a move is chosen at, bonus included.
+	var band: Array = move_data(name).get("range", [])
+	return 0.0 if band.size() != 2 else float(band[1]) + reach_bonus(name)
+
+func phase_special() -> String:
+	## The special drawn for the phase it is in, at any distance — what
+	## special_for() would return once the distance was right. Separate from it
+	## because deciding to close for a breath and being close enough to throw
+	## one are two different questions. See `fire_from`.
+	var moves: Dictionary = data().get("moves", {})
+	for name in moves:
+		var spec: Dictionary = moves[name]
+		if name == "punch" or bool(spec.get("basic", false)):
+			continue
+		var phase := str(spec.get("phase", ""))
+		if (phase == "air") != aloft and phase != "":
+			continue
+		if spec.get("range", []).size() == 2:
+			return name
+	return ""
+
 func special_for(gap: float) -> String:
 	var moves: Dictionary = data().get("moves", {})
 	for name in moves:
@@ -710,7 +892,8 @@ func special_for(gap: float) -> String:
 		if (phase == "air") != aloft and phase != "":
 			continue
 		var band: Array = spec.get("range", [])
-		if band.size() == 2 and gap >= float(band[0]) and gap <= float(band[1]):
+		if band.size() == 2 and gap >= float(band[0]) \
+				and gap <= float(band[1]) + reach_bonus(name):
 			return name
 	return ""
 
@@ -808,6 +991,41 @@ func _frame_at(key: String, t: float) -> int:
 func alive() -> bool:
 	return state != State.DEAD
 
+func is_flyer() -> bool:
+	## By kind rather than by altitude — flying() asks whether it is off the
+	## ground right now, which is a different question and false for most of
+	## the fight.
+	return style == "flyer"
+
+func down_for() -> float:
+	## How long this one stays down before it gets up to leave. DOWN_TIME
+	## unless its own collapse is longer than that, which no pack's is today
+	## and one could be tomorrow.
+	return maxf(DOWN_TIME, _total("death"))
+
+func fallen() -> bool:
+	## Beaten, down, and still here. For the dragon that is the window between
+	## the collapse finishing and the body being cleared — it lies flat on the
+	## deck, then gets up and flies out — which is what the level's second
+	## story card is cued on: the picture is of it leaving, and it belongs
+	## between the fall and the leaving rather than after both.
+	##
+	## Anything else in the cast has no second half to its death, so for them
+	## this is simply "down and not yet cleared".
+	if alive() or not visible:
+		return false
+	if style != "flyer":
+		return true
+	# down_at is when it reached the deck, -1 while it is still dropping out
+	# of the air. See _advance_flyer_death for the beats this sits between.
+	return down_at >= 0.0 and dead_t - down_at >= down_for()
+
+func is_boss() -> bool:
+	## Whether this one gets the boss plate across the bottom of the screen —
+	## see _boss_plate in ui/hud.gd. A profile flag rather than a name check,
+	## so the HUD never has to know which kinds exist.
+	return bool(prof.get("boss", false))
+
 func flying() -> bool:
 	## Off the ground and staying there. False for a flyer still on its perch,
 	## which is an ordinary grounded enemy in every respect — and false for
@@ -875,6 +1093,18 @@ func warn_of_blast(at: Vector2, direction: float, speed: float) -> void:
 	var gap: float = global_position.x - at.x
 	if absf(gap) < 1.0 or signf(gap) != signf(direction):
 		return
+	# THE STACK IS COUNTED BEFORE THE HEIGHT TEST, and that is deliberate. A
+	# blast cannot reach a dragon cruising 156 up, so by the old reading it was
+	# not its problem — but a player standing on the deck hosing energy at
+	# something out of reach is still a player leaning on one button, and the
+	# answer to that is to come down on him rather than to circle. So the
+	# pattern is read from every blast thrown its way; only the DODGE below
+	# needs the blast to have been able to hit.
+	if climbs and engaged:
+		spam = minf(spam + 1.0, SPAM_MAX)
+		if aloft and spam >= SPAM_ANGRY and swoop < 0.0:
+			# Done circling. The next pass starts as soon as it is free.
+			swoop_ready = 0.0
 	if absf(at.y - global_position.y) > 60.0:
 		return
 	var eta: float = absf(gap) / speed
@@ -891,10 +1121,34 @@ func warn_of_blast(at: Vector2, direction: float, speed: float) -> void:
 	# its perch it is a standing target like anything else, and that first shot
 	# is what puts it in the air.
 	if climbs and aloft:
-		dodge = maxf(dodge, DODGE_TIME)
-		swoop = -1.0
-		swoop_ready = maxf(swoop_ready, DODGE_TIME)
+		# Every one it reads stacks — see SPAM_MAX. One blast is a dodge; a
+		# stream of them is a player trying to hold it off from a safe
+		# distance, and the answer to that is to be somewhere else and then be
+		# on top of him. It goes higher with each (SPAM_LIFT, applied in
+		# _advance_flyer) and past SPAM_ANGRY it stops waiting out its swoop
+		# cooldown: the dive starts the moment the climb is over.
+		if spam < SPAM_ANGRY:
+			dodge = maxf(dodge, DODGE_TIME)
+			swoop = -1.0
+			swoop_ready = maxf(swoop_ready, DODGE_TIME)
+			return
+		# PAST SPAM_ANGRY IT STOPS DODGING. Refreshing the dodge on every
+		# blast is what a shot every 0.3 s does, and the dragon that did it
+		# climbed 124 px and stayed there for ten seconds without throwing
+		# anything — evasion so good it took itself out of the fight, which
+		# is the same problem as a boss you can hold off, wearing the other
+		# hat. It has read the pattern and it is already high; from here it
+		# rides the shots out and comes down on him.
+		dodge = 0.0
+		swoop_ready = 0.0
 		return
+	if climbs and spam >= SPAM_ANGRY and grounded and shift < 0.0 and engaged:
+		# On its feet it has no answer at all, which is the risk of coming
+		# down. Being shot at repeatedly while it stands there is the cue to
+		# cut the ground phase short and get back in the air rather than wear
+		# it — the take-off is drawn and cannot be interrupted, so this costs
+		# it something too.
+		ground_left = 0.0
 	# Nothing to put his arms up with, but something to breathe. He needs the
 	# time to see it AND the time to wind up, so the range he can burn one out of
 	# the air from is set by his own animation rather than by a number: the fire
@@ -1010,6 +1264,19 @@ func take_hit(damage: int, from: Vector2) -> bool:
 	# flashes: the killing one, the one a bruiser shrugs off mid-swing, and the
 	# ordinary one that staggers him.
 	hurt_flash = HURT_FLASH
+	# Hits THROUGH everything. An unflinching boss — the Dragon Lord — is never
+	# turned, shoved or staggered by a blow it survives: a swing keeps its facing
+	# and its arc, and between swings he keeps walking in. Only the killing blow,
+	# handled below, stops him. The flash above still fires, so the hits read; the
+	# counter is to get clear, not to trade. Placed before the knockback and the
+	# stagger so neither touches him.
+	if health > 0 and bool(prof.get("unflinching", false)):
+		# Still free to turn toward a threat from a new side while merely walking
+		# in — but a committed swing keeps even its facing, or a slam could be spun
+		# off its target by a jab from behind.
+		if not _attacking():
+			facing = 1.0 if from.x > global_position.x else -1.0
+		return true
 	facing = 1.0 if from.x > global_position.x else -1.0
 	var away := -facing
 	# Knockback is scaled by how much the blow weighs against him: a bruiser barely
@@ -1054,6 +1321,7 @@ func _go_down() -> bool:
 		swoop = -1.0
 		shift = -1.0
 		down_at = -1.0
+		fall_from = 0.0
 		facing = -facing
 		velocity.x = facing * 30.0
 	_show("hurt", 0)
@@ -1067,6 +1335,9 @@ func _attacking() -> bool:
 func _hit_box() -> Rect2:
 	var r: Array = move_data(move).get("hit_rect", [0, 0, 0, 0])
 	var box := Rect2(float(r[0]), float(r[1]), float(r[2]), float(r[3]))
+	# Widened before it is mirrored, or a left-facing breath would grow out of
+	# the back of its head. See reach_bonus.
+	box.size.x += reach_bonus(move)
 	# Written facing forward, mirrored with him, exactly as the player's are.
 	if facing < 0.0:
 		box.position.x = -(box.position.x + box.size.x)
@@ -1088,8 +1359,23 @@ func _try_to_land() -> void:
 	for result in get_world_2d().direct_space_state.intersect_shape(query, 4):
 		if result.collider == target:
 			landed_this_punch = true
-			struck_player.emit(attack_damage(), global_position)
+			struck_player.emit(attack_damage(), global_position, fling_for())
 			return
+
+func fling_for() -> float:
+	## How hard this blow throws the player, in px/s of horizontal knockback; the
+	## player pairs it with a lift and its own gravity to make the fling-and-fall.
+	## Zero for everyone but the Dragon Lord — nothing else in the cast moves the
+	## player when it hits — and biggest on his leap-slam, whose whole point is to
+	## put the player on the far side of the arena.
+	var base := float(prof.get("fling", 0.0))
+	if base <= 0.0:
+		return 0.0
+	if move == "slam":
+		return base * 1.7
+	if move == "fire" or move == "fire_air":
+		return base * FLING_BREATH
+	return base
 
 # --- step -------------------------------------------------------------------
 
@@ -1105,6 +1391,8 @@ func reset() -> void:
 	stagger = 0.0
 	hurt_flash = 0.0
 	engaged = false
+	spam = 0.0
+	descend = false          # back on the shelf until its deck is cleared again
 	dead_t = 0.0
 	grounded = true
 	hop_cooldown = 0.0
@@ -1116,6 +1404,8 @@ func reset() -> void:
 	counter_due = -1.0
 	counter_face = 0.0
 	landed_this_punch = false
+	slam_launched = false
+	slam_hit = false
 	special_ready = float(prof.get("special_cooldown", 0.0))
 	# Back on its perch, wings folded, waiting to be walked up to again. A
 	# retry that left a flyer in the air would put the next attempt's first
@@ -1152,6 +1442,10 @@ func _physics_process(delta: float) -> void:
 		hop_cooldown = maxf(0.0, hop_cooldown - delta)
 	if special_ready > 0.0:
 		special_ready = maxf(0.0, special_ready - delta)
+	if spam > 0.0:
+		# Forgets a quiet player. Only the pattern is punished, not one blast
+		# thrown four seconds ago.
+		spam = maxf(0.0, spam - SPAM_DECAY * delta)
 	_tick_guard(delta)
 	# The arms come up out of anything he is free to drop — standing and walking.
 	# A swing, a dash, a draw and a jump are committed and ride through, which is
@@ -1196,6 +1490,15 @@ func _integrate(delta: float) -> void:
 		# took off from — a staggered or departing flyer has nothing else to
 		# stop it sinking through the rock.
 		position += velocity * delta
+		# And sideways, the arena. See fly_bounds: everything with feet is
+		# stopped by the floor running out and a flyer is stopped by nothing,
+		# so this is the only body in the cast that needs a fence. Not while it
+		# is dead, because the fly-away has to leave the level.
+		if state != State.DEAD:
+			var fenced: float = clampf(position.x, fly_bounds.x, fly_bounds.y)
+			if not is_equal_approx(fenced, position.x):
+				position.x = fenced
+				velocity.x = 0.0
 		var lowest := deck_y - FLOOR_CLEAR
 		if position.y > lowest:
 			position.y = lowest
@@ -1254,21 +1557,58 @@ func _advance_dead(delta: float) -> void:
 		visible = false
 
 func _advance_flyer_death(delta: float) -> void:
-	## Two beats, because the pack draws both.
+	## Three beats, because the pack draws two of them and the third is a hold.
 	##
 	## First it goes down. Killed in the air it drops out of it, and on the
 	## deck it plays the collapse the pack ships — folding forward until it is
 	## flat, which is a real death animation and not a flap held still.
 	##
+	## Then it STAYS down. The collapse is 0.86 s and the departure used to
+	## start the frame it ended, so the whole death read as a stumble; the last
+	## frame is held until DOWN_TIME is up. See down_for().
+	##
 	## Then it gets up and leaves, which is the ending the level exists for. It
 	## turns away from whoever put it there, beats its wings and climbs out of
 	## the shot over DEPART_TIME against 300 px/s out and 180 up, and the body
-	## is cleared when it is well clear of the corner.
+	## is cleared when it is well clear of the corner. On The Fractured Isles
+	## the level's second story card is cued between the second beat and the
+	## third, and the freeze holds the departure until the picture is gone.
 	dead_t += delta
 	if down_at < 0.0:
+		# IT HAS TO COME DOWN ON SOMETHING. The ending of the level is the body
+		# getting up off a deck, and a dragon beaten out over the gap — which
+		# is exactly where its own standoff puts it whenever the player is at
+		# the left end of the arena — used to fall past fall_limit, be deleted
+		# by _integrate, and take the ending with it. Measured before this
+		# existed: beaten at x 6700 on The Fractured Isles it was gone in 1.15
+		# s and the departure card never came up. tests/diag_endcard.gd is
+		# that measurement and is how to take it again.
+		#
+		# So with nothing underneath it, it holds its height and glides back
+		# toward `home` — where the level stood it, which check_levels.py
+		# guarantees is a solid — and drops the moment there is floor beneath
+		# it, which is usually the near edge and not home itself.
+		# Probed from above its own feet rather than from them: a ray that
+		# starts on the surface it is standing on does not hit it, and a
+		# dragon beaten on the deck would then glide for the whole of
+		# GLIDE_MAX before noticing there was a deck under it.
+		if dead_t < GLIDE_MAX and _surface_at(position.x, position.y - 32.0,
+				fall_limit + 400.0) == INF:
+			# aloft is what takes gravity off it in _integrate; the fence is
+			# already off, because a dead flyer is not held to its arena.
+			aloft = true
+			fall_from = dead_t
+			velocity.x = move_toward(velocity.x,
+					signf(home.x - position.x) * DEPART_SPEED, 1200.0 * delta)
+			velocity.y = move_toward(velocity.y, 0.0, 600.0 * delta)
+			_show("hurt", maxi(_durations("hurt").size() - 1, 0))
+			return
+		aloft = false
 		# Still falling out of the sky. The cap is for a dragon put down over a
-		# hole, which would otherwise never find a deck to land on.
-		if grounded or dead_t >= FLYER_FALL_MAX:
+		# hole, which would otherwise never find a deck to land on, and it runs
+		# from where the FALL started rather than from the blow — the glide
+		# above can take longer than the cap on its own.
+		if grounded or dead_t - fall_from >= FLYER_FALL_MAX:
 			down_at = dead_t
 			velocity.x *= 0.4
 		else:
@@ -1277,9 +1617,12 @@ func _advance_flyer_death(delta: float) -> void:
 			return
 	var since: float = dead_t - down_at
 	var collapse: float = _total("death")
-	if since < collapse:
+	if since < down_for():
 		velocity.x = move_toward(velocity.x, 0.0, 400.0 * delta)
-		_show("death", _frame_at("death", since))
+		# The collapse while it is playing, then its last frame for the rest of
+		# the beat: _frame_at would wrap a non-looping clip back to the start.
+		_show("death", _frame_at("death", since) if since < collapse
+				else maxi(_durations("death").size() - 1, 0))
 		return
 	if not aloft:
 		# Up off the deck under its own power. From here _integrate stops
@@ -1292,7 +1635,7 @@ func _advance_flyer_death(delta: float) -> void:
 			DEPART_SPEED * 1.4 * delta)
 	velocity.y = move_toward(velocity.y, DEPART_CLIMB,
 			absf(DEPART_CLIMB) * 1.6 * delta)
-	if since >= collapse + DEPART_TIME:
+	if since >= down_for() + DEPART_TIME:
 		visible = false
 
 func _advance_block(delta: float) -> void:
@@ -1335,6 +1678,11 @@ func _advance_hurt(delta: float) -> void:
 		clock = 0.0
 
 func _advance_punch(delta: float) -> void:
+	# The leap-slam is a punch that jumps: it runs its own step so the swing can
+	# leave the ground, which no other attack does.
+	if move == "slam":
+		_advance_slam(delta)
+		return
 	# He plants his feet to swing — unless they are not on the ground, in which
 	# case the swing rides the jump it was thrown from. Zeroing this in mid-air
 	# would stop him dead over a gap and drop him into it.
@@ -1399,11 +1747,80 @@ func _start_attack(name: String) -> void:
 	clock = 0.0
 	frame = 0
 	landed_this_punch = false
+	slam_launched = false
+	slam_hit = false
 	# Same reason as _advance_punch: planting his feet is only possible if they
 	# are on something. A swing thrown mid-leap keeps the leap.
 	if grounded:
 		velocity.x = 0.0
 	_show(str(move_data(move).get("anim", "punch")), 0)
+
+func _advance_slam(delta: float) -> void:
+	## The leap-slam. He rears up planted, launches on the standard jump arc
+	## toward the player, and the blow is the LANDING — a ground shock (see
+	## _slam_impact) that catches anyone near where he comes down. Timed so the
+	## touchdown falls on the slam clip's own hit frame; see the slam block above.
+	clock += delta
+	var holds := _durations("slam")
+	if holds.is_empty():
+		_recover()
+		return
+	if not slam_launched:
+		# Winding up, feet planted.
+		if grounded:
+			velocity.x = 0.0
+		if clock >= SLAM_WINDUP:
+			slam_launched = true
+			var dir := facing
+			if is_instance_valid(target):
+				var g: float = target.global_position.x - global_position.x
+				if absf(g) > 0.5:
+					dir = signf(g)
+			facing = dir
+			# Never leap over a hole: if the ground gives out ahead he slams on the
+			# spot instead, so a committed special cannot carry him across a gap the
+			# arena would not let him walk over.
+			var lunge := SLAM_LUNGE if _floor_ahead(EDGE_PROBE + 24.0, dir) else 0.0
+			velocity = Vector2(dir * lunge, JUMP_VELOCITY)
+			grounded = false
+	elif not slam_hit and grounded:
+		# Touchdown: the shock goes off, exactly once, and he plants for the
+		# follow-through rather than sliding on the leap's momentum.
+		slam_hit = true
+		velocity.x = 0.0
+		_slam_impact()
+	# The clip on its own clock, last frame held past the end.
+	var t := 0.0
+	var index := holds.size() - 1
+	var done := true
+	for i in holds.size():
+		t += float(holds[i])
+		if clock < t:
+			index = i
+			done = false
+			break
+	frame = index
+	_show("slam", index)
+	# The drawn swing's own frontal box still lands on its hit frame; i-frames
+	# fold it together with the shock, so a player dead in front takes one blow,
+	# not two, and a player only to the side takes the shock alone.
+	if index == int(move_data("slam").get("hit_frame", 0)):
+		_try_to_land()
+	if done:
+		_recover()
+
+func _slam_impact() -> void:
+	## The landing shock of the leap-slam: a box centred on where he comes down
+	## rather than the swing's frontal rectangle, so a player who only side-stepped
+	## is still caught. The height keeps it to bodies on his own deck — a player up
+	## on a floating stone, 108 above him, is clear of it. One blow: i-frames fold
+	## it together with the frontal box if both reach the player.
+	if not is_instance_valid(target):
+		return
+	var to: Vector2 = target.global_position - global_position
+	if absf(to.x) <= SLAM_SHOCK_RADIUS and absf(to.y) <= SLAM_SHOCK_HEIGHT:
+		var dmg := int(move_data("slam").get("damage", attack_damage()))
+		struck_player.emit(dmg, global_position, fling_for())
 
 func _advance_chase(delta: float) -> void:
 	if not is_instance_valid(target):
@@ -1632,7 +2049,7 @@ func _advance_flyer(delta: float) -> void:
 	var breathing: bool = _lining_up(agap)
 	var want_y: float = deck_y - float(prof.get("cruise", 150.0))
 	if dodge > 0.0:
-		want_y -= DODGE_LIFT
+		want_y -= DODGE_LIFT + SPAM_LIFT * spam
 	elif swoop >= 0.0 or breathing:
 		want_y = mark_y - STRIKE_HEIGHT
 	var off_line: float = absf(want_y - position.y)
@@ -1652,7 +2069,12 @@ func _advance_flyer(delta: float) -> void:
 		want_x = swoop_dir * float(prof.get("dive", 300.0)) \
 				* (SWOOP_NOSE_DOWN + (1.0 - SWOOP_NOSE_DOWN) * settled)
 	elif breathing:
-		pass                  # holds the range it picked the breath at
+		# Closing to the flame. It holds station once the band is under it —
+		# flying on through the player to breathe at his back would be worse
+		# than not breathing — and comes in at two thirds of a dive before
+		# that, which is slow enough to read and fast enough to arrive.
+		if agap > band_top(phase_special()):
+			want_x = signf(gap) * float(prof.get("dive", 300.0)) * 0.66
 	elif agap > STANDOFF_FAR:
 		want_x = signf(gap) * speed
 	elif agap < STANDOFF_NEAR:
@@ -1681,9 +2103,10 @@ func _advance_flyer(delta: float) -> void:
 	# Down on his level and still in the band: breathe. It does not need to be
 	# close, which is the point of it, and the counter is to get INSIDE the
 	# band — the same counter the Dragon Lord's breath has.
-	if breathing and off_line < STRIKE_SETTLED:
+	var breath := special_for(agap)
+	if breathing and off_line < STRIKE_SETTLED and breath != "":
 		velocity.y = 0.0
-		_start_attack(special_for(agap))
+		_start_attack(breath)
 		return
 
 	var rise: float = absf(target.global_position.y - global_position.y)
@@ -1716,7 +2139,20 @@ func _lining_up(agap: float) -> bool:
 	## pass it would otherwise have made, so the two never overlap.
 	if not (aloft and engaged and swoop < 0.0 and dodge <= 0.0):
 		return false
-	return cooldown <= 0.0 and special_ready <= 0.0 and special_for(agap) != ""
+	if cooldown > 0.0 or special_ready > 0.0:
+		return false
+	# From `fire_from`, not from the flame's own band. The band is 121..240 and
+	# a flyer holding a standoff of 340 to 470 is never inside it, so the only
+	# test used to be one it could not pass: the breath was drawn, decoded off
+	# a watermarked gif, shipped, and thrown exactly zero times in thirty
+	# seconds of fighting. tests/diag_dragonfight.gd is that measurement.
+	#
+	# Committing early is also what makes the breath a beat rather than an
+	# accident: it drops to the player's level and comes in, which is the one
+	# stretch of the air phase where it is low, straight and worth hitting.
+	if agap > float(prof.get("fire_from", 0.0)):
+		return false
+	return phase_special() != ""
 
 # --- the jump ----------------------------------------------------------------
 
@@ -1727,6 +2163,13 @@ func jump_apex() -> float:
 func air_time() -> float:
 	## How long he is off the ground for a jump that lands where it started.
 	return -2.0 * JUMP_VELOCITY / GRAVITY
+
+func drop_limit() -> float:
+	## The biggest drop it will take on purpose. Everyone keeps DROP_LIMIT, which
+	## is what holds the perches on their shelves; a perch told to come DOWN (see
+	## `descend`) gets a far bigger one, because coming off a 144+ px ledge is the
+	## whole point of it.
+	return 400.0 if descend else DROP_LIMIT
 
 func _launch_for(dist: float, rise: float) -> float:
 	## The horizontal speed that lands him `dist` away on ground `rise` px above
@@ -1754,7 +2197,7 @@ func _following(rise: float) -> bool:
 	## above him, or a drop he would be willing to take. Beyond that there is no
 	## route and he holds his ground — which is what keeps a deck enemy from
 	## shuffling under a hunter's perch for ever.
-	return rise <= jump_apex() + 40.0 and rise >= -DROP_LIMIT
+	return rise <= jump_apex() + 40.0 and rise >= -drop_limit()
 
 func _can_step(dir: float) -> bool:
 	## Is walking that way safe? Floor a stride ahead, or a drop short enough to
@@ -1764,7 +2207,7 @@ func _can_step(dir: float) -> bool:
 	if _floor_ahead(EDGE_PROBE, dir):
 		return true
 	return _surface_at(position.x + dir * EDGE_PROBE,
-			position.y + 4.0, position.y + DROP_LIMIT) != INF
+			position.y + 4.0, position.y + drop_limit()) != INF
 
 func _landing_ahead(dir: float) -> float:
 	## The horizontal speed that would put him on the nearest ledge he can reach
@@ -1782,7 +2225,7 @@ func _landing_ahead(dir: float) -> float:
 	var void_seen := false
 	while d <= limit:
 		var surface := _surface_at(position.x + dir * d,
-				position.y - apex - 8.0, position.y + DROP_LIMIT)
+				position.y - apex - 8.0, position.y + drop_limit())
 		if surface == INF:
 			void_seen = true
 		else:
@@ -1816,7 +2259,7 @@ func _maybe_jump(gap: float, rise: float) -> bool:
 	if style != "archer" and rise > 40.0 and rise <= jump_apex() \
 			and absf(gap) <= leap_speed * air_time() * 0.7 and cooldown <= 0.0 \
 			and _surface_at(position.x + gap, position.y - jump_apex() - 8.0,
-					position.y + DROP_LIMIT) != INF:
+					position.y + drop_limit()) != INF:
 		_start_jump(clampf(gap / air_time(), -leap_speed, leap_speed), HOP_RECOVER)
 		return true
 
@@ -1923,21 +2366,57 @@ func _advance_archer(delta: float, gap: float, level: bool) -> void:
 		velocity.x = move_toward(velocity.x, 0.0, 600.0 * delta)
 		_play("idle")
 		return
-	# Someone closed to melee range: put his fists up. An archer up close is in
-	# trouble, and the jab is his only answer there.
-	if agap <= attack_range() and cooldown <= 0.0:
+	var drop: float = target.global_position.y - global_position.y   # + = player below
+	# Coming off the perch. Once its section's deck is clear the sniper drops down
+	# to finish the fight — session.gd sets `descend`, drop_limit() is raised for
+	# it, and it heads for the player's column, stepping off ledges its perch
+	# height normally forbids. Once level it falls through to the ordinary archer.
+	if descend and drop > 48.0:
+		if _maybe_jump(gap, -drop):
+			return
+		# Head for the nearer edge of this shelf and step off it — NOT for his
+		# column. Chasing his x would pace a sniper directly above him for ever,
+		# and mixing the two oscillates on the boundary between them. Getting DOWN
+		# is the whole job; the ordinary chase toward him resumes once it is level.
+		var down := _nearer_edge_dir()
+		if down == 0.0:
+			down = facing
+		if _can_step(down):
+			facing = down
+			state = State.WALK
+			velocity.x = down * speed
+			_play("walk")
+			return
+		if _can_step(-down):     # chosen side was a wall; the other drops
+			facing = -down
+			state = State.WALK
+			velocity.x = -down * speed
+			_play("walk")
+			return
+		# Boxed in up here — keep sniping until something below it changes.
+	# Someone closed to melee range on his level: put his fists up. An archer up
+	# close is in trouble, and the jab is his only answer there. Level-gated, so he
+	# does not swing at a player straight below or above him and connect with air.
+	if level and agap <= attack_range() and cooldown <= 0.0:
 		_start_punch()
 		return
-	# Level with him, in range, and reloaded: draw the bow and loose.
+	# Level with him, in range, and reloaded: the flat shot he has always had.
 	if cooldown <= 0.0 and level and agap > attack_range() \
 			and agap <= float(prof.get("fire_range", 430.0)):
+		_start_shoot()
+		return
+	# Player below and within range: an angled shot DOWN at him — the whole reason
+	# a perch hunter is up there, and what he does while the deck is still being
+	# cleared. Straight-line range, so a steep shot still counts.
+	if cooldown <= 0.0 and drop > 48.0 \
+			and Vector2(gap, drop).length() <= float(prof.get("fire_range", 430.0)):
 		_start_shoot()
 		return
 	# Nothing to shoot and ground in the way: he jumps it like anyone else.
 	# _maybe_jump gives him the platforming half only — see the style gate on the
 	# leap there — so he crosses a gap to reach his firing line and never hops at
 	# the player.
-	if _maybe_jump(gap, global_position.y - target.global_position.y):
+	if _maybe_jump(gap, -drop):
 		return
 
 	# Otherwise hold the gap: close in if too far, kite backwards if too near, but
@@ -1987,12 +2466,34 @@ func _advance_shoot(delta: float) -> void:
 	if index == holds.size() - 1 and not fired:
 		fired = true
 		var at := global_position + Vector2(facing * 22.0, -34.0)
-		fired_arrow.emit(at, facing, int(prof.get("arrow_damage", 12)))
+		# Aimed at him rather than flat along the facing, so a shelf sniper's shaft
+		# comes down onto the deck. Flat fallback if the target vanished mid-draw.
+		var aim := Vector2(facing, 0.0)
+		if is_instance_valid(target):
+			var to: Vector2 = (target.global_position + Vector2(0.0, -24.0)) - at
+			if to.length() > 1.0:
+				aim = to.normalized()
+		fired_arrow.emit(at, aim, int(prof.get("arrow_damage", 12)))
 	if done:
 		state = State.IDLE
 		clock = 0.0
 		cooldown = float(prof.get("shoot_cooldown", attack_cooldown))
 		_play("idle")
+
+func _nearer_edge_dir() -> float:
+	## Which way is the closer lip of the shelf he is standing on. A perch coming
+	## down uses it when the player is more or less straight below: walk to the
+	## nearest edge and step off, rather than pace above him. Scans out to a coarse
+	## limit each way and returns the shorter; ties go left.
+	var left := 0
+	while left < 48 and _surface_at(position.x - float(left + 1) * LANDING_STEP,
+			position.y - 4.0, position.y + 8.0) != INF:
+		left += 1
+	var right := 0
+	while right < 48 and _surface_at(position.x + float(right + 1) * LANDING_STEP,
+			position.y - 4.0, position.y + 8.0) != INF:
+		right += 1
+	return 1.0 if right < left else -1.0
 
 func _floor_ahead(dist: float, dir: float = 0.0) -> bool:
 	## Is there ground a short way off in the given direction (his facing by

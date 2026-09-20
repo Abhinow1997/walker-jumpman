@@ -48,14 +48,68 @@ the way the LF2 sprites in `features/` are, but not attributable the way the CC0
 packs are either. **A credits screen needs its own line for generated art and
 must not fold it into the CC0 attributions.**
 
+## The boss health plate
+
+| | |
+|---|---|
+| Files | `boss_plate.png`, `boss_fill_health.png`, `boss_fill_magma.png`, `boss_bar.json` |
+| Script | `scripts/extract_boss_bar.py` |
+| Source file | `Assests/boss-system assests.jpg` |
+| Origin | **Generated art**, supplied by the author on 2026-09-20. Not a licensed pack and not attributable. |
+
+The plate that appears across the bottom of the screen while a boss is fighting
+you — currently the dragon, on The Fractured Isles and The Dragon's Roost.
+
+The source is a 2048 x 2048 style guide laid out exactly like the HUD one:
+labelled full-state and partial-state examples on flat grey, with a component
+breakdown underneath. Only the **partial-state** row is used, and for the same
+reason: it is the one place on the sheet showing the winged-heart cap, the lit
+fill and the dark empty track together at one scale. The breakdown frame below
+has a page-grey interior, so an unfilled bar cut from it would be a hole in the
+screen; the full-state row has a floating rock drawn over its right-hand end.
+
+**Both of the plate's bars are used, and they show the same number.** Green is
+the boss's health now; the magma bar under it is that health a moment ago,
+draining to catch up over about half a second. The band of red that opens
+between them after a blow is the damage you just did, which is the one thing a
+single bar cannot show and the reason the art is drawn with two. Leaving the
+second track permanently dark was the alternative and it would read as broken
+art rather than as a design decision.
+
+Two things in the script are worth knowing before changing it:
+
+- The row title sits above the plate and its descenders reach into the crop.
+  It is flat near-black on grey, which is also what the frame's own outlines
+  are, so it cannot be keyed out by colour — it is **blanked** at a fixed
+  rectangle instead, the same treatment `extract_dragon_lord.py` gives the
+  captions on its preview gifs.
+- The two fills are cut out of a fully lit plate **after** the reduction, so
+  all three files land on the same pixel grid. Shipping two whole lit plates is
+  the obvious thing and it does not work: each one carries the other track
+  dark, so drawing the green one over the magma one erased everything of the
+  magma bar except the sliver between the two fill levels.
+
+The plate is reduced to 736 x 132 native pixels, which `hud.gd` draws at x0.5
+in its 640x360 design space; x1.5 for the viewport and x4/3 for a 1280x720
+window bring that back to 1, so a texture pixel is a screen pixel. As with the
+player's bars the source is a JPEG, so the script checks its geometry by
+proportion rather than by exact value and stops if the sheet has been recropped
+or regenerated.
+
+### Rights
+
+Same category as the player's bars and the title screen: generated, from the
+author, **not** attributable the way the CC0 packs are. It belongs on the
+credits screen's generated-art line, not among the CC0 attributions.
+
 ## The opening storyboard
 
 | | |
 |---|---|
-| Files | `storyboard/panel_0.png` … `storyboard/panel_3.png` |
+| Files | `storyboard/panel_0.png` … `panel_3.png`, `storyboard/dragon_fight_start.png`, `storyboard/dragon_fight_end.png`, and four clips in `audio/` |
 | Script | `scripts/extract_storyboard.py` |
-| Source files | `Assests/Storyboard/panel 0.jpg` … `panel 3.jpg` |
-| Origin | **Generated art**, supplied by the author on 2026-09-19. Not a licensed pack and not attributable. |
+| Source files | `Assests/Storyboard/panel 0.jpg` … `panel 3.jpg`, `dragon-fight-start.jpg`, `dragon-fight-end.jpg`, and four mp3s beside them |
+| Origin | **Generated art and audio**, supplied by the author on 2026-09-19 and 2026-09-20. Not a licensed pack and not attributable. |
 
 Four 2730 x 1536 frames taken to the 960 x 540 viewport and nothing else: no
 crop, no key, no recolour, because unlike every other sheet in this folder they
@@ -68,6 +122,76 @@ Panel 0 arrived after the other three and pushed the ledge from 0:00 to 0:18.
 Nothing needed renumbering, because the panel order is the order of the list in
 the extractor and the cut times are the order of the table in `storyboard.gd`:
 add a source file to one and a cue to the other and the opening grows a shot.
+
+### The cards around the dragon fight
+
+`dragon_fight_start.png` and `dragon_fight_end.png` are the fifth and sixth
+pictures in the folder and neither is part of the opening. They play inside The
+Fractured Isles: the standoff as the player steps onto the Archway deck, and
+the dragon in the air with its wings out once it is beaten and gone. They come
+through the same script, which has two tables — `PANELS` for the opening and
+`CARDS` for these — because they are a different shape and are treated
+differently.
+
+**They are cropped, and that is the one judgement call in the extractor.** The
+sources are 2048 x 1536, which is 4:3, and the game draws them full-screen at
+16:9, so a quarter of the height has to go. Which quarter is a per-card number
+in `CARDS` with what it is protecting written beside it:
+
+- **the standoff, centred.** The dragon is sitting on the grass in the middle
+  of the frame with the mountains behind it, so the picture is already
+  balanced. Half off the top costs cloud and the tip of the tall floating
+  tower; half off the bottom costs the character below the chest.
+  Bottom-aligned reads better as a standoff and cuts the mountain peaks, which
+  looks like a mistake rather than a frame.
+- **the departure, top-aligned.** This one is the dragon AIRBORNE and its
+  wings reach within 150 px of the top edge, so anything off the top clips
+  them. It comes off the bottom instead, which is grass and the back of the
+  character's head — he is watching it go and does not need to be more than a
+  silhouette.
+
+An earlier version of the first card was square, 2048 x 2048, and was shown
+whole in the middle of the screen with bars either side, because no 16:9 band
+of *that* composition kept both the floating islands and the character. The
+author replaced it with a 4:3 recomposition and asked for it full-screen, which
+is what the crop numbers above are for.
+
+Neither kind of panel is pixel art, despite both looking like it. The
+column-to-column differences show no grid at any step from 2 to 16, so there is
+no native resolution to snap to: LANCZOS is the right reduction and the game
+draws them under a LINEAR filter, exactly as it draws the HUD bars.
+
+### The cards' audio
+
+Three clips beside the panels, copied into `godot/audio/` by the same script
+because `res://` cannot reach outside the project:
+
+| | | |
+|---|---|---|
+| `dragon fight start scene.mp3` | `dragon_fight_start.mp3` | 10.5 s, over the standoff |
+| `dragon-fight-endscene.mp3` | `dragon_fight_end.mp3` | 9.5 s, over the departure |
+| `dragon-voice-angry-growl.mp3` | `dragon_roar.mp3` | 8.6 s, the standoff's exit |
+
+**The clip decides how long its card holds** — `session.gd` reads the stream's
+length, so re-rendering one longer lengthens the card and no duration is
+written down anywhere. The roar is the standoff's `out_audio`: it starts as the
+picture begins to dissolve and carries into the first seconds of the fight,
+which is the one place in the folder a dragon's growl belongs. Move it by
+changing one key in `levels/fractured_isles.json`.
+
+The standoff also carries a printed line — "Wow! A drake! What's it doing
+here??" — which is the author's, and lives in the level file rather than here
+because it is words rather than an asset. It is drawn in `game/session.gd` with
+the column, baseline, size and scrim `ui/storyboard.gd` gives the opening's
+captions, so the two read as one piece of typography.
+
+The copy is skipped when the bytes already match, so a run cannot churn
+`storyboard_scene_1.mp3` — the opening's caption times in `ui/captions.json`
+are measured against that exact file.
+
+Another card is a source file in `CARDS`, a clip in `AUDIO` and an entry in a
+level's `"cutscene"` list. `scripts/check_levels.py` fails a level that names
+art or a clip it cannot find, and one whose cue could never fire.
 
 ### The voice-over
 
@@ -102,12 +226,18 @@ are, and not attributable the way the CC0 packs are either. **A credits screen
 needs its own line for generated art and must not fold it into the CC0
 attributions.**
 
-One thing these panels add to that. The character drawn in panels 1 to 3 is the
-protagonist, whose sprite sheet is an unlicensed LF2 fan mod — see
-`features/player/art/anti_davis/PROVENANCE.md`. A generated picture of him is
-still a picture of him, so redrawing the cast for release means regenerating
-those three with it, not just the sheets. Panel 0 has no character in it and is
-the one frame of the opening that survives that change untouched.
+One thing these panels add to that. The character drawn in panels 1 to 3 **and
+in both dragon cards** is the protagonist, whose sprite sheet is an unlicensed
+LF2 fan mod — see `features/player/art/anti_davis/PROVENANCE.md`. A generated
+picture of him is still a picture of him, so redrawing the cast for release
+means regenerating those five with it, not just the sheets. Panel 0 has no
+character in it and is the one frame of the storyboard that survives that
+change untouched.
+
+The four clips are the author's own renders and sit in the same generated
+category as the pictures. Unlike the opening's voice-over, none of them has an
+unaccounted-for background bed: **where the opening's bed came from is still
+not recorded** and is still a thing to clear before release.
 
 ## The old mech health bar
 

@@ -27,9 +27,20 @@ const LEVEL_DB := -12.0
 const NODE := "Music"
 ## Silence. Godot treats anything at or below -80 dB as off.
 const SILENT_DB := -80.0
+## How far the loop drops while something else is speaking over it — a level's
+## story card, which has a voice of its own and no bed. Pushed down rather than
+## stopped: cue("") clears the stream, so bringing the level's music back after
+## a four-second picture would restart the loop from the top and put an audible
+## seam either side of the card. Ducked, it is simply still running underneath.
+const DUCK_DB := -18.0
 
 ## Which track is loaded, as the bare name a level or the title asked for.
 var track: String = ""
+
+## Whether something is currently talking over the loop. Static for the same
+## reasons `muted` is, and separate from it because they are different people's
+## decisions: `muted` is the player's switch and is never ours to touch.
+static var ducked: bool = false
 
 ## Whether the player has silenced the music from the pause screen.
 ##
@@ -61,9 +72,19 @@ static func cue(tree: SceneTree, name: String) -> void:
 		node.stop()
 		node.stream = null
 		return
-	var path := DIR + name + ".ogg"
-	if not ResourceLoader.exists(path):
-		push_warning("music: no track at %s (run scripts/extract_magic_cliffs.py)" % path)
+	# Ogg first, wav second. Every track here wants to be an ogg — the Magic
+	# Cliffs loop is 96 s in 2.3 MB — and the boss track is a wav only because
+	# there is no Vorbis encoder on the machine it was added on. Encode it and
+	# this finds the ogg without another line changing. See
+	# scripts/extract_boss_music.py.
+	var path := ""
+	for suffix in [".ogg", ".wav"]:
+		if ResourceLoader.exists(DIR + name + suffix):
+			path = DIR + name + suffix
+			break
+	if path == "":
+		push_warning("music: no track called %s in %s (run the extractor that owns it)"
+					 % [name, DIR])
 		node.track = ""
 		return
 	var stream := load(path)
@@ -71,13 +92,31 @@ static func cue(tree: SceneTree, name: String) -> void:
 	# rather than in the .import, so a reimport cannot quietly drop it.
 	if stream is AudioStreamOggVorbis:
 		stream.loop = true
+	elif stream is AudioStreamWAV:
+		# Same decision, different property. loop_end has to be a real sample
+		# count: left at zero the loop is empty and the track plays once.
+		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		stream.loop_begin = 0
+		stream.loop_end = int(stream.get_length() * float(stream.mix_rate))
 	node.stream = stream
 	node.play()
 
 
-## What the player hears: the mix level, or silence.
+## What the player hears: the mix level, ducked under a voice, or silence.
 static func _level_db() -> float:
-	return SILENT_DB if muted else LEVEL_DB
+	if muted:
+		return SILENT_DB
+	return LEVEL_DB + DUCK_DB if ducked else LEVEL_DB
+
+
+static func duck(tree: SceneTree, under: bool) -> void:
+	## Pushes the loop down under something else that is speaking, and brings
+	## it back up. The track keeps playing throughout, which is the point — see
+	## DUCK_DB.
+	ducked = under
+	var node := _node(tree, false)
+	if node != null:
+		node.volume_db = _level_db()
 
 
 static func silence(tree: SceneTree, value: bool) -> void:

@@ -628,38 +628,63 @@ func run() -> void:
 	check("an-archer-never-leaps-at-you", not archer_hopped,
 		{"state": archer.state, "style": archer.style})
 
-	# --- and the jump must not reach the perches ----------------------------
-	# The hunters on the Isles' high shelves sit 144 px up and more. The whole
-	# section-gate design rests on them being out of the fight — see holds_gate
-	# in enemy.gd — so a jump that could carry one down into it, or carry a deck
-	# enemy up onto it, would be a level design change wearing an AI change's
-	# clothes. 101 px of jump and a 120 px drop limit keep them where they are.
+	# --- the perch hunters: hold the shelf, then come down ------------------
+	# They sit on the Isles' high shelves, 144 px up and more, out of reach of the
+	# player's flat blast and 107 px jump. The contract is no longer "ignore them":
+	# while the ground below them still has holders they hold their shelf and snipe
+	# down into it, and once it is clear they come off the shelf to be finished —
+	# see perched/descend in enemy.gd and _sync_descent in session.gd.
 	await fresh()
 	game.load_level("fractured_isles")     # the only level that has any
 	game.start_session()
 	game.player.test_control = true
 	await steps(3)
+	# Section 1 (2240..4460): perches at y492 over a deck at y648-660.
 	game.player.position = Vector2(3950, 660)
 	game.player.velocity = Vector2.ZERO
 	var roosts := {}
 	for foe in game.enemies:
-		# Only the perches are armed: a deck enemy killing the player would end
-		# the attempt, and a retry puts everybody back on their mark, which would
-		# pass this check without ever testing it.
-		foe.target = null if foe.holds_gate else game.player
-		if not foe.holds_gate:
-			roosts[foe] = foe.position
-	await steps(180)
-	# Height, not position: an archer shuffling along his own shelf to hold his
-	# range is doing his job. Coming DOWN off it is the thing that would be a
-	# level redesign, and it is the only thing this asserts.
-	var worst := 0.0
+		# Arm the perches so they engage; leave the deck holders unarmed — a deck
+		# enemy killing the player would end the attempt — but ALIVE, because while
+		# they live the perch has no cue to come down, which is what this first
+		# check tests.
+		foe.target = game.player if foe.perched else null
+		if foe.perched and 2240.0 <= foe.home.x and foe.home.x < 4460.0:
+			roosts[foe] = foe.position.y
+	await steps(150)
+	# Held its height while the deck lived — an archer shuffling along its own
+	# shelf to hold range is fine; coming DOWN is the thing gated on the deck.
+	var drifted := 0.0
 	for foe in roosts:
-		worst = maxf(worst, absf(foe.position.y - float(roosts[foe].y)))
-	check("a-perch-is-still-out-of-reach", worst < 8.0 and roosts.size() > 0,
-		{"perches": roosts.size(), "drifted": worst,
+		drifted = maxf(drifted, absf(foe.position.y - float(roosts[foe])))
+	check("a-perch-holds-while-the-deck-lives", drifted < 8.0 and roosts.size() > 0,
+		{"perches": roosts.size(), "drifted": drifted,
 		 "apex": Enemy.JUMP_VELOCITY * Enemy.JUMP_VELOCITY / (2.0 * Enemy.GRAVITY),
 		 "drop_limit": Enemy.DROP_LIMIT})
+
+	# Clear the ground under them, and the cue lands: the snipers come down.
+	for foe in game.enemies:
+		if is_instance_valid(foe) and foe.holds_gate and not foe.perched \
+				and 2240.0 <= foe.home.x and foe.home.x < 4460.0:
+			foe.take_hit(1000, game.player.global_position)
+	game.player.position = Vector2(3950, 660)
+	game.player.velocity = Vector2.ZERO
+	# The behaviour under test is the descent, NOT whether the player survives it.
+	# The two snipers come down right on top of him, and left alone they shoot the
+	# stationary test player to death — the retry that follows stands every perch
+	# back on its shelf, which is exactly what this measured as "never came down".
+	# So keep him topped up, and latch each perch the first time it is down: a
+	# perch that comes off its shelf counts even if something later moves it.
+	var came_down_set := {}
+	for i in range(320):
+		await steps(1)
+		game.player.health = game.player.MAX_HEALTH
+		for foe in roosts:
+			if foe.position.y > float(roosts[foe]) + 100.0:
+				came_down_set[foe] = true
+	var came_down := came_down_set.size()
+	check("a-perch-comes-down-when-the-deck-clears", came_down == roosts.size(),
+		{"came_down": came_down, "of": roosts.size()})
 
 	# --- the guard: mashing K stops being the answer ------------------------
 	# Three blasts killed a bandit, and nothing about throwing them from across
@@ -846,12 +871,29 @@ func run() -> void:
 	game.player.test_control = true
 	await steps(3)
 	var roost_deck := 648.0
-	var wyrm: Area2D = game.enemies[0] if game.enemies.size() == 1 else null
-	check("the-roost-holds-one-dragon-and-nothing-else",
-		wyrm != null and wyrm.kind == "dragon" and wyrm.style == "flyer",
+	# The roost now holds two bosses side by side — the flying dragon and the
+	# Dragon Lord on its feet. Find each by kind rather than by slot; the level is
+	# still being authored and a hard-coded index goes stale silently. The
+	# two-boss integration has its own block further down; the flyer checks here
+	# want the arena to themselves, every altitude in them measured against the
+	# dragon alone, so the Lord is lifted out for their duration.
+	var wyrm: Area2D = null
+	var overlord: Area2D = null
+	for foe in game.enemies:
+		if foe.kind == "dragon":
+			wyrm = foe
+		elif foe.kind == "dragon_lord":
+			overlord = foe
+	check("the-roost-holds-a-dragon-and-a-dragon-lord",
+		game.enemies.size() == 2 and wyrm != null and wyrm.style == "flyer"
+			and overlord != null and overlord.style == "bruiser" and overlord.is_boss(),
 		{"enemies": game.enemies.size(),
-		 "kind": wyrm.kind if wyrm != null else "<none>",
-		 "style": wyrm.style if wyrm != null else "<none>"})
+		 "dragon": wyrm.style if wyrm != null else "<none>",
+		 "lord": overlord.style if overlord != null else "<none>"})
+	if overlord != null:
+		game.enemies.erase(overlord)
+		overlord.queue_free()
+		await steps(1)
 
 	# Its own art, not the other boss's. Two kinds a tab apart in PROFILES read
 	# the same folder if anything ever crosses them over, and the animations
@@ -986,6 +1028,82 @@ func run() -> void:
 		saw_air_again,
 		{"air_time": wyrm.prof.get("air_time"), "ground_time": wyrm.prof.get("ground_time")})
 
+	# --- the boss plate ------------------------------------------------------
+	# Its health gets the plate across the bottom of the screen: the winged
+	# heart and two tracks, cut from the asset sheet by
+	# scripts/extract_boss_bar.py. Which enemies get one is a profile flag, so
+	# the HUD never has to know which kinds exist.
+	check("a-boss-is-flagged-as-one-and-a-punk-is-not",
+		wyrm.is_boss()
+		and bool(Enemy.PROFILES["dragon_lord"].get("boss", false))
+		and not bool(Enemy.PROFILES["bandit"].get("boss", false))
+		and not bool(Enemy.PROFILES["mark"].get("boss", false)),
+		{"dragon": wyrm.is_boss(),
+		 "dragon_lord": Enemy.PROFILES["dragon_lord"].get("boss", false),
+		 "bandit": Enemy.PROFILES["bandit"].get("boss", false)})
+	var plate_hud = game.hud
+	check("the-plate-art-is-imported",
+		plate_hud.boss_plate != null and plate_hud.boss_bars.size() == 2,
+		{"plate": plate_hud.boss_plate != null, "tracks": plate_hud.boss_bars.keys()})
+
+	# Nothing on screen until the fight starts: a boss bar for a boss you have
+	# not met is a spoiler, and `engaged` is already the line between the two.
+	wyrm.reset()
+	wyrm.target = game.player
+	game.player.position = Vector2(wyrm.home.x - wyrm.aggro - 100.0, roost_deck)
+	game.player.velocity = Vector2.ZERO
+	await steps(4)
+	check("no-plate-until-the-boss-notices-you",
+		not wyrm.engaged and plate_hud.boss() == null,
+		{"engaged": wyrm.engaged})
+
+	# Up, full, and following the dragon rather than the player.
+	game.player.position = Vector2(wyrm.home.x - 400.0, roost_deck)
+	game.player.velocity = Vector2.ZERO
+	for i in range(90):
+		await physics_frame
+		game.player.position.y = roost_deck
+		game.player.health = game.player.MAX_HEALTH
+		if plate_hud.boss() == wyrm:
+			break
+	await steps(6)
+	check("the-plate-comes-up-full",
+		plate_hud.boss() == wyrm and float(plate_hud.boss_shown["health"]) > 0.95,
+		{"green": plate_hud.boss_shown["health"]})
+
+	# A blow opens a gap between the two tracks, and the gap closes. Same
+	# number at two speeds — that gap IS the damage, and it is the only reason
+	# the plate is drawn with a second bar.
+	var _plate_hit: bool = wyrm.take_hit(90, game.player.global_position)
+	for i in range(9):
+		await physics_frame
+		game.player.health = game.player.MAX_HEALTH
+	var plate_green: float = float(plate_hud.boss_shown["health"])
+	var plate_magma: float = float(plate_hud.boss_shown["magma"])
+	check("a-blow-opens-a-gap-between-the-two-tracks",
+		plate_magma - plate_green > 0.05,
+		{"green": plate_green, "magma": plate_magma, "gap": plate_magma - plate_green})
+	for i in range(150):
+		await physics_frame
+		game.player.health = game.player.MAX_HEALTH
+	check("and-the-gap-closes-on-its-own",
+		absf(float(plate_hud.boss_shown["magma"])
+			 - float(plate_hud.boss_shown["health"])) < 0.02,
+		{"green": plate_hud.boss_shown["health"],
+		 "magma": plate_hud.boss_shown["magma"]})
+	# Back up where the checks below expect it. They are about what it does in
+	# the air, and the plate work above finished with it on its perch.
+	wyrm.reset()
+	wyrm.target = game.player
+	wyrm.engaged = true
+	wyrm.aloft = true
+	wyrm.grounded = false
+	wyrm.deck_y = roost_deck
+	wyrm.position.y = roost_deck - float(wyrm.prof.get("cruise", 156.0))
+	wyrm.air_left = 30.0
+	wyrm.mark_y = roost_deck
+	await steps(2)
+
 	# Its answer to a thrown blast is height, not a guard: it has no defend
 	# frame either, and this is the same anti-spam rule the other three enemies
 	# get, reached by the one axis a flyer owns.
@@ -1015,6 +1133,56 @@ func run() -> void:
 		wyrm.dodge <= 0.0,
 		{"thrown_from": cold_range - 60.0, "reads_one_from": cold_range})
 
+	# --- it cannot be pushed out of its own arena ----------------------------
+	# A flyer has no floor to run out from under it and it BACKS AWAY from a
+	# player who comes closer than its standoff, while a shut gate pins the
+	# camera to the wall. Put those together and a player standing in the
+	# right-hand corner of a gated arena pushes the boss out through the side
+	# of the screen — tests/diag_arena.gd measured 272 frames of 900, up to 284
+	# px past the edge, before this existed. So it is fenced into the section
+	# it was placed in, which for a boss is its arena.
+	var pen: Vector2 = game.section_bounds(game.section_of(wyrm.home.x))
+	check("a-flyer-is-fenced-into-its-own-section",
+		wyrm.is_flyer() and wyrm.fly_bounds.y == pen.y and wyrm.fly_bounds.y < INF
+		and str(Enemy.PROFILES["bandit"].get("style", "")) != "flyer",
+		{"bounds": wyrm.fly_bounds, "section": pen, "gates": game.gates})
+	wyrm.reset()
+	wyrm.target = game.player
+	wyrm.engaged = true
+	wyrm.aloft = true
+	wyrm.grounded = false
+	wyrm.deck_y = roost_deck
+	wyrm.air_left = 30.0
+	wyrm.mark_y = roost_deck
+	# Backed into the corner with the player crowding it: 200 px is well inside
+	# the 340 it wants, so every frame of this is it trying to get out.
+	wyrm.position = Vector2(wyrm.fly_bounds.y - 60.0, roost_deck - 156.0)
+	game.player.position = Vector2(wyrm.fly_bounds.y - 260.0, roost_deck)
+	var pen_worst: float = -INF
+	for i in range(120):
+		await physics_frame
+		game.player.position = Vector2(wyrm.fly_bounds.y - 260.0, roost_deck)
+		game.player.health = game.player.MAX_HEALTH
+		pen_worst = maxf(pen_worst, wyrm.position.x)
+	check("and-crowding-it-cannot-push-it-through-the-wall",
+		pen_worst <= wyrm.fly_bounds.y + 0.5,
+		{"furthest": pen_worst, "fence": wyrm.fly_bounds.y,
+		 "over_by": pen_worst - wyrm.fly_bounds.y})
+	# Back where the fly-away below expects it: that measures from where it is
+	# struck, and a dragon left pinned against its own fence would measure the
+	# fence.
+	wyrm.reset()
+	wyrm.target = game.player
+	wyrm.engaged = true
+	wyrm.aloft = true
+	wyrm.grounded = false
+	wyrm.deck_y = roost_deck
+	wyrm.position = Vector2(wyrm.home.x, roost_deck - float(wyrm.prof.get("cruise", 156.0)))
+	wyrm.air_left = 30.0
+	wyrm.mark_y = roost_deck
+	game.player.position = Vector2(wyrm.home.x - 400.0, roost_deck)
+	await steps(2)
+
 	# And the ending the whole level exists for. Beaten, it does not fall over
 	# — there is no collapse in six frames of wing-flap and none is roost_wanted. It
 	# turns away, climbs, and is gone, and the flag opens while you watch it go.
@@ -1028,9 +1196,14 @@ func run() -> void:
 		not wyrm.alive() and wyrm.facing > 0.0 and not wyrm.aloft,
 		{"alive": wyrm.alive(), "facing": wyrm.facing, "aloft": wyrm.aloft,
 		 "struck_from_the": "left"})
-	check("and-the-gate-opens-the-moment-it-is-beaten",
-		shut_before < INF and game.gate_shut_at() == INF,
-		{"was": shut_before, "now": game.gate_shut_at()})
+	# The wall does NOT open on the killing blow. A boss holds it until its
+	# body is off the screen, because the death is seconds long and the flag
+	# is a short run past the wall — see section_clear in game/session.gd.
+	check("and-the-gate-still-holds-while-the-body-is-there",
+		shut_before < INF and game.gate_shut_at() == shut_before
+		and not wyrm.alive() and wyrm.visible,
+		{"was": shut_before, "now": game.gate_shut_at(),
+		 "body": wyrm.visible})
 	# And then it gets up and goes. Measured from the DECK it roost_collapsed on
 	# rather than from where it was struck, because it falls out of the air
 	# first and the climb starts from the bottom of that.
@@ -1054,6 +1227,114 @@ func run() -> void:
 		not wyrm.visible and roost_collapsed and roost_flew > 400.0 and roost_rose > 240.0,
 		{"gone": not wyrm.visible, "played_the_collapse": roost_collapsed,
 		 "flew": roost_flew, "rose": roost_rose, "after_s": roost_ticks / 60.0})
+
+	# --- The Dragon's Roost: two bosses, and the Lord turned up -------------
+	# The roost holds the flying dragon AND the Dragon Lord, standing a body apart
+	# at the centre of the deck. The plate carries one on each track, the Lord
+	# hits through your blows, his hits fling you off your feet, and his close
+	# special is a leap-slam that shocks the ground where he lands.
+	await fresh()
+	game.load_level("dragons_roost")
+	game.start_session()
+	game.player.test_control = true
+	await steps(3)
+	var arena_deck := 648.0
+	var lord: Area2D = null
+	var flyer: Area2D = null
+	for foe in game.enemies:
+		if foe.kind == "dragon_lord":
+			lord = foe
+		elif foe.kind == "dragon":
+			flyer = foe
+
+	# Both wake and both hold the gate, and the plate reads one boss on each
+	# track: the Lord on the main green, the flyer on the red beneath it.
+	lord.engaged = true
+	flyer.engaged = true
+	await steps(2)
+	check("the-roost-runs-a-bar-for-each-boss",
+		game.boss_main() == lord and game.boss_second() == flyer
+		and lord.holds_gate and flyer.holds_gate,
+		{"main": game.boss_main().kind if game.boss_main() != null else "<none>",
+		 "second": game.boss_second().kind if game.boss_second() != null else "<none>"})
+
+	# Hits THROUGH your blows. Jabbed over and over on his feet, he never
+	# staggers — the counter is footwork, not trading — but he still bleeds.
+	lord.reset()
+	lord.target = game.player
+	lord.engaged = true
+	game.player.position = Vector2(lord.home.x - 300.0, arena_deck)   # out of his own reach
+	game.player.velocity = Vector2.ZERO
+	await steps(2)
+	var lord_hp: int = lord.health
+	var lord_staggered := false
+	for i in range(40):
+		var _h: bool = lord.take_hit(6, Vector2(lord.position.x - 40.0, arena_deck))
+		await steps(1)
+		if lord.state == lord.State.HURT:
+			lord_staggered = true
+	check("the-lord-hits-through-your-attacks",
+		not lord_staggered and lord.health < lord_hp,
+		{"ever_staggered": lord_staggered, "lost": lord_hp - lord.health})
+
+	# Only he flings — nothing else in the cast moves the player when it hits.
+	check("only-the-dragon-lord-flings",
+		float(Enemy.PROFILES["dragon_lord"].get("fling", 0.0)) > 0.0
+		and not Enemy.PROFILES["bandit"].has("fling")
+		and not Enemy.PROFILES["mark"].has("fling")
+		and not Enemy.PROFILES["hunter"].has("fling"),
+		{"lord_fling": Enemy.PROFILES["dragon_lord"].get("fling", 0.0)})
+
+	# A flung blow throws the player off his feet, away from the fist, and the
+	# fall is the second half of it.
+	game.player.reset_at(Vector2(1000.0, arena_deck))
+	game.player.enabled = true
+	await steps(2)
+	var flung_from: float = game.player.position.x
+	var _fl: bool = game.player.take_damage(20, Vector2(940.0, arena_deck), 300.0)
+	var flung_airborne := false
+	for i in range(24):
+		await steps(1)
+		if not game.player.is_on_floor():
+			flung_airborne = true
+	check("a-flung-blow-throws-the-player-back-and-down",
+		flung_airborne and game.player.position.x > flung_from + 20.0,
+		{"thrown": game.player.position.x - flung_from, "left_the_ground": flung_airborne})
+
+	# The leap-slam: his close special LEAVES the ground, and the LANDING shocks
+	# the deck around where he comes down — a player caught even to the side of
+	# him, not only in front. The shock stays under stone height on purpose (a
+	# player 108 up on a floating stone is clear), which the arena depends on.
+	check("the-slam-shock-stays-below-a-stone",
+		Enemy.SLAM_SHOCK_HEIGHT < 108.0,
+		{"shock_rises": Enemy.SLAM_SHOCK_HEIGHT, "stone_is": 108.0})
+	lord.reset()
+	lord.target = game.player
+	lord.engaged = true
+	lord.special_ready = 0.0
+	lord.cooldown = 0.0
+	game.player.reset_at(Vector2(lord.home.x - 80.0, arena_deck))   # inside the 0..126 slam band
+	game.player.enabled = true
+	await steps(2)
+	var slam_hp: int = game.player.health
+	var slam_chosen := false
+	var slam_airborne := false
+	for i in range(200):
+		await steps(1)
+		# Pin him in the landing zone so the blow is guaranteed to reach him; the
+		# fling itself is measured above.
+		game.player.position = Vector2(lord.home.x - 80.0, arena_deck)
+		game.player.velocity = Vector2.ZERO
+		if lord.move == "slam":
+			slam_chosen = true
+			if not lord.grounded:
+				slam_airborne = true
+		if game.player.health < slam_hp:
+			break
+	check("the-lord-leaps-and-slams-the-ground",
+		slam_chosen and slam_airborne and game.player.health < slam_hp,
+		{"chose_slam": slam_chosen, "left_the_ground": slam_airborne,
+		 "player_lost": slam_hp - game.player.health})
 
 	# --- the two paths the rock needs ---------------------------------------
 	# Neither is used by the crate or the bottle: both break straight into flying

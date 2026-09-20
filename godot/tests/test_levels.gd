@@ -6,6 +6,7 @@ extends SceneTree
 ## checked statically by scripts/check_levels.py, which does not need an engine.
 ## This is about the plumbing that lets there be more than one.
 const Game = preload("res://game/session.gd")
+const Enemy = preload("res://features/combat/enemy.gd")
 const Music = preload("res://game/music.gd")
 const Title = preload("res://ui/title.gd")
 
@@ -213,13 +214,19 @@ func run() -> void:
 	# first version of this check did - and it only passed because there were
 	# two levels at the time.
 	game.open_menu()
-	var last: int = Game.catalogue().size() - 1
+	# The MENU's list, not the course. It wraps on listing(), which is the course
+	# plus everything else the index offers, and taking the last row off
+	# catalogue() only ever agreed with that while every also_listed id already
+	# happened to be in the stand-in course above. The first one that was not
+	# turned this wrap into an ordinary step down the list - the same bug the
+	# comment above describes, one layer up.
+	var last: int = Game.listing().size() - 1
 	game.menu_index = last
 	game._unhandled_input(_press("menu_down"))
 	check("the-list-wraps-forward", game.menu_index == 0, {"menu_index": game.menu_index})
 	game._unhandled_input(_press("menu_up"))
 	check("the-list-wraps-back", game.menu_index == last,
-		{"menu_index": game.menu_index, "levels": Game.catalogue().size()})
+		{"menu_index": game.menu_index, "rows": Game.listing().size()})
 
 	# Back to the real course, and the shape it actually has: one level, with
 	# nothing after it, so finishing it replays rather than advancing.
@@ -269,11 +276,27 @@ func run() -> void:
 		foe.target = null
 	await steps(2)
 	var gate_count: int = game.gates.size()
-	check("the-isles-are-in-four-sections", gate_count == 3,
+	check("the-isles-are-in-five-sections", gate_count == 4,
 		{"gates": game.gates})
-	check("the-boss-platform-has-no-gate",
-		game.section_of(float(game.level.finish[0])) == gate_count,
-		{"section": game.section_of(float(game.level.finish[0]))})
+	# The last of the four is the one the boss stands behind, and it is the
+	# whole reason it is there: the Dragon Lord used to block the way to the
+	# flag with his body, and the dragon that replaced him flies 156 over your
+	# head and blocks nothing at all, so without a wall the level could be
+	# finished by running underneath it. Checked as three facts rather than as
+	# a number, so moving the arena does not silently void it.
+	var boss_home: float = -1.0
+	for foe in game.enemies:
+		if foe.is_boss():
+			boss_home = foe.home.x
+	var boss_section: int = game.section_of(boss_home)
+	var flag_section: int = game.section_of(float(game.level.finish[0]))
+	check("the-dragon-cannot-be-run-past",
+		boss_home > 0.0 and boss_section < gate_count
+		and game.section_holders(boss_section).size() == 1
+		and flag_section > boss_section,
+		{"boss_at": boss_home, "boss_section": boss_section,
+		 "holders": game.section_holders(boss_section).size(),
+		 "flag_section": flag_section})
 
 	# Section one, unfought: the wall is solid and the camera is held back to it.
 	game.player.position = Vector2(2100, 648)
@@ -298,21 +321,25 @@ func run() -> void:
 		{"x": game.player.position.x, "gate": float(game.gates[0]),
 		 "state": game.state})
 
-	# The perches must not be what holds a gate, or it could never open: they sit
-	# 240 px up, and both the blast and the arrow fly flat. Counted against the
-	# level file rather than pinned to a number — the enemy list is content and
-	# gets edited, and this check is about the rule, not the roster.
+	# Every "perch"-marked enemy is flagged perched and DOES hold its gate now —
+	# the contract changed: they must be cleared like anyone else, they just start
+	# out of reach on a shelf, snipe down into the fight, and come DOWN once the
+	# ground below them is clear (see perched/descend in enemy.gd). Counted against
+	# the level file, so it is about the rule and not the roster.
 	var marked := 0
 	for entry in game.level.enemies:
 		if entry.size() > 3 and str(entry[3]) == "perch":
 			marked += 1
-	var perches := 0
+	var perched := 0
+	var perched_all_gate := true
 	for foe in game.enemies:
-		if not foe.holds_gate:
-			perches += 1
-	check("perched-enemies-hold-no-gate",
-		marked > 0 and perches == marked,
-		{"perches": perches, "marked_in_level": marked,
+		if foe.perched:
+			perched += 1
+			if not foe.holds_gate:
+				perched_all_gate = false
+	check("perch-enemies-are-flagged-and-hold-gate",
+		marked > 0 and perched == marked and perched_all_gate,
+		{"perched": perched, "marked_in_level": marked, "hold_gate": perched_all_gate,
 		 "enemies": game.enemies.size()})
 
 	# Clear it, and both the wall and the camera let go. The walk key goes up
@@ -379,6 +406,394 @@ func run() -> void:
 	check("a-retry-shuts-the-gate-again",
 		not game.section_clear(0) and game.gate_shut_at() == float(game.gates[0]),
 		{"clear": game.section_clear(0), "shut_at": game.gate_shut_at()})
+
+	# And the wall at the end is real, which is the whole point of adding it:
+	# run at the flag with the dragon alive and you stop short of it. Parked
+	# rather than fought, like the bandits above — what is under test is the
+	# wall, and a dragon that knocks him off the deck mid-walk measures nothing.
+	await fresh("fractured_isles")
+	game.start_session()
+	for foe in game.enemies:
+		foe.target = null
+	game.player.test_control = true
+	game.player.position = Vector2(7000.0, 660.0)
+	game.player.velocity = Vector2.ZERO
+	await steps(3)
+	game.player.test_axis = 1.0
+	await steps(150)
+	game.player.test_axis = 0.0
+	var wall: float = float(game.gates.back())
+	check("the-flag-cannot-be-reached-past-the-dragon",
+		game.player.position.x < wall
+		and game.player.position.x > wall - 80.0
+		and float(game.level.finish[0]) > wall
+		and game.state == Game.State.PLAYING,
+		{"x": game.player.position.x, "wall": wall,
+		 "finish": game.level.finish[0], "state": game.state})
+
+	# --- the story cards around the dragon -----------------------------------
+	# The Isles hold two panels: the standoff as he steps onto the Archway, and
+	# the dragon leaving once it is beaten. Run with test_mode OFF, which is
+	# the flag that collapses a card to its effect the same way it collapses
+	# the level-swap fade — a suite that left it on would be checking the
+	# shortcut instead of the thing.
+	await fresh("fractured_isles")
+	game.test_mode = false
+	game.start_session()
+	var card_x: float = float(game.level.cutscene[0].at)
+	var wyrm: Area2D = null
+	for foe in game.enemies:
+		if foe.is_boss():
+			wyrm = foe
+	check("the-isles-hold-two-story-cards",
+		game.story_cards.size() == 2 and wyrm != null
+		and game.story_cards[0]["tex"] != null
+		and game.story_cards[1]["tex"] != null
+		and str(game.level.cutscene[1].after) == "boss_down",
+		{"cards": game.story_cards.size(), "at": card_x,
+		 "boss": wyrm != null})
+	# Each card holds for as long as its own clip, not for a number written in
+	# session.gd. Ten seconds of narration behind a 2.6 s default would be cut
+	# off half way through it.
+	check("a-card-holds-for-as-long-as-its-clip",
+		game.story_cards[0]["voice"] != null
+		and game.story_cards[0]["tail"] != null
+		and game.story_cards[1]["voice"] != null
+		and float(game.story_cards[0]["hold"]) > Game.STORY_HOLD + 4.0,
+		{"hold": game.story_cards[0]["hold"],
+		 "clip": game.story_cards[0]["voice"].get_length(),
+		 "default": Game.STORY_HOLD})
+
+	# Short of the line, on the deck. Nothing yet — and the dragon has not
+	# noticed him either, which is the point of putting the line outside its
+	# aggro: the picture is what starts the fight, not the walk in.
+	#
+	# 6900, not further back: the last hop into the Archway lands at 6888 and
+	# everything behind that is the 36 px of open sea he crossed to get here.
+	game.player.position = Vector2(card_x - 60.0, 660.0)
+	game.player.velocity = Vector2.ZERO
+	await steps(6)
+	check("no-card-before-the-line",
+		not game.story_running() and game.story_alpha() == 0.0
+		and not game.story_layer.visible and not wyrm.engaged,
+		{"alpha": game.story_alpha(), "engaged": wyrm.engaged,
+		 "gap": wyrm.position.x - game.player.position.x})
+
+	# Walked over it.
+	game.player.test_control = true
+	game.player.test_axis = 1.0
+	for i in range(40):
+		await steps(1)
+		if game.story_running():
+			break
+	check("crossing-the-line-brings-the-card-up",
+		game.story_running() and game.story_layer.visible
+		and game.story_art.texture == game.story_cards[0]["tex"]
+		and game.player.position.x >= card_x,
+		{"x": game.player.position.x, "at": card_x,
+		 "alpha": game.story_alpha()})
+	# The subtitle under it, on the same scrim and in the same column the
+	# opening's captions use. One line held for the whole card, and only on the
+	# card that has one — the second is a picture of the dragon leaving and
+	# there is nobody left to say anything about it.
+	check("the-standoff-carries-its-line",
+		game.story_line.visible
+		and game.story_line.text == str(game.level.cutscene[0].caption)
+		and game.story_line.text.contains("drake")
+		and str(game.story_cards[1]["line"]) == "",
+		{"line": game.story_line.text, "shown": game.story_line.visible,
+		 "end_card": game.story_cards[1]["line"]})
+	check("and-the-line-sits-inside-the-screen",
+		game.story_line.position.y > 380.0
+		and game.story_line.position.y + game.story_line.size.y <= 540.0
+		and is_equal_approx(game.story_line.size.x, Game.VIEW_HALF.x * 2.0),
+		{"top": game.story_line.position.y,
+		 "bottom": game.story_line.position.y + game.story_line.size.y,
+		 "width": game.story_line.size.x})
+
+	# And the level's loop is pushed under the voice rather than stopped: a
+	# stopped track restarts from the top and seams either side of the card.
+	var loop: AudioStreamPlayer = root.get_node_or_null(Music.NODE)
+	check("the-music-ducks-under-it-rather-than-stopping",
+		Music.ducked and loop != null and loop.stream != null
+		and str(loop.track) == str(game.level.music),
+		{"ducked": Music.ducked,
+		 "track": str(loop.track) if loop != null else "<no node>"})
+
+	# And the level stops under it. He is still holding right and the dragon is
+	# still alive; neither of them moves, and the level clock does not run.
+	var held_x: float = game.player.position.x
+	var wyrm_x: float = wyrm.position.x
+	var clock_was: float = game.elapsed
+	await steps(20)
+	check("the-level-stops-while-it-is-up",
+		is_equal_approx(game.player.position.x, held_x)
+		and is_equal_approx(wyrm.position.x, wyrm_x)
+		and is_equal_approx(game.elapsed, clock_was),
+		{"player_moved": game.player.position.x - held_x,
+		 "dragon_moved": wyrm.position.x - wyrm_x,
+		 "clock_ran": game.elapsed - clock_was})
+
+	# Out the other side: he has his legs back, the dragon is already up, and
+	# the loop is back at its own level.
+	for i in range(1200):
+		await steps(1)
+		if not game.story_running():
+			break
+	check("the-card-goes-and-the-fight-is-on",
+		not game.story_running() and not game.story_layer.visible
+		and game.player.enabled and wyrm.engaged and not Music.ducked,
+		{"visible": game.story_layer.visible,
+		 "enabled": game.player.enabled, "engaged": wyrm.engaged,
+		 "ducked": Music.ducked})
+	# And the track changes with it. The boss loop is named in the level and
+	# picked by current_track(), which is asked every tick rather than cued
+	# once — the next block leans on that.
+	await steps(2)
+	check("the-fight-brings-its-own-track-in",
+		game.current_track() == str(game.level.boss_music)
+		and str(loop.track) == str(game.level.boss_music)
+		and str(game.level.boss_music) != str(game.level.music),
+		{"want": game.current_track(), "playing": str(loop.track),
+		 "level": str(game.level.music)})
+
+	# Once a visit. Walked back off the line and over it again, and then a
+	# retry, which puts every enemy back on its feet: neither brings it back.
+	game.player.test_axis = 0.0
+	game.player.position = Vector2(card_x - 60.0, 660.0)
+	await steps(8)
+	game.player.position = Vector2(card_x + 40.0, 660.0)
+	await steps(8)
+	var stayed_down: bool = not game.story_running()
+	game.restart_attempt()
+	await steps(8)
+	check("it-plays-once-a-visit-and-not-on-a-retry",
+		stayed_down and not game.story_running()
+		and bool(game.story_cards[0]["seen"]),
+		{"recrossed": not stayed_down, "after_retry": game.story_running(),
+		 "seen": game.story_cards[0]["seen"]})
+
+	# --- and the one at the end of the fight ---------------------------------
+	# The order the level is built around: beaten, it FALLS, the card plays
+	# over the body on the deck, and only then does it get up and fly out.
+	# Checked as that order rather than as three separate facts, because the
+	# order is the thing that was asked for.
+	game.player.position = Vector2(card_x + 200.0, 660.0)
+	game.player.velocity = Vector2.ZERO
+	await steps(4)
+	var _beaten: bool = wyrm.take_hit(wyrm.health, Vector2(card_x, 660.0))
+	await physics_frame
+	await physics_frame
+	check("beating-it-is-not-yet-the-end-card",
+		not wyrm.alive() and wyrm.visible and not wyrm.fallen()
+		and not game.story_running(),
+		{"alive": wyrm.alive(), "fallen": wyrm.fallen(),
+		 "running": game.story_running()})
+	# And the battle track goes with the killing blow. The two seconds it lies
+	# there, the card and the climb out are the aftermath, and the level's own
+	# loop is the bed for all three.
+	check("the-battle-track-ends-with-the-fight",
+		game.current_track() == str(game.level.music)
+		and game.boss() == wyrm,
+		{"track": game.current_track(), "plate_still_up": game.boss() == wyrm})
+	# It stays down for two seconds. Counted in physics ticks rather than
+	# steps(), because one step() covers up to eight of them and the whole
+	# point of this check is the length of the beat.
+	var down_ticks := 0
+	while not wyrm.fallen() and down_ticks < 600:
+		await physics_frame
+		down_ticks += 1
+	var down_secs: float = down_ticks / 60.0
+	check("it-stays-down-for-two-seconds",
+		absf(down_secs - Enemy.DOWN_TIME) < 0.3
+		and absf(wyrm.position.y - 660.0) < 12.0,
+		{"down_for": down_secs, "want": Enemy.DOWN_TIME,
+		 "height_off_the_deck": 660.0 - wyrm.position.y})
+	for i in range(600):
+		await steps(1)
+		if game.story_running():
+			break
+	# On the deck, not in the air, and still there: the picture is of it
+	# leaving and it goes over the moment before it leaves.
+	check("the-card-comes-up-when-it-has-finished-falling",
+		game.story_running() and wyrm.visible
+		and game.story_art.texture == game.story_cards[1]["tex"]
+		and not game.player.enabled,
+		{"running": game.story_running(), "body": wyrm.visible,
+		 "on_the_deck": absf(wyrm.position.y - 660.0) < 40.0,
+		 "enabled": game.player.enabled})
+	# And it stays down under the picture — the freeze holds the departure as
+	# well as the player.
+	var lay_at: Vector2 = wyrm.position
+	await steps(20)
+	check("and-the-body-stays-down-while-it-plays",
+		wyrm.position.is_equal_approx(lay_at) and game.story_running(),
+		{"moved": wyrm.position - lay_at})
+	for i in range(1200):
+		await steps(1)
+		if not game.story_running():
+			break
+	# The way on is still SHUT here: the body is on the deck and a boss holds
+	# its wall until it is gone, which is what stops a player running out
+	# through the ending. See section_clear.
+	check("and-the-level-comes-back-with-the-wall-still-holding",
+		not game.story_running() and game.player.enabled
+		and game.gate_shut_at() < INF and not Music.ducked,
+		{"enabled": game.player.enabled, "shut_at": game.gate_shut_at(),
+		 "ducked": Music.ducked})
+	# Then it leaves. The fly-away is the second half of the death and it runs
+	# after the picture, not under it.
+	var left: bool = false
+	for i in range(900):
+		await steps(1)
+		if not wyrm.visible:
+			left = true
+			break
+	check("and-then-it-flies-away",
+		left and wyrm.position.y < lay_at.y - 100.0,
+		{"gone": left, "climbed": lay_at.y - wyrm.position.y})
+	# And with the body gone the plate goes too — it is the one thing that
+	# outlasts the track, because an empty bar under a departing dragon is
+	# what it is for.
+	await steps(4)
+	check("and-the-plate-and-the-wall-go-with-the-body",
+		game.boss() == null and game.current_track() == str(game.level.music)
+		and game.gate_shut_at() == INF,
+		{"boss": game.boss() != null, "track": game.current_track(),
+		 "shut_at": game.gate_shut_at()})
+
+	# --- beaten over the water -----------------------------------------------
+	# The way the ending used to be lost. A flyer holds a standoff of 340 to
+	# 470 and backs away from a player who crowds it, so whenever the player
+	# is at the left end of the Archway the dragon is out over the gap — and
+	# a dragon beaten there fell past fall_y, was deleted by _integrate, and
+	# took the departure card with it. Measured before the fix: gone in 1.15 s
+	# and no card ever. It now glides back to the nearest deck first.
+	await fresh("fractured_isles")
+	game.test_mode = false
+	game.start_session()
+	var sea: Area2D = null
+	for foe in game.enemies:
+		if foe.is_boss():
+			sea = foe
+		else:
+			foe.target = null
+	# The standoff card is not what is under test and it is ten seconds long.
+	game.story_cards[0]["seen"] = true
+	sea.reset()
+	sea.target = game.player
+	sea.engaged = true
+	sea.aloft = true
+	sea.grounded = false
+	sea.deck_y = 660.0
+	sea.mark_y = 660.0
+	sea.air_left = 30.0
+	sea.position = Vector2(6700.0, 504.0)
+	game.player.position = Vector2(6950.0, 660.0)
+	game.player.velocity = Vector2.ZERO
+	await steps(4)
+	var over_water: bool = sea.position.x < 6912.0
+	var _put_down: bool = sea.take_hit(sea.health, game.player.global_position)
+	var sank := false
+	for i in range(900):
+		await physics_frame
+		if not sea.visible:
+			sank = true
+			break
+		if game.story_running():
+			break
+	check("beaten-over-the-water-it-still-comes-down-on-a-deck",
+		over_water and not sank and game.story_running()
+		and absf(sea.position.y - 660.0) < 12.0
+		and sea.position.x >= 6912.0,
+		{"killed_over_water": over_water, "fell_out_of_the_level": sank,
+		 "card": game.story_running(), "landed_at": sea.position})
+
+	# Neither of the dragon's cards can be skipped — both carry "skip": false,
+	# because between them they are the only story this level tells and a
+	# player who taps space out of habit at the first frame would never see
+	# either.
+	#
+	# The keys are still SWALLOWED. A card is advanced from the playing branch
+	# of the tick and owns the keyboard while it is up, so an escape that fell
+	# through would pause the game behind the picture and stop it where it
+	# stands with no key left that would start it again.
+	await fresh("fractured_isles")
+	game.test_mode = false
+	game.start_session()
+	var cut: Area2D = null
+	for foe in game.enemies:
+		if foe.is_boss():
+			cut = foe
+	game.player.position = Vector2(card_x + 24.0, 660.0)
+	game.player.velocity = Vector2.ZERO
+	await steps(6)
+	check("the-card-is-up-and-refuses-to-be-skipped",
+		game.story_running() and not cut.engaged
+		and not bool(game.story_cards[0]["skip"])
+		and not bool(game.story_cards[1]["skip"]),
+		{"running": game.story_running(),
+		 "skip": [game.story_cards[0]["skip"], game.story_cards[1]["skip"]]})
+	var pressed_at: float = game.story_alpha()
+	for action in ["jump", "confirm", "pause"]:
+		game._unhandled_input(_press(action))
+	await steps(2)
+	check("space-enter-and-escape-do-not-get-past-it",
+		game.story_running() and game.state == Game.State.PLAYING
+		and not game.player.enabled and game.story_alpha() >= pressed_at,
+		{"running": game.story_running(), "state": game.state,
+		 "enabled": game.player.enabled, "alpha": game.story_alpha()})
+	check("and-skip_story-says-so-rather-than-doing-it",
+		not game.skip_story() and game.story_running(),
+		{"skipped": not game.story_running()})
+	for i in range(1200):
+		await steps(1)
+		if not game.story_running():
+			break
+	check("it-hands-the-level-back-when-it-is-good-and-ready",
+		not game.story_running() and game.player.enabled
+		and game.state == Game.State.PLAYING and not Music.ducked
+		and cut.engaged,
+		{"running": game.story_running(), "enabled": game.player.enabled,
+		 "state": game.state, "ducked": Music.ducked, "engaged": cut.engaged})
+
+	# A retry takes the level's own track back. The boss card does not play
+	# again, so a fight track cued by the card and never dropped would follow
+	# the player over the whole course on the way back to the Archway.
+	game.restart_attempt()
+	await steps(4)
+	check("a-retry-takes-the-boss-track-back-off",
+		game.current_track() == str(game.level.music)
+		and str(loop.track) == str(game.level.music),
+		{"want": game.current_track(), "playing": str(loop.track)})
+
+	# With test_mode on — which is every other suite and every capture — the
+	# cue still fires and the fight still starts, it just does not take ten
+	# seconds of wall clock to do it.
+	await fresh("fractured_isles")
+	game.start_session()
+	var quick: Area2D = null
+	for foe in game.enemies:
+		if foe.is_boss():
+			quick = foe
+	game.player.position = Vector2(card_x + 24.0, 660.0)
+	game.player.velocity = Vector2.ZERO
+	await steps(6)
+	check("test_mode-starts-the-fight-without-the-card",
+		not game.story_running() and bool(game.story_cards[0]["seen"])
+		and quick.engaged,
+		{"running": game.story_running(),
+		 "seen": game.story_cards[0]["seen"], "engaged": quick.engaged})
+
+	# A level with no cards is untouched by any of it, which is every other one.
+	await fresh("dragons_roost")
+	game.start_session()
+	await steps(4)
+	check("a-level-with-no-card-never-freezes",
+		game.story_cards.is_empty() and game.story_art.texture == null
+		and not game.story_running(),
+		{"cards": game.story_cards.size(),
+		 "texture": game.story_art.texture != null})
 
 	# A level with no gates is untouched by any of this.
 	await fresh("greybox")
@@ -461,6 +876,99 @@ func run() -> void:
 	check("tagged-solids-are-still-solid", bodies == expected,
 		{"bodies": bodies, "expected": expected,
 		 "solids": game.level.solids.size(), "gates": game.gates.size()})
+
+	# --- a climbing level ---------------------------------------------------
+	# The Spire is the only one, and the two rules it turns on are rules no
+	# other level has: the view may not come back down, and the fatal line
+	# rides with it instead of sitting at fall_y.
+	await fresh("the_spire")
+	game.start_session()
+	await steps(2)
+	check("a-climb-says-so", game.climbing and not game.level.get("gates", []),
+		{"climbing": game.climbing, "gates": game.level.get("gates", []).size()})
+
+	# One screen wide, so the camera has nothing left to do horizontally. This
+	# is what the whole design rests on and it is a consequence of `width`
+	# rather than of anything the level says, so it is worth pinning.
+	var pinned: float = game.camera.position.x
+	game.player.position = Vector2(900, 648)
+	await steps(4)
+	check("the-view-does-not-travel-sideways",
+		is_equal_approx(game.camera.position.x, pinned) and is_equal_approx(pinned, 480.0),
+		{"x": game.camera.position.x, "was": pinned})
+
+	# Up the tower a ledge at a time. The view has to follow him up and then
+	# refuse to give any of it back when he drops.
+	game.restart_attempt()
+	await steps(2)
+	var lowest: float = game.camera.position.y
+	var came_down := false
+	# The middle of every other ledge up the tower. Both coordinates matter: the
+	# mark the view and the fatal line are measured from only moves when he is
+	# STANDING, so dropping him at the spawn x and a ledge's y puts him in open
+	# air over the sea and proves nothing.
+	for pad in [Vector2(468, 572), Vector2(780, 420), Vector2(468, 268),
+				Vector2(438, 116), Vector2(768, -36), Vector2(444, -188),
+				Vector2(414, -340), Vector2(720, -492)]:
+		game.player.position = pad - Vector2(0, 4)
+		game.player.velocity = Vector2.ZERO
+		for _i in 12:
+			await physics_frame
+		came_down = came_down or game.camera.position.y > lowest + 0.5
+		lowest = minf(lowest, game.camera.position.y)
+	check("the-view-climbs-with-him", lowest < -300.0 and not came_down,
+		{"view": lowest, "came_down": came_down})
+	# Standing on a ledge 1140 px up, the fatal line is a screen below HIM and
+	# nowhere near the sea the level nominally ends at.
+	check("the-fatal-line-climbs-too",
+		game.fatal_y() < 0.0 and game.fatal_y() < float(game.level.fall_y),
+		{"fatal": game.fatal_y(), "fall_y": game.level.fall_y,
+		 "feet": game.player.position.y})
+	# And it is what kills him: a drop of a screen and a half from up here is
+	# fatal even though the sea is 1400 px further down.
+	game.player.position.y += 460.0
+	await steps(3)
+	check("falling-off-the-bottom-is-fatal", game.state == Game.State.DYING,
+		{"state": game.state, "feet": game.player.position.y})
+
+	# A retry puts the view back at the foot of the tower. Without this the
+	# second attempt starts with the fatal line still up at the summit.
+	game.restart_attempt()
+	await steps(2)
+	check("a-retry-drops-the-view-back",
+		game.camera.position.y > 500.0 and game.fatal_y() == float(game.level.fall_y),
+		{"view": game.camera.position.y, "fatal": game.fatal_y()})
+
+	# --- the shafts ---------------------------------------------------------
+	# A source only lets go while he is below it and within about a screen, so
+	# standing on the shore wakes the one shaft that reaches down there.
+	var dropped := 0
+	for _i in 300:
+		await physics_frame
+		dropped = maxi(dropped, game.stones.size())
+	check("the-shafts-drop-stones", dropped > 0, {"most_at-once": dropped})
+
+	# One in the face costs him health, and it is the session that spends it —
+	# the stone only reports the hit, exactly as an arrow does.
+	game.restart_attempt()
+	await steps(2)
+	var full: int = game.player.health
+	var stone = game._drop_stone(game.player.position - Vector2(0, 150))
+	for _i in 30:
+		await physics_frame
+		if game.player.health < full:
+			break
+	check("a-stone-hurts-him", game.player.health < full,
+		{"health": game.player.health, "was": full})
+
+	# And he can take one out of the sky. Nothing else in the level rewards the
+	# strike, so a rock that cannot be broken is a rock that can only be run from.
+	game.restart_attempt()
+	await steps(2)
+	stone = game._drop_stone(game.player.position - Vector2(0, 400))
+	var broke: bool = stone.take_hit(30, game.player.position)
+	check("a-stone-can-be-struck-out-of-the-air", broke and stone.broken,
+		{"broke": broke})
 
 	var report := {"scope": "Level catalogue, loading and selection; not level content",
 		"engine": Engine.get_version_info().string,

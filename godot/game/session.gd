@@ -8,6 +8,7 @@ const Bottle = preload("res://features/combat/bottle.gd")
 const Brew = preload("res://features/combat/brew.gd")
 const Enemy = preload("res://features/combat/enemy.gd")
 const Arrow = preload("res://features/combat/arrow.gd")
+const Stone = preload("res://features/combat/stone.gd")
 const Scenery = preload("res://features/world/scenery.gd")
 const Music = preload("res://game/music.gd")
 const LEVEL_DIR := "res://levels/"
@@ -71,6 +72,11 @@ var blasts: Array[Node2D] = []
 ## Arrows in flight, the archer's. Like blasts, they outlive whoever fired them
 ## and are cleared on reset and level change.
 var arrows: Array[Node2D] = []
+## Rocks falling down the shafts of a climbing level, and when each of that
+## level's `rockfall` sources is next due to let one go. Both are empty for
+## every level that names no rockfall, which is every level but The Spire.
+var stones: Array[Node2D] = []
+var rockfall_due: Array[float] = []
 var goal: Area2D
 var deaths: int = 0
 var elapsed: float = 0.0
@@ -84,6 +90,7 @@ func _ready() -> void:
 	process_physics_priority = 10
 	setup_input()
 	_make_fade()
+	_make_story()
 	_build_world()
 
 ## Which level is loaded. Set it before add_child() to boot straight into one;
@@ -105,8 +112,8 @@ func _clear_world() -> void:
 	## remove_child before queue_free: freeing is deferred, and a solid still in
 	## the tree for one more frame would collide with the level replacing it.
 	for child in get_children():
-		if child == fade_layer:
-			continue  # the black covering the swap outlives the world under it
+		if child == fade_layer or child == story_layer:
+			continue  # both outlive the world under them: see _make_fade/_make_story
 		remove_child(child)
 		child.queue_free()
 	hazard_areas.clear()
@@ -115,6 +122,8 @@ func _clear_world() -> void:
 	enemies.clear()
 	blasts.clear()
 	arrows.clear()
+	stones.clear()
+	rockfall_due.clear()
 	goal = null
 	scenery = null
 	player = null
@@ -133,6 +142,11 @@ func _build_world() -> void:
 	# The Fractured Isles does — carries straight on rather than starting over.
 	# A greybox level names none and the music stops. See music.gd.
 	Music.cue(get_tree(), str(level.get("music", "")))
+	# Read before anything is built: the camera, the fatal line and the shafts
+	# all ask. False and empty for every level that says neither.
+	climbing = bool(level.get("climb", false))
+	climb_mark = INF
+	_arm_rockfall()
 	# First child, so it is behind everything, and before the solids so that the
 	# terrain it generates from them is already on screen when they exist.
 	var theme := str(level.get("theme", ""))
@@ -143,8 +157,17 @@ func _build_world() -> void:
 		add_child(scenery)
 	for entry in level.solids:
 		_add_solid(Rect2(entry[0], entry[1], entry[2], entry[3]))
-	_add_solid(Rect2(-64, 0, 64, 860))
-	_add_solid(Rect2(level.width, 0, 64, 860))
+	# The ends of the world. Measured off the level rather than the fixed 0..860
+	# box this used to be: that box was taller than every level that existed
+	# when it was written, and a tower rises straight out through the top of it
+	# — a player stepping off the side at height would have met no wall at all.
+	var sky: float = float(level.fall_y)
+	for entry in level.solids:
+		sky = minf(sky, float(entry[1]))
+	sky -= 600.0
+	var deep: float = float(level.fall_y) + 600.0
+	_add_solid(Rect2(-64.0, sky, 64.0, deep - sky))
+	_add_solid(Rect2(float(level.width), sky, 64.0, deep - sky))
 	for entry in level.hazards:
 		hazard_areas.append(_add_area(Rect2(entry[0], entry[1], entry[2], entry[3]), 8, true))
 	var f: Array = level.finish
@@ -179,21 +202,23 @@ func _build_world() -> void:
 	# default) or "mark". More is another entry, not more code. `kind` is set
 	# before add_child so it is in place when the enemy reads its manifest.
 	#
-	# A fourth value "perch" says this one does not hold its section's gate. See
-	# holds_gate in enemy.gd for why some cannot be allowed to.
+	# A fourth value "perch" stands this one on a high shelf over the fight: it
+	# snipes down into it and holds its gate like the rest, but it only comes off
+	# the shelf once the ground below it is clear. See perched/descend in enemy.gd.
 	for entry in level.get("enemies", []):
 		var foe := Enemy.new()
 		foe.position = Vector2(entry[0], entry[1])
 		if entry.size() > 2 and str(entry[2]) != "":
 			foe.kind = str(entry[2])
 		if entry.size() > 3 and str(entry[3]) == "perch":
-			foe.holds_gate = false
+			foe.perched = true
 		foe.fall_limit = float(level.fall_y)
 		foe.struck_player.connect(_on_player_struck)
 		foe.fired_arrow.connect(_on_arrow_fired)
 		enemies.append(foe)
 		add_child(foe)
 	_build_gates()
+	_fence_flyers()
 	player = Player.new()
 	player.blast_fired.connect(_on_blast_fired)
 	player.drink_ended.connect(_on_drink_ended)
@@ -216,6 +241,7 @@ func _build_world() -> void:
 	# second time would pause the game twice for one lost focus.
 	if not get_window().focus_exited.is_connected(_on_focus_lost):
 		get_window().focus_exited.connect(_on_focus_lost)
+	_load_story_cards()
 	queue_redraw()
 
 ## --- sections ---------------------------------------------------------------
@@ -253,6 +279,23 @@ func _build_gates() -> void:
 		var wall := _add_solid(Rect2(x, -GATE_WALL.y / 2.0, GATE_WALL.x, GATE_WALL.y))
 		gate_walls.append(wall)
 
+func _fence_flyers() -> void:
+	## A flyer is fenced into the section it was placed in, which for a boss is
+	## its arena. Everything else in the cast is bounded by the floor running
+	## out from under it; a flyer has no floor, and backs away from a player who
+	## crowds it, so without this a player in the corner of a gated arena can
+	## push the boss out through the side of the screen. See fly_bounds in
+	## features/combat/enemy.gd for the measurement, and tests/diag_arena.gd
+	## for how to take it again.
+	##
+	## The SECTION and not the framed arena. A gate frames the last 960 before
+	## its wall, and The Dragon's Roost arena is wider than that — fencing to
+	## the frame would keep its dragon out of the half of its own deck the
+	## player can stand on.
+	for foe in enemies:
+		if is_instance_valid(foe) and foe.is_flyer():
+			foe.fly_bounds = section_bounds(section_of(foe.home.x))
+
 func section_of(x: float) -> int:
 	## Which section a point is in. The last section has no gate, so anything
 	## past the final one belongs to it.
@@ -282,6 +325,17 @@ func section_clear(index: int) -> bool:
 	for foe in section_holders(index):
 		if foe.alive():
 			return false
+		# A beaten BOSS holds its wall until its body is off the screen. It
+		# takes seconds to die — the fall, the two it lies there, the card
+		# cued off that, the climb out — and on The Fractured Isles the flag
+		# is 132 px past the wall. Without this a player who beat it backed
+		# against the wall, which is where a gated fight usually ends, runs
+		# straight out through the ending: measured at 0.82 s to the flag
+		# against 2.05 s for the card. tests/diag_endcard.gd is that
+		# measurement. It frames the death as well — the camera stays on the
+		# arena while the dragon goes down and climbs out of it.
+		if foe.is_boss() and foe.visible:
+			return false
 	return true
 
 func gate_shut_at() -> float:
@@ -307,6 +361,486 @@ func _sync_gates() -> void:
 		# Layer 1 is World, which is the only thing the player collides with.
 		# Dropping to 0 leaves the body in place and lets him walk through it.
 		wall.collision_layer = 0 if section_clear(i) else 1
+
+func _sync_descent() -> void:
+	## The perch snipers come off their shelves once the ground below them is
+	## clear — "if everyone is killed below, they come down." Driven off alive()
+	## like the gates, so a retry (which stands everyone back up) puts them back on
+	## the shelf with no extra bookkeeping. Cheap: a handful of enemies, once a
+	## frame. The cue is one-way within an attempt; only reset() takes it back.
+	for i in range(gates.size() + 1):
+		var bounds := section_bounds(i)
+		var ground_alive := false
+		var roost: Array = []
+		for foe in enemies:
+			if not is_instance_valid(foe) or not foe.holds_gate:
+				continue
+			if not (bounds.x <= foe.home.x and foe.home.x < bounds.y):
+				continue
+			if foe.perched:
+				roost.append(foe)
+			elif foe.alive():
+				ground_alive = true
+		if not ground_alive:
+			for foe in roost:
+				foe.descend = true
+
+## --- story cards ------------------------------------------------------------
+##
+## A level may hold story panels, and what brings each one up:
+##
+##     "cutscene": [
+##      {"panel": "dragon_fight_start", "audio": "dragon_fight_start",
+##       "out_audio": "dragon_roar", "at": 6960},
+##      {"panel": "dragon_fight_end", "audio": "dragon_fight_end",
+##       "after": "boss"}
+##     ]
+##
+## The level stops where it stands, the picture comes up over it, and when the
+## picture goes the level is handed back. The Fractured Isles has both of these
+## and no other level has any.
+##
+## TWO CUES, one per card. `at` is an x he has to cross ON HIS FEET — the
+## footing matters because a line on the mouth of an arena you jump into would
+## otherwise put the picture up over a player frozen in mid-air, who then drops
+## out of the bottom of it when it goes. `after: "boss_down"` waits until the
+## level's boss is beaten and has FALLEN — for the dragon, the moment the
+## collapse has played out and it is lying on the deck. The picture is of it
+## leaving, so it belongs between the fall and the leaving rather than after
+## both: the card stops the world with the body on the deck, and the dragon
+## gets up and climbs out of the level the moment the picture is gone.
+##
+## THE CLIP DECIDES HOW LONG THE PICTURE HOLDS. A card with `audio` holds until
+## its own clip is out, read off the stream's length, so re-rendering one
+## longer lengthens the card and nothing here or in the level has a duration
+## written in it. `out_audio` is the sound it leaves on rather than arrives
+## with — for the first card that is the dragon's roar, which starts as the
+## picture begins to dissolve and carries into the fight underneath it.
+##
+## A card may also refuse to be skipped, with `"skip": false`. Both of the
+## dragon's do: they are four and ten seconds each, they play once per visit,
+## and what they carry — who the drake is and what happens to it — is the only
+## story the level tells. The key is still swallowed, so an unskippable card
+## cannot be paused out from under either.
+##
+## Its own layer over a level that is still there, rather than a scene in front
+## of one, which is the whole difference between this and ui/storyboard.gd. The
+## opening replaces the screen and can afford to be a scene; this has to leave
+## the world underneath intact, because the world comes back.
+##
+## ONCE PER VISIT, per card, not once per attempt. Dying to the dragon and
+## walking back up the level does not play the standoff again — a cutscene
+## between a player and another go at a boss is the one everybody learns to
+## hate — but leaving to the menu and starting the level over does, because
+## that is a new run at it.
+const STORY_DIR := "res://ui/art/storyboard/"
+const STORY_AUDIO_DIR := "res://audio/"
+## Up and away. What is between them is the clip's business — see STORY_HOLD.
+const STORY_IN := 0.7
+const STORY_OUT := 0.6
+## How long a card with no clip holds, and the floor under one that has a clip
+## too short to read the picture in.
+const STORY_HOLD := 2.6
+## How far down the level behind the card goes. Not all the way: the picture is
+## the screen now, but the edges of the frame should still say the game is
+## there and waiting rather than that it has been replaced.
+const STORY_DIM := 0.88
+
+## The subtitle under a card, if it has one. Deliberately the same column,
+## baseline, size and scrim ui/storyboard.gd gives the opening's captions —
+## both are in the same 960x540 space, and the two should read as one piece of
+## typography rather than as two people's ideas about subtitles.
+##
+## The scrim is not decoration. These sit over bright cloud in one card and
+## dark cliff in the next, and an outline alone loses the thin strokes against
+## the clouds. It is drawn full width, like the opening's, with the text in a
+## 760 column inside it.
+const STORY_LINE_BOTTOM := 494.0
+const STORY_LINE_PAD := Vector2(100.0, 9.0)
+const STORY_LINE_SIZE := 17
+const STORY_LINE_INK := Color(0.96, 0.97, 0.98)
+const STORY_LINE_EDGE := Color(0.0, 0.0, 0.0, 0.75)
+const STORY_LINE_SCRIM := Color(0.0, 0.0, 0.0, 0.44)
+
+enum Story { NONE, IN, HOLD, OUT }
+var story_phase: Story = Story.NONE
+var story_clock: float = 0.0
+## The level's cards, parsed once in _build_world. Each is
+## {tex, voice, tail, at, after, hold, seen}; `seen` is the once-per-visit flag
+## and the only field that changes while the level runs.
+var story_cards: Array = []
+## Which card is up, or -1.
+var story_at: int = -1
+var story_layer: CanvasLayer
+var story_dim: ColorRect
+var story_art: TextureRect
+var story_line: Label
+var story_voice: AudioStreamPlayer
+
+func _make_story() -> void:
+	## Built once in _ready beside the fade, and skipped by _clear_world for the
+	## same reason: it has to be able to outlive the world it is drawn over.
+	##
+	## Its own CanvasLayer at scale 1 rather than a corner of the HUD, because
+	## the HUD is laid out in a 640x360 design space and this is a full-screen
+	## picture — at scale 1 every number below is a viewport pixel.
+	story_layer = CanvasLayer.new()
+	# Over the HUD, which _build_world adds at the default layer 0, and under
+	# the fade at 100 — a level swap has to be able to cover the card too.
+	story_layer.layer = 50
+	story_layer.visible = false
+	story_dim = ColorRect.new()
+	story_dim.color = Color(0.03, 0.04, 0.06, 0.0)
+	story_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	story_layer.add_child(story_dim)
+	story_art = TextureRect.new()
+	story_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	story_art.stretch_mode = TextureRect.STRETCH_SCALE
+	# A reduction of a painted sheet rather than pixel art — see the note in
+	# scripts/extract_storyboard.py — so the same filter hud.gd gives the bars.
+	story_art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	story_art.position = Vector2.ZERO
+	story_art.size = VIEW_HALF * 2.0
+	story_art.modulate.a = 0.0
+	story_layer.add_child(story_art)
+	story_line = Label.new()
+	story_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	story_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	story_line.add_theme_font_size_override("font_size", STORY_LINE_SIZE)
+	story_line.add_theme_color_override("font_color", STORY_LINE_INK)
+	story_line.add_theme_color_override("font_outline_color", STORY_LINE_EDGE)
+	story_line.add_theme_constant_override("outline_size", 4)
+	var scrim := StyleBoxFlat.new()
+	scrim.bg_color = STORY_LINE_SCRIM
+	scrim.content_margin_left = STORY_LINE_PAD.x
+	scrim.content_margin_right = STORY_LINE_PAD.x
+	scrim.content_margin_top = STORY_LINE_PAD.y
+	scrim.content_margin_bottom = STORY_LINE_PAD.y
+	story_line.add_theme_stylebox_override("normal", scrim)
+	story_line.visible = false
+	story_layer.add_child(story_line)
+	# The card's own voice. Not the music node: that one outlives scenes on
+	# purpose and is a looping bed, and this is a clip that belongs to a level.
+	story_voice = AudioStreamPlayer.new()
+	story_layer.add_child(story_voice)
+	add_child(story_layer)
+
+func _load_story_cards() -> void:
+	## This level's cards, or none. Every level but the Isles takes the early
+	## return with an empty list.
+	if not is_instance_valid(story_art):
+		return
+	_end_story()
+	_stop_story_voice()
+	story_cards.clear()
+	story_art.texture = null
+	for entry in level.get("cutscene", []):
+		var card := _read_story_card(entry)
+		if not card.is_empty():
+			story_cards.append(card)
+
+func _read_story_card(entry: Dictionary) -> Dictionary:
+	var art := str(entry.get("panel", ""))
+	var path := STORY_DIR + art + ".png"
+	if art == "" or not ResourceLoader.exists(path):
+		push_warning("levels: %s names the story panel %s, which is not imported. Run scripts/extract_storyboard.py."
+					 % [level_id, path])
+		return {}
+	var voice := _story_clip(str(entry.get("audio", "")))
+	var card := {
+		"tex": load(path),
+		"line": str(entry.get("caption", "")),
+		"skip": bool(entry.get("skip", true)),
+		"voice": voice,
+		"tail": _story_clip(str(entry.get("out_audio", ""))),
+		"at": float(entry.get("at", INF)),
+		"after": str(entry.get("after", "")),
+		"hold": float(entry.get("hold", STORY_HOLD)),
+		"seen": false,
+	}
+	# The clip decides. Less the fade it is already playing under, floored so a
+	# card whose clip is a two-second sting still holds long enough to read.
+	if voice != null:
+		card["hold"] = maxf(STORY_HOLD, voice.get_length() - STORY_IN)
+	return card
+
+func _story_clip(name: String) -> AudioStream:
+	if name == "":
+		return null
+	var path := STORY_AUDIO_DIR + name + ".mp3"
+	if not ResourceLoader.exists(path):
+		push_warning("levels: %s names the clip %s, which is not there. Run scripts/extract_storyboard.py."
+					 % [level_id, path])
+		return null
+	return load(path)
+
+func story_running() -> bool:
+	return story_phase != Story.NONE
+
+func story_alpha() -> float:
+	## How far up the card is, 0 to 1. Public for the reason fade_alpha is: a
+	## capture has to be able to assert the dissolve rather than trust it.
+	match story_phase:
+		Story.IN:
+			return clampf(story_clock / STORY_IN, 0.0, 1.0)
+		Story.HOLD:
+			return 1.0
+		Story.OUT:
+			return clampf(1.0 - story_clock / STORY_OUT, 0.0, 1.0)
+	return 0.0
+
+func boss() -> Node2D:
+	## The boss whose fight is happening right now, or null. Two things read
+	## this — the plate across the bottom of the screen and which track is
+	## playing — and they must not be able to disagree about when a fight is on.
+	##
+	## `engaged` keeps it null until the fight starts, so neither the plate nor
+	## the music is a spoiler; `visible` keeps it non-null through the death,
+	## because the dragon is on screen for seconds after it is beaten and both
+	## the empty bar and the fight music belong to it until it is gone.
+	for foe in enemies:
+		if is_instance_valid(foe) and foe.is_boss() and foe.engaged and foe.visible:
+			return foe
+	return null
+
+func boss_main() -> Node2D:
+	## The boss on the plate's main (green) track. When two are fighting — The
+	## Dragon's Roost — this is the one on its feet, the Dragon Lord you close
+	## with; the flyer takes the second track. With a single boss it is simply
+	## that boss. Prefers a grounded boss so the green bar is always the Lord's
+	## when both are up, whatever order the level lists them in.
+	var flyer: Node2D = null
+	for foe in enemies:
+		if is_instance_valid(foe) and foe.is_boss() and foe.engaged and foe.visible:
+			if foe.is_flyer():
+				flyer = foe
+			else:
+				return foe
+	return flyer
+
+func boss_second() -> Node2D:
+	## The boss on the plate's second (magma/red) track, or null when only one is
+	## fighting. It is whichever engaged boss is not on the main track — the
+	## flyer, when a ground boss holds the green. A single-boss level never has
+	## one, and the red track goes back to lagging the main bar (the damage band).
+	var main := boss_main()
+	if main == null:
+		return null
+	for foe in enemies:
+		if is_instance_valid(foe) and foe.is_boss() and foe.engaged and foe.visible \
+				and foe != main:
+			return foe
+	return null
+
+func _boss_fallen() -> bool:
+	## Down, and done being down. See fallen() and DOWN_TIME in enemy.gd — for
+	## the dragon this is two seconds after it hits the deck, which is the end
+	## of the fall and the frame before the climb out.
+	for foe in enemies:
+		if is_instance_valid(foe) and foe.is_boss() and foe.fallen():
+			return true
+	return false
+
+## The loop the level plays while a boss is fighting you, named in the level
+## file as `boss_music`. Asked for every tick rather than cued at the moment a
+## fight starts, because that is not the only way in or out of one: dying puts
+## the player back at the spawn with the boss on its perch, and the level's own
+## track has to come back with him rather than leaving him to walk the whole
+## course to boss music.
+func current_track() -> String:
+	## The battle track belongs to the FIGHT, and the fight ends when the boss
+	## does rather than when its body is finally off the screen. Everything
+	## after the killing blow — the two seconds it lies there, the card, the
+	## climb out — is the aftermath, and the level's own quiet loop is the bed
+	## for all three. The plate deliberately outlasts the track: see boss(),
+	## where an empty bar under a departing dragon is the whole point and a
+	## battle loop under the same moment would undo it.
+	var fighting := boss()
+	if fighting != null and fighting.alive():
+		var fight := str(level.get("boss_music", ""))
+		if fight != "":
+			return fight
+	return str(level.get("music", ""))
+
+func _story_due() -> int:
+	## The first card whose cue has come up, or -1. On his feet for either cue:
+	## a picture that arrives while he is in the air freezes him there.
+	if story_cards.is_empty() or not is_instance_valid(player):
+		return -1
+	if not player.is_on_floor():
+		return -1
+	for i in story_cards.size():
+		var card: Dictionary = story_cards[i]
+		if card["seen"]:
+			continue
+		if str(card["after"]) == "boss_down":
+			if _boss_fallen():
+				return i
+		elif player.position.x >= float(card["at"]):
+			return i
+	return -1
+
+func _advance_story(delta: float) -> bool:
+	## Returns true while a card is holding the world still, which is what
+	## takes the frame away from everything below it in _physics_process:
+	## nothing moves, and the level clock does not run either.
+	if story_phase == Story.NONE:
+		var due := _story_due()
+		if due < 0:
+			return false
+		_begin_story(due)
+		if story_phase == Story.NONE:
+			return false  # test_mode: the beat happened, the picture did not
+	story_clock += delta
+	match story_phase:
+		Story.IN:
+			if story_clock >= STORY_IN:
+				story_phase = Story.HOLD
+				story_clock = 0.0
+		Story.HOLD:
+			if story_clock >= float(story_cards[story_at]["hold"]):
+				_begin_story_out()
+		Story.OUT:
+			if story_clock >= STORY_OUT:
+				_end_story()
+				return false  # the level gets the rest of this tick back
+	_show_story()
+	return true
+
+func _begin_story(index: int) -> void:
+	var card: Dictionary = story_cards[index]
+	card["seen"] = true
+	# The same shape begin_swap has: in a suite the beat still happens, it just
+	# does not take ten seconds of wall clock to happen in. A test that wants
+	# to watch a card turns test_mode off.
+	if test_mode:
+		_wake_boss()
+		return
+	story_at = index
+	story_phase = Story.IN
+	story_clock = 0.0
+	player.enabled = false
+	player.velocity = Vector2.ZERO
+	_freeze_world(true)
+	story_art.texture = card["tex"]
+	_set_story_line(str(card["line"]))
+	story_layer.visible = true
+	# Under, not off: see Music.DUCK_DB.
+	Music.duck(get_tree(), true)
+	_play_story_clip(card["voice"])
+	_show_story()
+
+func _begin_story_out() -> void:
+	## The picture starts to go and the level starts again underneath it. The
+	## world is let go here and the player at the end of the dissolve, six
+	## tenths later, so what the card dissolves into is the dragon already on
+	## its way rather than a still of one — and he is not asked to fight
+	## through the last of the picture.
+	var was := story_alpha()
+	story_phase = Story.OUT
+	# Out from wherever it had got to, so a skip taken while it is still coming
+	# up dissolves from there instead of snapping to full first.
+	story_clock = (1.0 - was) * STORY_OUT
+	# Whatever the card arrived on stops here whether it had finished or not,
+	# which is what makes a skip a skip, and the roar takes its place.
+	_play_story_clip(story_cards[story_at]["tail"] if story_at >= 0 else null)
+	_freeze_world(false)
+	_wake_boss()
+
+func _end_story() -> void:
+	story_phase = Story.NONE
+	story_clock = 0.0
+	story_at = -1
+	_freeze_world(false)
+	# The loop comes back up. Deliberately NOT stopping story_voice: the first
+	# card goes out on a roar and that is meant to carry into the fight.
+	Music.duck(get_tree(), false)
+	if is_instance_valid(story_layer):
+		story_layer.visible = false
+		story_dim.color.a = 0.0
+		story_art.modulate.a = 0.0
+	if is_instance_valid(player) and state == State.PLAYING:
+		player.enabled = true
+		# Whatever was held down to skip the card must not also be a jump the
+		# instant control comes back: the same guard set_paused keeps.
+		player.require_jump_release = true
+		player.jump_request_tick = -1000
+
+func skip_story() -> bool:
+	## Past it, and the level still starts again: skipping the picture has to
+	## leave things in the state watching it does.
+	##
+	## False when the card refuses to be skipped. `"skip": false` in the level
+	## marks one the author wants watched — both of the dragon's are — and the
+	## key is still swallowed by the caller either way, so an unskippable card
+	## cannot let escape fall through and pause the game behind its own picture.
+	if story_phase == Story.NONE or story_phase == Story.OUT:
+		return false
+	if story_at >= 0 and not bool(story_cards[story_at]["skip"]):
+		return false
+	_begin_story_out()
+	_show_story()
+	return true
+
+func _play_story_clip(clip: AudioStream) -> void:
+	if not is_instance_valid(story_voice):
+		return
+	story_voice.stop()
+	story_voice.stream = clip
+	if clip != null:
+		story_voice.play()
+
+func _stop_story_voice() -> void:
+	## Cuts whatever the card was saying. For the retry and the level change —
+	## a roar carrying over a respawn belongs to a fight that is over.
+	if is_instance_valid(story_voice):
+		story_voice.stop()
+
+func _set_story_line(line: String) -> void:
+	## The card's subtitle, laid out bottom-centred. Sized from the text rather
+	## than given a fixed box, so the scrim is a band the height of the line
+	## and a two-line caption pushes its own top edge up instead of overflowing.
+	if not is_instance_valid(story_line):
+		return
+	story_line.visible = line != ""
+	if line == "":
+		return
+	story_line.text = line
+	story_line.size = Vector2(VIEW_HALF.x * 2.0, 0.0)
+	var tall := story_line.get_minimum_size().y
+	story_line.size = Vector2(VIEW_HALF.x * 2.0, tall)
+	story_line.position = Vector2(0.0, STORY_LINE_BOTTOM - tall)
+
+func _show_story() -> void:
+	var lit := story_alpha()
+	story_dim.color.a = lit * STORY_DIM
+	story_art.modulate.a = lit
+	story_line.modulate.a = lit
+
+func _freeze_world(frozen: bool) -> void:
+	## Everything in the level that moves under its own steam, stopped where it
+	## stands. The player is held separately, by `enabled`, because he is let go
+	## later than the rest of it — see _begin_story_out.
+	for group in [enemies, blasts, arrows, crates, bottles]:
+		for thing in group:
+			if is_instance_valid(thing):
+				thing.set_physics_process(not frozen)
+
+func _wake_boss() -> bool:
+	## The standoff card's last act: the fight starts. Set here rather than left
+	## to the boss's own aggro, so that "the picture, then the fight" happens
+	## the same way every time — the cue line is outside its 560 and it would
+	## otherwise stand on its perch until the player had walked the rest of the
+	## way in. A no-op for the card at the end of the fight, which has no live
+	## boss left to wake.
+	for foe in enemies:
+		if is_instance_valid(foe) and foe.is_boss() and foe.alive():
+			foe.engaged = true
+			return true
+	return false
 
 func _add_bottle(bottle: Node2D, entry: Array) -> void:
 	## One bottle of either kind, placed and registered. The kind is already
@@ -514,6 +1048,39 @@ const CAMERA_DEADZONE := 90.0
 ## How quickly the view settles back onto him once he lands, per physics tick.
 const CAMERA_RECENTRE := 0.06
 
+# --- climbing levels ---------------------------------------------------------
+
+## A level that sets `"climb": true` is a tower rather than a course, and two
+## things change for it. The view ratchets: it rises as he climbs and never
+## comes back down. And the fatal line rides with it instead of sitting at a
+## fixed y, so falling off the bottom of the screen is what kills him rather
+## than reaching the sea a second and a half later.
+##
+## Both are one rule in play — the ground you have left is gone — and the second
+## is also what makes the first fair. Without it a missed jump near the summit
+## is four seconds of watching him drop past scenery he has already beaten.
+var climbing: bool = false
+## The highest ledge he has STOOD on, and what the view and the fatal line are
+## both measured from. INF until he first touches down.
+##
+## Deliberately his standing height and not his airborne one. One jump rises
+## 107 against a 90 deadzone, so ratcheting on where he actually is would lift
+## the view 17 px every time he hopped on the spot and never give it back —
+## twenty hops standing still and the fatal line is at his feet.
+var climb_mark: float = INF
+## How far below that ledge the fall becomes fatal. Half a viewport puts the
+## line exactly on the bottom edge of the screen; the rest is so that he is
+## visibly gone before it takes him rather than dying on the last visible row.
+const CLIMB_DROP := VIEW_HALF.y + 50.0
+
+## The line a fall ends at: the level's own sea, or the bottom of the screen on
+## a climb, whichever he would meet first. Every level that is not a climb gets
+## `fall_y` and nothing else, exactly as before.
+func fatal_y() -> float:
+	if not climbing or climb_mark == INF:
+		return float(level.fall_y)
+	return minf(float(level.fall_y), climb_mark + CLIMB_DROP)
+
 func _measure_view() -> void:
 	var highest: float = INF
 	for entry in level.get("solids", []):
@@ -550,6 +1117,11 @@ func _follow_y(current: float) -> float:
 	# a deadzone above his feet and makes him look waist-deep in the sea.
 	if player.is_on_floor():
 		target = lerpf(target, player.position.y, CAMERA_RECENTRE)
+	# A climb only lets it up. It may still RISE with a jump, which is ordinary
+	# following; what it may not do is come back down past the highest ledge he
+	# has reached, because that is the line the fall is measured from.
+	if climbing:
+		target = minf(target, climb_mark)
 	return clampf(target, view_top, view_bottom)
 
 ## Static, and public, because the title screen needs the same menu_up/menu_down/
@@ -635,6 +1207,11 @@ func start_session() -> void:
 
 func restart_attempt() -> void:
 	state = State.PLAYING
+	# A card still up when the attempt restarts goes with the attempt, and so
+	# does whatever it was saying. It does not play again on the way back up
+	# the level — see ONCE PER VISIT.
+	_end_story()
+	_stop_story_voice()
 	elapsed = 0.0
 	retry_remaining = 0.0
 	# Area2D overlaps are physics-step snapshots. Discard pre-teleport contacts
@@ -658,6 +1235,15 @@ func restart_attempt() -> void:
 		if is_instance_valid(arrow):
 			arrow.queue_free()
 	arrows.clear()
+	# A retry is a fresh climb: the shafts are swept, every source goes back to
+	# its own opening delay, and the view drops to the foot of the tower with
+	# the mark it was ratcheting against.
+	for stone in stones:
+		if is_instance_valid(stone):
+			stone.queue_free()
+	stones.clear()
+	_arm_rockfall()
+	climb_mark = INF
 	player.reset_at(Vector2(level.spawn[0], level.spawn[1]))
 	player.enabled = true
 	camera.position = Vector2(VIEW_HALF.x, camera_home_y())
@@ -670,20 +1256,34 @@ func set_paused(value: bool) -> void:
 		player.enabled = false
 	elif not value and state == State.PAUSED:
 		state = State.PLAYING
-		player.enabled = true
+		# Not if a story card is still holding him: alt-tabbing away during one
+		# pauses the game, and coming back must not be what gives him his legs
+		# back four seconds early.
+		player.enabled = not story_running()
 		player.require_jump_release = true
 		player.jump_request_tick = -1000
 
 func _on_focus_lost() -> void:
-	if not test_mode:
+	## Not while a story card is up. The card is advanced from the PLAYING
+	## branch of the tick and owns the keyboard while it runs, so pausing under
+	## one stops it where it is with no key left that would start it again —
+	## alt-tabbing away for a second would strand the player behind a still
+	## picture. Nothing is lost by letting it run: the world under it is frozen
+	## either way, and it is four seconds.
+	if not test_mode and not story_running():
 		set_paused(true)
 
-func _on_player_struck(damage: int, from: Vector2) -> void:
+func _on_player_struck(damage: int, from: Vector2, fling: float = 0.0) -> void:
 	## A punk landed one. He decides he hit; the player decides whether the blow
 	## counts, because only the player knows about its own invulnerable window.
+	##
+	## `fling` is the knockback the blow carries — non-zero only for the Dragon
+	## Lord (see fling_for() in enemy.gd). The arrow and the falling stone connect
+	## this same handler with a two-argument signal, so their hits default it to
+	## zero and never fling, which is what the default keeps.
 	if state != State.PLAYING:
 		return
-	var _landed: bool = player.take_damage(damage, from)
+	var _landed: bool = player.take_damage(damage, from, fling)
 
 func enemies_down() -> int:
 	var n := 0
@@ -713,16 +1313,71 @@ func _on_blast_fired(at: Vector2, direction: float) -> void:
 				and absf(foe.global_position.x - at.x) <= Blast.RANGE:
 			foe.warn_of_blast(at, direction, Blast.SPEED)
 
-func _on_arrow_fired(at: Vector2, direction: float, damage: int) -> void:
+func _on_arrow_fired(at: Vector2, heading: Vector2, damage: int) -> void:
 	## The archer's arrow is a level object too: it keeps its heading and reports
 	## its hit the same way a melee blow does, through the player's own window.
 	var arrow := Arrow.new()
-	arrow.direction = direction
+	arrow.heading = heading
+	arrow.direction = signf(heading.x) if heading.x != 0.0 else 1.0
 	arrow.damage = damage
 	arrow.position = at
 	arrow.struck_player.connect(_on_player_struck)
 	arrows.append(arrow)
 	add_child(arrow)
+
+# --- falling rock ------------------------------------------------------------
+
+## A source in a level's `rockfall` is [x, y, every, first]: a stone leaves
+## (x, y) every `every` seconds, the first one `first` seconds in, and falls
+## straight down its own lane until it meets a ledge, the player, or the sea.
+##
+## There is no randomness in any of it. A lane learned on one attempt behaves
+## identically on the next, which is the only thing that makes a level where a
+## single mistake is fatal worth retrying rather than worth resenting.
+
+## How far above him a source may be and still be dropping. Barely more than the
+## 540 the screen is tall, so a live shaft is one whose source is just off the
+## top of the view — which is also what lets each source wake as he climbs into
+## it and go quiet once he is past, with no level having to say when.
+const ROCKFALL_REACH := 560.0
+
+func _arm_rockfall() -> void:
+	## Every source back to its own opening delay. Called on build and on every
+	## retry, so the shafts run to the same rhythm on the twentieth attempt as
+	## on the first.
+	rockfall_due.clear()
+	for entry in level.get("rockfall", []):
+		rockfall_due.append(float(entry[3]) if entry.size() > 3 else 0.0)
+
+func _tick_rockfall(_delta: float) -> void:
+	var sources: Array = level.get("rockfall", [])
+	if sources.is_empty():
+		return
+	stones = stones.filter(func(s): return is_instance_valid(s))
+	for i in mini(sources.size(), rockfall_due.size()):
+		if elapsed < rockfall_due[i]:
+			continue
+		var entry: Array = sources[i]
+		# The clock is advanced whether or not a stone comes of it, so the
+		# rhythm belongs to the level rather than to where he happens to be.
+		# Walking into range mid-cycle means waiting out the rest of it.
+		rockfall_due[i] = elapsed + maxf(float(entry[2]), 0.1)
+		var at := Vector2(float(entry[0]), float(entry[1]))
+		var drop: float = player.position.y - at.y
+		if drop <= 0.0 or drop > ROCKFALL_REACH:
+			continue
+		_drop_stone(at)
+
+func _drop_stone(at: Vector2) -> Node2D:
+	var stone := Stone.new()
+	stone.position = at
+	# Past the sea rather than at it: a stone with nothing under it should leave
+	# the screen falling, not wink out on the waterline.
+	stone.fall_limit = float(level.fall_y) + 80.0
+	stone.struck_player.connect(_on_player_struck)
+	stones.append(stone)
+	add_child(stone)
+	return stone
 
 ## How close he has to be to pick something up. Generous, like the bottle's
 ## drink reach: this is "am I standing at it", not "am I touching it".
@@ -846,7 +1501,16 @@ func _physics_process(delta: float) -> void:
 		retry_remaining -= delta
 		if retry_remaining <= 0:
 			restart_attempt()
-	elif state == State.PLAYING:
+	elif state == State.PLAYING and not _advance_story(delta):
+		# _advance_story is false for every frame of every level that has no
+		# card, which is every level but one, so nothing below has changed.
+		#
+		# The level's own loop, or the boss's while one is fighting you — see
+		# current_track(). cue() is a no-op when the name already matches, so
+		# on every level that names no boss track this is a string compare.
+		# Not while a card is up: _advance_story ducks the loop and owns it
+		# until it hands the level back.
+		Music.cue(get_tree(), current_track())
 		elapsed += delta
 		blasts = blasts.filter(func(b): return is_instance_valid(b))
 		arrows = arrows.filter(func(a): return is_instance_valid(a))
@@ -860,7 +1524,12 @@ func _physics_process(delta: float) -> void:
 		elif player.is_drinking():
 			# The bottle empties as he drinks, not when he stops.
 			drinking_bottle.set_contents(player.drink_fill_left())
-		var fatal := player.position.y > float(level.fall_y)
+		# The mark only moves when he LANDS — see climb_mark — and on anything
+		# that is not a climb neither line runs at all.
+		if climbing and player.is_on_floor():
+			climb_mark = minf(climb_mark, player.position.y)
+		_tick_rockfall(delta)
+		var fatal := player.position.y > fatal_y()
 		death_reason = "Missed the landing" if fatal else "Watch the spikes"
 		# An empty bar is fatal on the same terms as a pit: the session decides,
 		# the player only spends the health. Checked before the hazards so the
@@ -875,6 +1544,7 @@ func _physics_process(delta: float) -> void:
 		else:
 			resolve_contacts(fatal, goal.overlaps_body(player))
 		_sync_gates()
+		_sync_descent()
 		# Lookahead is a world distance and does not scale with the viewport; the
 		# bound is half the viewport, so the camera stops before either end of the
 		# level would come into shot.
@@ -918,6 +1588,20 @@ func _physics_process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.echo:
+		return
+	if story_running() and state == State.PLAYING:
+		# A card owns the keyboard while it is up — but only while the tick is
+		# actually advancing it, so that a card left up by anything that paused
+		# the game still has escape to get out from under it. Three actions end it early —
+		# space is what a player presses at a cutscene, enter confirms and
+		# escape gets out of things — and nothing else reaches the game under
+		# it. The same three ui/storyboard.gd skips the opening on.
+		if event.is_action_pressed("jump") or event.is_action_pressed("confirm") \
+				or event.is_action_pressed("pause"):
+			# Swallowed whether or not this card lets itself be skipped: see
+			# skip_story.
+			var _skipped: bool = skip_story()
+			get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("menu_up") and state == State.MENU:
 		menu_index = posmod(menu_index - 1, listing().size())

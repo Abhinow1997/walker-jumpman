@@ -33,6 +33,12 @@ var deep_water: Color = Color("4e9e96")
 ## descends 700 units spends its whole lower half under a horizon set at the
 ## height of its first cliff, and the player reads as walking on the seabed. At
 ## less than 1.0 the sea still creeps up on him; at 1.0 it stays put.
+##
+## A level may override it with a top-level `sea_drift`, and a climb wants to:
+## on a tower the sea SHOULD fall away, because watching it go is most of what
+## tells you how far up you are. 1.0 there would keep the waterline pinned
+## across the viewport for the whole ascent and read as a stack of islands all
+## sitting at sea level.
 const SEA_DRIFT := 1.0
 
 func _ready() -> void:
@@ -183,7 +189,8 @@ func _background() -> void:
 	draw_rect(Rect2(view.position - half, view.size + half * 2.0), backdrop)
 	var anchor: float = float(game.level.get("horizon", _floor_y()))
 	var home: float = clampf(float(game.level.spawn[1]), game.view_top, game.view_bottom)
-	var horizon: float = anchor + (game.camera.position.y - home) * SEA_DRIFT
+	var drift: float = float(game.level.get("sea_drift", SEA_DRIFT))
+	var horizon: float = anchor + (game.camera.position.y - home) * drift
 	for layer in data.get("background", []):
 		var key: String = str(layer.file)
 		if not pieces.has(key):

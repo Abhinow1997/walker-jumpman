@@ -9,8 +9,11 @@
  "_order_note": "A new journey opens on First Steps, carries on into The Fractured Isles and ends at The Dragon's Roost. First Steps used to be off the course on the grounds that a new game should not open on a greybox — it is not a greybox any more. It is the same coast as the Isles, five short stretches long, and every one of them teaches something the Isles then asks for, which is the right way into the game rather than a detour from it. The Roost is the other end of the same thought: one arena and one flying boss, which asks for the jump, the strike and the blast at once and gives no credit for any of them alone.",
 
  "also_listed": [
-  "proving_ground"
+  "proving_ground",
+  "the_spire"
  ],
+ "_the_spire_note": "Off the course on purpose. The Spire is a challenge level rather than a chapter - it is a climb with no floor under it, it kills on any fall, and dropping a player into it between two coast levels would break the run of the story rather than carry it. It is also the only level in the game with no way back: the view ratchets upward and never returns, so nothing about it chains sensibly into anything else. Listed here it can be picked from LOAD GAME by anyone who wants it, which is what it is for.",
+
  "_also_listed_note": "Shown in the level list, not part of the course: picking one plays it and finishing it goes nowhere, because nothing follows it. Add an id here to make it selectable without putting it on the course. Nothing needs to appear in both lists — the list the menu shows is `order` followed by whatever is in here that is not already in it.",
 
  "_unlisted_note": "levels/greybox.json is in neither, on purpose. It is the test fixture — see the why_note in that file — and it is flagged `\"listed\": false` as well, so it stays out of the list however it is reached."

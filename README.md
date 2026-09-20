@@ -16,6 +16,8 @@ Two bars sit in the top corner. Health is the green one and **you start on all o
 
 **The blast goes up with you.** It used to need the floor; now it can be thrown in mid-air, and the muzzle is measured from your feet, so a jumped shot leaves 105 above them against 34 standing. That cuts both ways and is meant to: a flat shot reaches a bandit and sails under a dragon, a jumped one clears the bandit's head entirely, and the only thing that puts an energy strike into something cruising 156 up is a jump taken from one of the floating stones its arena is built around. Height is a decision now rather than a constant. Throwing one in the air does not brake the jump it came out of — planting your feet is something you can only do when you have feet on something.
 
+**A boss gets its own plate**, across the bottom of the screen, for as long as it is fighting you — nothing before it notices you and nothing after its body is gone. It carries two bars showing one number at two speeds: green is the boss's health now, and the magma bar under it is that health a moment ago, draining to catch up. The band of red between them is the blow you just landed. Cut from the asset sheet by `scripts/extract_boss_bar.py`; which enemies get one is a `boss` flag in their profile, not a name the HUD knows.
+
 Neither bar snaps. Both slide to their new level over about a third of a second, while the number beside them changes at once — so a hit or a blast is something you watch land, and the slow refill is visible as movement rather than a figure that is quietly different next time you look.
 
 ![The actual First Steps game, captured during a scripted jump](evidence/screens/03-jump.png)
@@ -90,6 +92,116 @@ handoff rather than a restarted copy. `tests/diag_audio.gd` is the headless
 check that the cues still fall inside the recording — re-render that mp3 shorter
 and the 0:45 panel would simply never appear.
 
+### The cards around the dragon fight
+
+A level may also stop itself for a picture. The Fractured Isles does it twice,
+and both are full-screen: **the standoff** as he steps onto the Archway, and
+**the departure** the moment the dragon has fallen. Each holds for as long as
+its own voice clip runs — about ten seconds — and **neither can be skipped**.
+
+They are data, like everything else a level is:
+
+```json
+"boss_music": "decisive_battle",
+"cutscene": [
+ {"panel": "dragon_fight_start", "audio": "dragon_fight_start",
+  "out_audio": "dragon_roar", "at": 6960, "skip": false,
+  "caption": "Wow! A drake! What's it doing here??"},
+ {"panel": "dragon_fight_end", "audio": "dragon_fight_end",
+  "after": "boss_down", "skip": false}
+]
+```
+
+`panel` names a file in `ui/art/storyboard/` and the two audio keys name files
+in `audio/`, all without their extensions, all written by
+[extract_storyboard.py](scripts/extract_storyboard.py). `caption` is the line
+printed under the picture — one line, held for the whole card, in the same
+column and on the same scrim the opening's subtitles use, because both are laid
+out in the same 960x540 space and two people's ideas about subtitles in one
+game would show. Only the standoff has one: the second card is the dragon
+leaving and there is nobody left to say anything about it.
+[check_levels.py](scripts/check_levels.py) fails a card whose art or clip was
+never extracted, and one whose line falls over a pit, because every one of
+those is silent in play.
+
+**Two cues, one per card.**
+
+* `at` is an x he has to cross **on his feet**. The footing test is not
+  fussiness: the line is on the mouth of an arena you jump into, and without it
+  the picture can come up over a player frozen in mid-air who then drops out of
+  the bottom of it when it goes.
+* `after: "boss_down"` waits until the boss is beaten and has finished
+  **falling** — for the dragon, two seconds after it hits the deck. The
+  picture is of it in the air on its way out, so it belongs between the fall
+  and the leaving: **beaten, it falls and stays down for two seconds, the card
+  plays over the body, and only then does it get up and fly away.** The freeze
+  holds the departure as well as the player, so the last beat of the death
+  waits for the picture rather than running under it.
+
+  Two things had to change for that cue to be reachable at all, and both were
+  found by [diag_endcard.gd](godot/tests/diag_endcard.gd) rather than reasoned
+  about. **A flyer beaten over open water fell out of the level** — its own
+  standoff puts it over the gap whenever the player is at the left end of the
+  arena, and it was gone in 1.15 s with no body left to cue anything; it now
+  glides back to the nearest deck before it drops. And **the wall used to open
+  on the killing blow**, so a player who beat the dragon backed against it
+  reached the flag in 0.82 s against the 2.05 s the card needs and finished
+  the level without an ending; a beaten boss now holds its section until its
+  body is gone, which frames the death as well.
+
+**`"skip": false` makes a card unskippable**, and both of the dragon's are.
+They are four and ten seconds, they play once per visit, and between them they
+are the only story this level tells; a player who taps space out of habit at
+the first frame would never see either. Space, Enter and Escape are still
+*swallowed* while a card is up — an unskippable card that let Escape fall
+through would pause the game behind its own picture and stop the card with no
+key left that would start it again.
+
+**The clip decides how long the picture holds.** The hold is read off the
+stream's own length, so re-rendering a clip longer lengthens the card and
+nothing in the code or the level file has a duration written in it. `out_audio`
+is the sound a card *leaves* on rather than arrives with: for the standoff that
+is the dragon's roar, which starts as the picture begins to dissolve and
+carries into the fight underneath it. The level's own loop is **ducked** 18 dB
+rather than stopped, because `cue("")` clears the stream and bringing it back
+would restart the track from the top — an audible seam either side of every
+card.
+
+**The fight has its own music.** `boss_music` in the level names a loop that
+takes over for as long as a boss is fighting you — xDeviruchi's *Decisive
+Battle*, which comes in as the standoff card hands the level back and the
+dragon gets up. `session.gd` asks `current_track()` every tick rather than
+cueing it at the moment the fight starts, because that is not the only way in
+or out of one: dying puts the player back at the spawn with the boss on its
+perch, and the level's own loop has to come back with him instead of following
+him over the whole course. It ends **with the killing blow**. The two seconds
+the dragon lies there, the departure card and the climb out are the aftermath,
+and the level's own quiet loop is the bed for all three — a battle track under
+the picture of it leaving would undo the picture. The boss plate deliberately
+outlasts the track: it stays up, empty, until the body is gone, which is what
+it is for.
+
+**The standoff card is what starts the fight**, not the dragon's own aggro. The
+line is at 6960 and the dragon perches at 7650 with 560 of aggro, so it is 130
+short of noticing him; `session.gd` wakes it as the picture begins to leave,
+the six tenths of a second before the player gets his legs back, so what the
+picture dissolves into is the dragon already getting up rather than a still of
+one.
+
+Each plays **once per visit** and not again on a retry. A cutscene standing
+between a player and another go at a boss is the one everybody learns to hate;
+leaving to the menu and starting the level over is a new run and plays them
+again.
+
+Both panels are drawn **full-screen**, which costs a quarter of each source:
+they are authored 4:3 and the game is 16:9. Where that quarter comes from is a
+per-card number in the extractor with what it is protecting written beside it —
+the standoff is cropped centrally, and the departure is top-aligned because the
+dragon is airborne in it and anything off the top clips its wingtips.
+`evidence/cutscene/` has nine frames; `godot --path godot --script
+tests/capture_cutscene.gd` retakes them and is the only check that the clips
+actually come out of the speakers.
+
 ## Read in this order
 
 1. [Game brief](GAME-BRIEF.md) — the short player-facing idea and proposed scope.
@@ -121,16 +233,33 @@ The course opens on First Steps, carries on into The Fractured Isles and ends at
 The Dragon's Roost. Learning the game is the first stretch of it rather than a
 detour beside it, and the last is one arena and one flying boss.
 
-Five levels ship, all validated by `scripts/check_levels.py`:
+Six levels ship, all validated by `scripts/check_levels.py`:
 
 * **First Steps** is the practice course and the first level of the journey.
   Same cliffs, sea and cast as The Fractured Isles, cut into five short stretches
   that each ask for one thing you have not done yet — see below.
-* **The Fractured Isles** is the course proper, and it ends on the Archway platform with the dragon — two floating islands were added there to fight it from.
+* **The Fractured Isles** is the course proper, and it ends on the Archway
+  platform with the dragon — two floating islands were added there to fight it
+  from, a story card plays as you step onto the deck and another as the dragon
+  leaves, and a gate at 7800 keeps the flag behind the fight. That gate closed a real hole: the Dragon Lord who
+  used to stand there blocked the way with his body, and the dragon that
+  replaced him cruises 156 overhead and blocks nothing, so the level could be
+  finished by running underneath it.
 * **The Dragon's Roost** is the final boss fight and nothing else: a hop in, a
   flat arena with two floating stones to take height from, and the dragon again,
   this time with nothing else in the level and a gate that will not open until it
   is beaten. It ends the course, so finishing it replays it.
+* **The Spire** is the climb, and the only level that goes up. Eighteen jumps
+  from the shore to a summit 1368 px above it, on floating land masses from the
+  same pack, with rocks coming down three shafts at it. It is a challenge level
+  rather than a chapter, so it is listed but off the course. Two rules belong to
+  it alone and both come from `"climb": true` — the view ratchets, rising as he
+  lands higher and never coming back down, and the fatal line rides with it a
+  screen below the highest ledge he has stood on instead of sitting at `fall_y`.
+  **Falling off the bottom of the screen is what kills him**, which is also what
+  makes the long falls quick: a miss near the summit used to be four seconds of
+  watching him drop past scenery he had already beaten. A fall shorter than that
+  is survivable and costs progress instead, which is most of the texture of it.
 * **Proving Ground** is the greybox prototyping slice: somewhere to try a
   mechanic without dressing a level around it. Listed, so you can pick it; not on
   the course, so it chains to nothing.
@@ -197,6 +326,9 @@ the next level all read from the file.
 | `music` | string | optional. Names a track in `godot/audio/` without its extension. Omit and the level is silent |
 | `decor` | `[[x, y, piece]]` | optional, themed only. Art with its bottom edge at `y`. Never collision |
 | `horizon` | number | optional, themed only. The waterline the parallax layers sit on |
+| `climb` | bool | optional. Makes the level a tower: the view only ever rises, and the fatal line rides a screen below the highest ledge he has stood on instead of sitting at `fall_y`. The validator checks a climb the other way up — every ledge reachable from one below it, rather than every gap crossable |
+| `rockfall` | `[[x, y, every, first]]` | optional. A stone leaves `(x, y)` every `every` seconds, the first at `first`, and falls until it meets a ledge, the player or the sea. A source only drops while he is below it and inside about a screen, so each shaft wakes as he climbs into it. No randomness anywhere in it |
+| `sea_drift` | number | optional, themed only. How much of a climb the waterline comes up with him. 1.0 (the default) pins it to the screen, which is right for a coast; a tower wants less, or the sea sits across the viewport the whole way up |
 
 ### Themes
 
@@ -469,10 +601,26 @@ to 180. That phase is the fight's breathing space and its danger both: it is
 the only time the dragon is reliably in reach, and the only time it can corner
 you against a wall.
 
+**It is fenced into its arena**, which is the one thing about a flyer that has
+no equivalent anywhere else in the cast. Everything with feet is bounded by the
+floor running out from under it; a flyer is bounded by nothing, and between
+passes it holds a standoff of 340 to 470 and backs *away* from a player who
+comes closer than that. A shut gate pins the camera to the wall, so the two
+together meant a player standing in the right-hand corner could push the boss
+out through the side of his own fight —
+[diag_arena.gd](godot/tests/diag_arena.gd) measured 272 frames of 900 off
+screen, up to 284 px past the edge. `session.gd` now hands every flyer the
+bounds of the gated section it was placed in, and `_integrate` holds it there.
+Cornered, it runs out of room and has to fight you in the corner. The fence is
+dropped on death, or the fly-away could not leave the level.
+
 Beaten, it goes **down** first: dropped out of the air if that is where it was,
-and folding forward on the deck in the collapse the pack draws. Then it gets
-up, turns away from whoever put it there, and flies out of the level over about
-two and a half seconds. The gate it was holding opens the moment it is beaten,
+and folding forward on the deck in the collapse the pack draws. Then it **stays
+down**. The pack's collapse is only 0.86 s and the departure used to begin the
+frame it ended, so the whole death read as a stumble; the last frame is now
+held until `DOWN_TIME` — two seconds from the moment it lands — is up. Then it
+gets up, turns away from whoever put it there, and flies out of the level over
+about two and a half seconds. The gate it was holding opens the moment it is beaten,
 not when the body is cleared, so the way on is already open while you are still
 watching it go.
 

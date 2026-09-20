@@ -1,0 +1,386 @@
+{
+ "id": "the-spire",
+ "title": "The Spire",
+ "theme": "magic_cliffs",
+ "tagline": "Up, or into the sea.",
+ "brief": "Eighteen jumps up, with the sky coming down on you.",
+ "brief_note": "Kept under about 66 characters on purpose. The menu draws this on a fixed card through wrapped() in ui/hud.gd, which is capped at two lines, and anything past them is simply not drawn - the sentence stops mid-thought with no sign that it did. The first version of this was 77 and read 'Eighteen jumps up a stack of torn-off isles, with the sky coming down' in the level list, losing its last two words.",
+ "scope": "A tower, not a course. The camera does not travel sideways at all here - the level is exactly one screen wide, so the whole column is in shot the whole time and every jump is read rather than discovered. What moves is the view going up, and it only goes up.",
+ "climb": true,
+ "climb_note": "The one key that makes this a climb. It does two things, both in game/session.gd: the view ratchets, rising as he lands higher and never coming back down, and the fatal line rides with it at CLIMB_DROP below the highest ledge he has stood on instead of sitting at fall_y. So falling off the bottom of the screen is what kills him. That is the whole level: there is no floor under any of this, and the sea is only the backstop for the first few jumps.",
+ "width": 960,
+ "width_note": "One viewport exactly. session.gd clamps the camera to half a viewport from either end, so at this width there is nothing left for it to do horizontally and it pins at x 480 for the entire level. That is deliberate and it is what the design rests on - a tower you can see all of.",
+ "fall_y": 920,
+ "horizon": 648,
+ "sea_drift": 0.72,
+ "sea_drift_note": "How much of the climb the waterline comes with him, in features/world/scenery.gd. Every other level leaves this at 1.0 and keeps the sea at a fixed height on screen, which is right for a course that runs along a coast and wrong for one that goes up: it would hold the waterline across the middle of the viewport for the whole ascent and make 1368 px of climbing read as a row of islands all sitting at sea level. At 0.72 the sea gives back a bit over a quarter of whatever he gains, which puts it off the bottom of the screen around the eleventh ledge and leaves the cloud band lying across his feet at the summit. 0.8 was tried first and was not enough - the sea and the far hills were both still in frame 1140 px up, and the whole tower read as a few rocks floating over an ordinary coast.",
+ "spawn": [
+  140,
+  648
+ ],
+ "finish": [
+  252,
+  -832,
+  48,
+  112
+ ],
+ "solids": [
+  [
+   -24,
+   648,
+   372,
+   1200
+  ],
+  [
+   432,
+   572,
+   72,
+   18,
+   "island_large"
+  ],
+  [
+   588,
+   496,
+   48,
+   18,
+   "island_wide"
+  ],
+  [
+   744,
+   420,
+   72,
+   18,
+   "island_large"
+  ],
+  [
+   600,
+   344,
+   48,
+   18,
+   "island_wide"
+  ],
+  [
+   432,
+   268,
+   72,
+   18,
+   "island_large"
+  ],
+  [
+   264,
+   192,
+   48,
+   18,
+   "island_wide"
+  ],
+  [
+   420,
+   116,
+   36,
+   18,
+   "rock_float"
+  ],
+  [
+   576,
+   40,
+   72,
+   18,
+   "island_large"
+  ],
+  [
+   744,
+   -36,
+   48,
+   18,
+   "island_wide"
+  ],
+  [
+   588,
+   -112,
+   36,
+   18,
+   "rock_float"
+  ],
+  [
+   420,
+   -188,
+   48,
+   18,
+   "island_wide"
+  ],
+  [
+   240,
+   -264,
+   72,
+   18,
+   "island_large"
+  ],
+  [
+   396,
+   -340,
+   36,
+   18,
+   "rock_float"
+  ],
+  [
+   540,
+   -416,
+   36,
+   18,
+   "rock_float"
+  ],
+  [
+   696,
+   -492,
+   48,
+   18,
+   "island_wide"
+  ],
+  [
+   552,
+   -568,
+   36,
+   18,
+   "rock_float"
+  ],
+  [
+   396,
+   -644,
+   48,
+   18,
+   "island_wide"
+  ],
+  [
+   168,
+   -720,
+   216,
+   132
+  ]
+ ],
+ "solids_note": "[x, top_y, w, h] and an optional fifth value naming the art it wears. The named ones are the floating land masses out of the Magic Cliffs pack - island_large, island_wide and rock_float - drawn centred on the rectangle with their standable surface on its top edge, so what you see is exactly what you land on. Their h is 18 and nothing more: the collision is a lip, and the art hangs 30 to 55 px below it with nothing behind it. The shore and the summit name no art and get the procedural cliff instead, which is what makes them read as the only two pieces of real ground in the level.",
+ "geometry_note": "Eighteen hops, 1368 px of climb, and every one of them measured against the envelope in features/player/tuning.gd before it was written down: the jump apex is 106.7, so no step rises more than 76, and the widest gap is 120 px against a reach of 164 - 73 percent, comfortably inside the 80 the validator warns at. The zig-zag is four switchbacks. Nothing is stacked directly over anything else, so no jump is ever taken into the underside of the next ledge.",
+ "gates_note": "Deliberately none. A gate is a vertical wall at an x, and in a column one screen wide that is a wall across the whole level. Nothing here holds the player anywhere; the climb is its own gate, because the only way back down is the one that kills him.",
+ "hazards": [],
+ "hazards_note": "None, and there is no room for any. Spikes are for a level with a floor. Everything dangerous here is either the drop or something falling down it.",
+ "rockfall": [
+  [
+   672,
+   300,
+   2.8,
+   1.2
+  ],
+  [
+   672,
+   -170,
+   2.4,
+   0.6
+  ],
+  [
+   672,
+   -640,
+   2.2,
+   1.4
+  ],
+  [
+   528,
+   -110,
+   2.6,
+   0.0
+  ],
+  [
+   528,
+   -270,
+   3.0,
+   1.5
+  ],
+  [
+   504,
+   -700,
+   2.0,
+   0.8
+  ],
+  [
+   348,
+   -470,
+   2.4,
+   0.3
+  ]
+ ],
+ "rockfall_note": "[x, y, every, first]: a stone leaves (x, y) every `every` seconds, the first one `first` seconds in, and falls straight down until it meets a ledge, the player or the sea. Three shafts - 672 down the right, 504/528 down the middle, 348 down the left - and seven sources spaced up them. A source only drops while he is below it and inside ROCKFALL_REACH, about a screen, which is what wakes each shaft as he climbs into it and quiets it once he is past. Between them they hang over thirteen of the eighteen jumps. The five that are clean are the first two, the pair at p5 and p6 that are the breather in the middle, and the step onto the summit.",
+ "rockfall_design_note": "Nothing about it is random, and that is the point: a shaft learned on one attempt behaves identically on the next. A stone does 18 of his 100 and stuns him for a quarter of a second, which is much less interesting than where it catches him - the stun zeroes his movement input, so one taken mid-jump drops him straight out of the arc, and over this level there is nothing underneath. He can also punch or blast one out of the air; see take_hit in features/combat/stone.gd.",
+ "crates": [
+  [
+   96,
+   648
+  ],
+  [
+   264,
+   648
+  ],
+  [
+   636,
+   40
+  ],
+  [
+   264,
+   -264
+  ]
+ ],
+ "crates_note": "Rocks: breakable, liftable, throwable, [x, ground_y]. Two on the shore, which is the only place with room to experiment with one, and two on the wide islands next to the things worth throwing one at. Carrying one is a real decision here - it is two-handed and it slows him down, on a level that is nothing but jumps.",
+ "bottles": [
+  [
+   720,
+   -492,
+   2
+  ]
+ ],
+ "bottles_note": "Milk, [x, ground_y, bars]. Exactly one, and it is three quarters of the way up, because the climb is long enough that arriving at the top flight on a bar and a half is the normal way to arrive there.",
+ "brews": [
+  [
+   468,
+   268,
+   2
+  ]
+ ],
+ "brews_note": "The brown bottle, against the mana bar. On p5, at the foot of the first flight with two shafts running over it - which is the first point where blasting the stones out of the air instead of dodging them is worth the mana.",
+ "enemies": [
+  [
+   780,
+   420,
+   "bandit"
+  ],
+  [
+   592,
+   40,
+   "bandit"
+  ],
+  [
+   300,
+   -720,
+   "mark"
+  ]
+ ],
+ "enemies_note": "[x, ground_y, kind]. Three, all on the wide islands, because a punk on a 36 px rock has nowhere to stand and would walk off it on his own. Each one is a fight you have the option of not having: all three can be jumped past. The mark is on the summit and is the last thing between the climb and the flag.",
+ "signs": [],
+ "signs_note": "None, the same as The Fractured Isles. There is nothing here to introduce - the jump and the drop are both taught in First Steps - and the one thing this level does differently explains itself the first time the screen refuses to come back down.",
+ "decor": [
+  [
+   672,
+   216,
+   "rock_mass",
+   60,
+   84,
+   0.55
+  ],
+  [
+   672,
+   -254,
+   "rock_mass",
+   60,
+   84,
+   0.55
+  ],
+  [
+   672,
+   -724,
+   "rock_mass",
+   60,
+   84,
+   0.55
+  ],
+  [
+   528,
+   -194,
+   "rock_mass",
+   60,
+   84,
+   0.55
+  ],
+  [
+   528,
+   -354,
+   "rock_mass",
+   60,
+   84,
+   0.55
+  ],
+  [
+   504,
+   -784,
+   "rock_mass",
+   60,
+   84,
+   0.55
+  ],
+  [
+   348,
+   -554,
+   "rock_mass",
+   60,
+   84,
+   0.55
+  ],
+  [
+   60,
+   648,
+   "tree"
+  ],
+  [
+   234,
+   648,
+   "bush"
+  ],
+  [
+   306,
+   648,
+   "tuft"
+  ],
+  [
+   786,
+   420,
+   "tuft"
+  ],
+  [
+   444,
+   268,
+   "grass_short"
+  ],
+  [
+   630,
+   40,
+   "bush"
+  ],
+  [
+   294,
+   -264,
+   "tuft"
+  ],
+  [
+   216,
+   -720,
+   "tree"
+  ],
+  [
+   342,
+   -720,
+   "bush"
+  ],
+  [
+   258,
+   -720,
+   "tuft"
+  ]
+ ],
+ "decor_note": "[x, bottom_y, piece]. Deliberately NO floating island art in here as decoration. Every other level can afford a rock drifting in the background; this one cannot, because scenery.gd draws decor at the same visual depth as the terrain and a painted ledge you cannot stand on would be a death in a level where every death is a fall. Everything a player could mistake for a platform here IS one. The only thing dressed into the open sky is the rock_mass slab over each shaft, and it is the only thing that CAN be: rock_mass is a silhouette scenery.gd draws itself, so it has a real outline. Every hanging sprite in the pack is a square tile with the cave-rock fill painted right out to its edges - vine is 32x32 with not one transparent pixel in it, vine_rock and hang_thin are 8 and 3 percent clear - so they only work laid against a cliff face, which is what the other levels do with them. Ten vines were hung down this tower on the first pass and every one of them rendered as a black box nailed to the sky.",
+ "ground": {
+  "lean": 0.5,
+  "break_step": 52,
+  "texture": 1,
+  "edge_left_x": -3,
+  "edge_right_x": 9,
+  "break_jitter": 8,
+  "lean_min_width": 200
+ },
+ "ground_note": "The Fractured Isles' numbers, with the two that shape a cliff face changed, so the shore at the bottom of this tower is visibly the same coast he left and the summit is not a black rectangle hanging in the sky. The Isles leans 0.15 and only lets a cliff lean at all past 408 px wide, which is right for a coastline: there the cliffs are long and their faces run down out of shot, so a square face is a face you never see the bottom of. Both pieces of real ground here are islands that are visible all the way round, and the summit is 216 wide - under that 408 - so it drew as a flat square slab with two hard bottom corners. At lean 0.5 from 200 px up it closes to a wedge 132 deep instead, which is what torn-off land looks like from underneath. The shore closes too, about 370 px down, which is well under the waterline and never seen.",
+ "music": "magic_cliffs"
+}

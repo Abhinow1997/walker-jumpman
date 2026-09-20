@@ -50,6 +50,32 @@ const BAR_EASE := 9.0
 ## real value instead of creeping at it forever.
 const BAR_SETTLED := 0.0005
 
+## --- the boss plate ---------------------------------------------------------
+##
+## One enemy in a level may be a boss, and while it is fighting you its health
+## gets its own plate across the bottom of the screen — the winged heart, the
+## stone frame and two tracks, cut from the asset sheet by
+## scripts/extract_boss_bar.py.
+##
+## The plate carries two bars and both are the SAME number. The green one is
+## the boss's health now; the magma one under it is that health a moment ago,
+## draining to catch up. The band of red between them is what you just took
+## off, which is the one thing a single bar cannot show you and the reason the
+## art is drawn with two.
+const BOSS_BARS := "res://ui/art/boss_bar.json"
+## Drawn at the same half scale as the player's, and for the same reason: the
+## art is extracted at the size it lands on screen.
+const BOSS_SCALE := 0.5
+## Centred across the bottom, clear of the progress line at 351. Deliberately
+## the opposite corner from the player's own bars — his are a glance, this is
+## the thing you are watching.
+const BOSS_Y := 278.0
+## How fast each of the two chases the real value. The green is the player's
+## own BAR_EASE, so a hit reads the same whoever takes it; the magma is slow
+## enough that the gap between them is legible for about half a second.
+const BOSS_EASE := 9.0
+const BOSS_LAG_EASE := 2.6
+
 ## Replaced by whatever hud_bars.json reports; this is only what the fallback
 ## rectangles are sized against if the art is missing. Keep it at NATIVE.
 var bar_size := Vector2(320, 52)
@@ -62,6 +88,16 @@ var bars := {}
 ## value rather than sliding up from empty the moment a level loads.
 var shown := {"health": -1.0, "mana": -1.0}
 
+## The boss plate, loaded the same way the player's bars are, and empty when
+## the art has not been imported yet.
+var boss_size := Vector2(736, 132)
+var boss_plate: Texture2D = null
+## name -> {clip: AtlasTexture, fill: Vector2}
+var boss_bars := {}
+## What the two tracks are showing. Negative until the first frame of a fight,
+## which is how they know to start full rather than sliding up from empty.
+var boss_shown := {"health": -1.0, "magma": -1.0}
+
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -71,6 +107,7 @@ func _ready() -> void:
 	## nearest sampling would break the frame's straight edges up unevenly.
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_load_bars()
+	_load_boss_bar()
 	_load_panels()
 
 func _process(delta: float) -> void:
@@ -92,6 +129,46 @@ func _process(delta: float) -> void:
 				shown[name] = target
 		if absf(float(shown[name]) - was) > 0.00001:
 			moved = true
+	# And the boss plate, on its own two rates. Reset between fights, so the
+	# next boss does not inherit the last one's empty bar.
+	#
+	# Two tracks, and what they mean depends on how many bosses are up. With ONE
+	# they are the same number at two speeds — green now, magma a beat behind, and
+	# the band between them is the damage just dealt. With TWO — The Dragon's
+	# Roost — they are two DIFFERENT bosses: green is the Dragon Lord on the main
+	# track, magma the dragon on the red, each tracking its own live health. See
+	# boss_main/boss_second in game/session.gd.
+	var main: Node2D = game.boss_main() if is_instance_valid(game) else null
+	if main == null:
+		if boss_shown["health"] >= 0.0:
+			boss_shown["health"] = -1.0
+			boss_shown["magma"] = -1.0
+			moved = true
+	else:
+		var second: Node2D = game.boss_second()
+		var main_frac: float = clampf(float(main.health)
+				/ maxf(float(main.max_health), 1.0), 0.0, 1.0)
+		# The magma track carries the second boss when there are two, eased as fast
+		# as the green so it reads as its own live bar; with one boss it lags the
+		# main health on the slow rate, which is the damage band.
+		var magma_frac: float = main_frac
+		var magma_rate: float = BOSS_LAG_EASE
+		if second != null:
+			magma_frac = clampf(float(second.health)
+					/ maxf(float(second.max_health), 1.0), 0.0, 1.0)
+			magma_rate = BOSS_EASE
+		for name in boss_shown:
+			var target: float = main_frac if name == "health" else magma_frac
+			var rate: float = BOSS_EASE if name == "health" else magma_rate
+			var was: float = boss_shown[name]
+			if was < 0.0:
+				boss_shown[name] = target
+			else:
+				boss_shown[name] = was + (target - was) * (1.0 - exp(-rate * delta))
+				if absf(target - float(boss_shown[name])) < BAR_SETTLED:
+					boss_shown[name] = target
+			if absf(float(boss_shown[name]) - was) > 0.00001:
+				moved = true
 	if moved:
 		queue_redraw()
 
@@ -122,6 +199,42 @@ func _load_bars() -> void:
 			"clip": clip,
 			"fill": Vector2(float(spec.fill_x0), float(spec.fill_x1)),
 		}
+
+func _load_boss_bar() -> void:
+	var text := FileAccess.get_file_as_string(BOSS_BARS)
+	if text.is_empty():
+		push_warning("hud: %s is missing. Run scripts/extract_boss_bar.py." % BOSS_BARS)
+		return
+	var data: Dictionary = JSON.parse_string(text)
+	boss_size = Vector2(float(data.size[0]), float(data.size[1]))
+	var plate_path: String = BAR_ART + str(data.plate)
+	if not ResourceLoader.exists(plate_path):
+		# Generated art, so a fresh checkout that has not been imported yet
+		# falls back to no plate rather than to a crash.
+		push_warning("hud: boss plate not imported yet; the boss fights without one")
+		return
+	boss_plate = load(plate_path)
+	for name in data.bars:
+		var spec: Dictionary = data.bars[name]
+		var lit_path: String = BAR_ART + str(spec.file)
+		if not ResourceLoader.exists(lit_path):
+			boss_bars.clear()
+			boss_plate = null
+			return
+		var clip := AtlasTexture.new()
+		clip.atlas = load(lit_path)
+		boss_bars[name] = {
+			"clip": clip,
+			"at": Vector2(float(spec.at[0]), float(spec.at[1])),
+			"size": Vector2(float(spec.size[0]), float(spec.size[1])),
+		}
+
+func boss() -> Node2D:
+	## The boss whose fight is happening right now, or null. The session owns
+	## the rule now, because which track is playing follows the same one and a
+	## plate that could disagree with the soundtrack about whether a fight is
+	## on would be worse than either being wrong alone. See game/session.gd.
+	return game.boss() if is_instance_valid(game) else null
 
 func text_at(text: String, position: Vector2, size_px: int = 14, color: Color = INK) -> void:
 	draw_string(ThemeDB.fallback_font, position, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, color)
@@ -319,6 +432,34 @@ func _meters() -> void:
 	over_level("%d" % game.player.health, Vector2(number_x, health_at.y + middle), 13)
 	over_level("%d" % game.player.mana, Vector2(number_x, mana_at.y + middle), 13)
 
+func _boss_plate() -> void:
+	## The boss's health, across the bottom of the screen. Nothing at all while
+	## no boss is fighting, which is every level but the last two.
+	##
+	## Magma under green, so the band of red that opens between them after a
+	## hit is the damage: they are the same number at two speeds.
+	##
+	## Each fill is a STRIP the size of its own track, not a whole lit plate,
+	## which is what keeps one from painting over the other — see the note in
+	## scripts/extract_boss_bar.py, where drawing whole plates erased all of
+	## the magma bar except the sliver between the two levels.
+	if boss_plate == null or game.boss_main() == null:
+		return
+	var at := Vector2((640.0 - boss_size.x * BOSS_SCALE) / 2.0, BOSS_Y)
+	draw_texture_rect(boss_plate, Rect2(at, boss_size * BOSS_SCALE), false)
+	for name in boss_bars:
+		var spec: Dictionary = boss_bars[name]
+		var size: Vector2 = spec.size
+		# Rounded to whole source pixels, or the clip edge shimmers between two
+		# columns as the bar drains.
+		var edge := roundf(size.x * clampf(float(boss_shown[name]), 0.0, 1.0))
+		if edge <= 0.0:
+			continue
+		var clip: AtlasTexture = spec.clip
+		clip.region = Rect2(0, 0, edge, size.y)
+		draw_texture_rect(clip,
+			Rect2(at + spec.at * BOSS_SCALE, Vector2(edge, size.y) * BOSS_SCALE), false)
+
 ## How near the gate he has to be before the chevron appears, and how far in
 ## from the right edge of the screen it sits.
 const GATE_CUE_RANGE := 300.0
@@ -436,6 +577,7 @@ func _draw() -> void:
 	var progress: float = clampf((game.player.position.x-from)/maxf(to-from, 1.0), 0, 1)
 	draw_rect(Rect2(20,351,600,4), TROUGH)
 	draw_rect(Rect2(20,351,600*progress,4), Color("2fb98a"))
+	_boss_plate()
 	if game.state == game.State.PLAYING:
 		_gate_cue()
 		_coach_prompt()

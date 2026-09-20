@@ -1,0 +1,33 @@
+{
+ "_generated_by": "scripts/extract_boss_bar.py",
+ "_source": "boss-system assests.jpg",
+ "bars": {
+  "health": {
+   "at": [
+    190,
+    42
+   ],
+   "file": "boss_fill_health.png",
+   "size": [
+    522,
+    31
+   ]
+  },
+  "magma": {
+   "at": [
+    138,
+    88
+   ],
+   "file": "boss_fill_magma.png",
+   "size": [
+    554,
+    20
+   ]
+  }
+ },
+ "plate": "boss_plate.png",
+ "size": [
+  736,
+  132
+ ]
+}

@@ -222,7 +222,14 @@ func advance(delta: float) -> void:
 	# An attack overrides the locomotion pose for its whole duration; the player
 	# has already decided which frame of it is showing. Being hit outranks both:
 	# the blow has already cancelled whatever he was doing.
-	if body.is_hurt():
+	if body.is_downed():
+		# Flung off his feet. LF2's falling sequence, which the extractor
+		# writes as `death` because being put down for good uses the same five
+		# frames — see DOWN_TIME in player.gd. Checked before `hurt` because a
+		# knockdown outlives the stun and the tumble is the picture that
+		# matters, not the flinch that started it.
+		_show_frame("death", Moveset.frame_at("death", body.down_clock()))
+	elif body.is_hurt():
 		_show_frame("hurt", Moveset.frame_at("hurt", body.hurt_clock))
 	elif body.attack != "":
 		_show_frame(body.attack, body.attack_frame)
