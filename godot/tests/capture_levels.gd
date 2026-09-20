@@ -37,11 +37,12 @@ func fresh(id: String) -> void:
 func run() -> void:
 	output = ProjectSettings.globalize_path("res://../evidence/levels")
 	DirAccess.make_dir_recursive_absolute(output)
-	var order: Array = Game.catalogue()
-	# The course is one level now, but the greybox slices are still shipped and
-	# still reachable through the title screen's PRACTICE row, so they are still
-	# worth a picture. The menu rows come from the course; the level shots come
-	# from everything on disk.
+	# The LIST, not the course: LOAD GAME offers every level that ships, so every
+	# row it can show is a row worth a picture.
+	var order: Array = Game.listing()
+	# The menu rows come from the level list; the level shots come from every
+	# file on disk, which is a wider net again — it catches the test fixture, and
+	# anything authored but not yet listed.
 	var every: Array = []
 	for name in DirAccess.get_files_at("res://levels"):
 		if name.ends_with(".json") and name != "index.json":

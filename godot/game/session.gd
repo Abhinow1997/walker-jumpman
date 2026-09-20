@@ -12,7 +12,12 @@ const Scenery = preload("res://features/world/scenery.gd")
 const Music = preload("res://game/music.gd")
 const LEVEL_DIR := "res://levels/"
 ## What boots, and what every test gets unless it asks for something else.
-const DEFAULT_LEVEL := "first_steps"
+##
+## Deliberately the fixture rather than a level anyone plays: see the why_note in
+## levels/greybox.json. Nothing reaches this default in normal play — the title
+## screen names the level for both of its rows — so it is the suites' stage and
+## nobody else's.
+const DEFAULT_LEVEL := "greybox"
 
 ## Half the 960x540 viewport. The camera centres on its own position, so this
 ## is both where it starts and how close to either end of the level it may get
@@ -32,6 +37,8 @@ var level_id: String = DEFAULT_LEVEL
 ## Which row the level-select menu is sitting on.
 var menu_index: int = 0
 static var _catalogue: Array = []
+## The extra ids the level list offers beyond the course — see listing().
+static var _also_listed: Array = []
 static var _levels: Dictionary = {}
 var player: CharacterBody2D
 var camera: Camera2D
@@ -86,7 +93,7 @@ func load_level(id: String) -> void:
 	## itself survives, so the camera, the HUD and every signal the level does
 	## not own are re-made rather than re-wired from outside.
 	level_id = id
-	menu_index = maxi(catalogue().find(id), 0)
+	menu_index = maxi(listing().find(id), 0)
 	_clear_world()
 	_build_world()
 	deaths = 0
@@ -196,6 +203,8 @@ func _build_world() -> void:
 	_measure_view()
 	camera = Camera2D.new()
 	camera.position = Vector2(VIEW_HALF.x, camera_home_y())
+	# Straight back to a hard cut: a retry or a level swap is a cut, not a pan.
+	camera_held = 0.0
 	add_child(camera)
 	var layer := CanvasLayer.new()
 	layer.scale = Vector2(HUD_SCALE, HUD_SCALE)
@@ -424,21 +433,49 @@ func fade_alpha() -> float:
 
 ## The course order, from levels/index.json. Static because it is the same for
 ## every session and the menu reads it before a session has been started.
+## THE COURSE: what NEW JOURNEY plays through and what each level chains into.
+## Not what the level list shows — see listing(), which is a superset.
 static func catalogue() -> Array:
 	if _catalogue.is_empty():
-		var text := FileAccess.get_file_as_string(LEVEL_DIR + "index.json")
-		if text.is_empty():
-			push_error("levels: %sindex.json is missing" % LEVEL_DIR)
-			_catalogue = [DEFAULT_LEVEL]
-		else:
-			var parsed = JSON.parse_string(text)
-			_catalogue = parsed.get("order", []) if parsed else []
+		_read_index()
+	return _catalogue
+
+## EVERY LEVEL THE MENU OFFERS: the course, then anything the index also lists,
+## then nothing else. A level can be picked from LOAD GAME without being part of
+## the journey, which is the difference between "playable" and "on the course" —
+## Proving Ground is playable and is not on the way to anywhere.
+##
+## Derived from catalogue() rather than read separately, so a test that stands a
+## pretend course up in _catalogue gets a menu that matches it.
+static func listing() -> Array:
+	var out: Array = catalogue().duplicate()
+	if _also_listed.is_empty():
+		_read_index()
+	for id in _also_listed:
+		if not out.has(id) and not _hidden(id):
+			out.append(id)
+	return out
+
+## A level that says `"listed": false` stays out of the list however it is
+## reached. The test fixture is the only one, and it is one so that nobody is
+## ever offered it as something to play.
+static func _hidden(id: String) -> bool:
+	return not bool(level_data(id).get("listed", true))
+
+static func _read_index() -> void:
+	var text := FileAccess.get_file_as_string(LEVEL_DIR + "index.json")
+	var parsed = JSON.parse_string(text) if not text.is_empty() else null
+	if parsed == null:
+		push_error("levels: %sindex.json is missing or unreadable" % LEVEL_DIR)
+	if _catalogue.is_empty():
+		_catalogue = parsed.get("order", []) if parsed else []
 		# An index that parses but lists nothing would leave the menu indexing
 		# an empty array, so it falls back rather than crashing on the title screen.
 		if _catalogue.is_empty():
 			push_error("levels: index.json lists no levels")
 			_catalogue = [DEFAULT_LEVEL]
-	return _catalogue
+	if _also_listed.is_empty():
+		_also_listed = parsed.get("also_listed", []) if parsed else []
 
 ## One level file, parsed once. The menu needs every level's title before any of
 ## them is loaded, so this is keyed by id rather than held by the session.
@@ -460,6 +497,17 @@ static func level_title(id: String) -> String:
 ## far above its highest ledge, never past the line a fall is fatal at.
 const SKY_ABOVE := 240.0
 const BELOW_FALL := 40.0
+## How fast the camera gives back the ground a shut gate was holding it off, in
+## px per second. The worst case is finishing a fight with your back to the wall,
+## which is about 570 px and takes a bit under two thirds of a second — a pan at
+## roughly twice a running player's speed. It used to be one frame.
+const GATE_RELEASE := 900.0
+## How far behind its own target the camera is being held right now. A shut gate
+## is the only thing that sets it and it decays to nothing once the gate lets go,
+## so it is zero for the whole of ordinary play — which is why nothing about
+## ordinary following changed.
+var camera_held: float = 0.0
+
 ## The camera only moves when the player leaves a band this tall around its
 ## centre. Without it the view bobs on every jump, since one jump rises 107.
 const CAMERA_DEADZONE := 90.0
@@ -519,6 +567,26 @@ static func setup_input() -> void:
 			var event := InputEventKey.new()
 			event.physical_keycode = key
 			InputMap.action_add_event(action, event)
+
+## Installs a session as the current scene and frees the screen it replaces.
+## Static, and public, because two front-end screens hand off this way now: the
+## title's rows and the opening storyboard they lead into. The order is the
+## point — level_id is set before add_child, which is what boots straight into a
+## level instead of into DEFAULT_LEVEL and then changing its mind one frame
+## later. Returns the session so the caller can carry a fade across the handoff.
+static func boot(tree: SceneTree, id: String, playing: bool) -> Node2D:
+	if tree == null:
+		return null
+	var game = new()
+	game.level_id = id
+	var outgoing := tree.current_scene
+	tree.root.add_child(game)
+	tree.current_scene = game
+	if playing:
+		game.start_session()
+	if outgoing != null:
+		outgoing.queue_free()
+	return game
 
 func _add_solid(rect: Rect2) -> StaticBody2D:
 	## Returns the body, which the level's own geometry ignores and the section
@@ -592,6 +660,8 @@ func restart_attempt() -> void:
 	player.reset_at(Vector2(level.spawn[0], level.spawn[1]))
 	player.enabled = true
 	camera.position = Vector2(VIEW_HALF.x, camera_home_y())
+	# Straight back to a hard cut: a retry or a level swap is a cut, not a pan.
+	camera_held = 0.0
 
 func set_paused(value: bool) -> void:
 	if value and state == State.PLAYING:
@@ -629,6 +699,18 @@ func _on_blast_fired(at: Vector2, direction: float) -> void:
 	blast.position = at
 	blasts.append(blast)
 	add_child(blast)
+	# Everyone gets told. The blast itself is not given the roster and is never
+	# told who guarded it — an enemy decides on his own whether he saw it coming
+	# in time to get his arms up, which is what makes the answer to a guard be
+	# "throw it from closer" rather than anything the projectile knows about.
+	# See warn_of_blast in features/combat/enemy.gd.
+	# Only as far as the thing can actually fly. An enemy who braces for a blast
+	# that dies of old age two hundred px short of him is bracing for nothing,
+	# and would stay braced through a fight he is not in.
+	for foe in enemies:
+		if is_instance_valid(foe) and foe.alive() \
+				and absf(foe.global_position.x - at.x) <= Blast.RANGE:
+			foe.warn_of_blast(at, direction, Blast.SPEED)
 
 func _on_arrow_fired(at: Vector2, direction: float, damage: int) -> void:
 	## The archer's arrow is a level object too: it keeps its heading and reports
@@ -803,8 +885,29 @@ func _physics_process(delta: float) -> void:
 		var shut := gate_shut_at()
 		if shut < INF:
 			far = minf(far, shut - VIEW_HALF.x + GATE_INSET)
-		camera.position.x = clampf(player.position.x + 200, VIEW_HALF.x,
-								   maxf(far, VIEW_HALF.x))
+		# Tightens at once, lets go slowly. Walking into a fight should frame it
+		# on the frame you arrive; walking out of one should pan.
+		#
+		# This is the only smoothing on the camera's x and it exists for one
+		# moment: the frame the last enemy in a section falls. A shut gate holds
+		# the far edge at the wall; clearing the section moved that edge to the
+		# end of the level in a single frame, so a player who finished the fight
+		# pressed against the wall — which is where a fight backed into a gate
+		# always ends — got the whole world yanked 570 px sideways under him,
+		# usually while still mid-swing.
+		#
+		# Kept as the DISTANCE the camera is being held back rather than as a
+		# smoothed position, because that number is exactly zero for the whole of
+		# ordinary play: no gate, nothing held, camera on its mark to the pixel
+		# the way it has always been. Only the release is eased, and only while
+		# it lasts.
+		var want: float = maxf(player.position.x + 200, VIEW_HALF.x)
+		var bound: float = maxf(far, VIEW_HALF.x)
+		if want > bound:
+			camera_held = want - bound          # held: exact, and it snaps
+		else:
+			camera_held = maxf(0.0, camera_held - GATE_RELEASE * delta)
+		camera.position.x = want - camera_held
 		camera.position.y = _follow_y(camera.position.y)
 	if is_instance_valid(hud):
 		hud.queue_redraw()
@@ -816,9 +919,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.echo:
 		return
 	if event.is_action_pressed("menu_up") and state == State.MENU:
-		menu_index = posmod(menu_index - 1, catalogue().size())
+		menu_index = posmod(menu_index - 1, listing().size())
 	elif event.is_action_pressed("menu_down") and state == State.MENU:
-		menu_index = posmod(menu_index + 1, catalogue().size())
+		menu_index = posmod(menu_index + 1, listing().size())
 	elif event.is_action_pressed("confirm"):
 		confirm()
 	elif event.is_action_pressed("pause"):
@@ -844,7 +947,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func open_menu() -> void:
 	## The menu opens on the level you were just in, not back at the top.
 	state = State.MENU
-	menu_index = maxi(catalogue().find(level_id), 0)
+	menu_index = maxi(listing().find(level_id), 0)
 	if is_instance_valid(player):
 		player.enabled = false
 
@@ -853,8 +956,9 @@ func confirm() -> void:
 	## the next one. Reachable from the keyboard and from the HUD button alike.
 	match state:
 		State.MENU:
-			var order := catalogue()
-			var pick: String = order[clampi(menu_index, 0, order.size() - 1)]
+			# The list, not the course: LOAD GAME offers every level that ships.
+			var rows := listing()
+			var pick: String = rows[clampi(menu_index, 0, rows.size() - 1)]
 			begin_swap(pick if pick != level_id else "")
 		State.COMPLETE:
 			# The last level has nowhere to advance to, so it replays instead.
@@ -865,11 +969,17 @@ func confirm() -> void:
 func _draw() -> void:
 	if level.is_empty():
 		return
+	# The flag and the painted area names belong to the LEVEL rather than to
+	# either renderer, so both get them. They used to live in the greybox block
+	# below, which a themed level skips wholesale — so on The Fractured Isles the
+	# finish was an invisible rectangle you walked into and six authored signs
+	# were never once on screen. scenery.gd draws cliffs and set dressing from
+	# the solids and has no idea where the level ends; this does.
+	_draw_markers()
 	# A themed level draws its world in scenery.gd from this same level data.
 	# Everything below is the original greybox, kept for the levels without one.
 	if is_instance_valid(scenery):
 		return
-	var font := ThemeDB.fallback_font
 	var ink := Color("25354a")
 	# Hazard and finish decoration read their geometry from the level data now, so a
 	# future rescale moves the art with the collision instead of drifting off it.
@@ -904,17 +1014,41 @@ func _draw() -> void:
 		for i in range(3):
 			var x: float = entry[0] + i * spike_w
 			draw_colored_polygon(PackedVector2Array([Vector2(x,spike_base),Vector2(x+spike_w*0.5,entry[1]),Vector2(x+spike_w,spike_base)]), Color("d24e42"))
+
+## The flag and the signs — see the note in _draw about why these are not part of
+## the greybox above.
+func _draw_markers() -> void:
+	var font := ThemeDB.fallback_font
+	var ink := Color("25354a")
 	var f: Array = level.finish
-	var finish_x: float = f[0]
-	var mast: float = f[1] - 28.0
-	draw_line(Vector2(finish_x+6, f[1]+f[3]), Vector2(finish_x+6, mast), ink, 6)
-	draw_colored_polygon(PackedVector2Array([Vector2(finish_x+10,mast),Vector2(finish_x+64,mast+20),Vector2(finish_x+10,mast+48)]), Color("287c68"))
+	var finish_x: float = float(f[0])
+	var foot: float = float(f[1]) + float(f[3])
+	var mast: float = float(f[1]) - 28.0
+	# Warm rather than the old green: against the greybox anything read, but on
+	# grass a green pennant disappears into the hill behind it. This is the
+	# menu's own accent, which is the one colour in the game nothing else on a
+	# cliff is wearing.
+	draw_line(Vector2(finish_x + 6, foot), Vector2(finish_x + 6, mast), ink, 6)
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(finish_x + 10, mast), Vector2(finish_x + 64, mast + 20),
+		Vector2(finish_x + 10, mast + 48)]), Color("ef875f"))
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(finish_x + 10, mast), Vector2(finish_x + 36, mast + 10),
+		Vector2(finish_x + 10, mast + 20)]), Color("ffeeca"))
 	# Signs are painted on the background from the level file: [x, y, heading]
 	# or [x, y, heading, subtitle]. They were three hard-coded draw_string calls
 	# naming First Steps' own zones, which no second level could ever reuse.
+	#
+	# Outlined, because these now sit over painted sky and cliffs rather than
+	# over a flat greybox page: dark text alone vanished against the rock.
 	for marker in level.get("signs", []):
-		draw_string(font, Vector2(marker[0], marker[1]), str(marker[2]),
-					HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ink)
+		var at := Vector2(float(marker[0]), float(marker[1]))
+		draw_string_outline(font, at, str(marker[2]), HORIZONTAL_ALIGNMENT_LEFT,
+				-1, 15, 5, Color("f6f3ec"))
+		draw_string(font, at, str(marker[2]), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ink)
 		if marker.size() > 3:
-			draw_string(font, Vector2(marker[0], float(marker[1]) + 22.0), str(marker[3]),
-						HORIZONTAL_ALIGNMENT_LEFT, -1, 13, ink)
+			var under := at + Vector2(0.0, 22.0)
+			draw_string_outline(font, under, str(marker[3]),
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 13, 5, Color("f6f3ec"))
+			draw_string(font, under, str(marker[3]), HORIZONTAL_ALIGNMENT_LEFT,
+					-1, 13, ink)

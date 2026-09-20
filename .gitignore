@@ -9,7 +9,13 @@
 # lives outside this repository, so godot/audio/magic_cliffs.ogg is the only
 # copy a clone gets, exactly as for every generated sheet under godot/. Note
 # .ogg is deliberately absent from the list below.
+#
+# godot/audio/ is unignored below for the same reason, one format later. The
+# opening's voice-over is an mp3 and it is a game asset, not a render: without
+# the exception a clone gets ui/storyboard.gd loading a file that is not there,
+# and the first thing a new player sees is a silent one.
 *.[mM][pP]3
+!godot/audio/*.mp3
 *.[mM][pP]4
 *.avi
 *.mov

@@ -1,27 +1,124 @@
 {
   "id": "first-steps",
   "title": "First Steps",
-  "scope": "Tutorial and prototyping slice. Every mechanic gets introduced here once; new levels assume it has been played.",
-  "note": "All coordinates rescaled x2 on 2026-09-13 for the taller character sprite.",
-  "tagline": "First steps. Real jumps.",
-  "brief": "Cross two gaps. Clear the spikes. Reach the flag.",
-  "width": 1920,
-  "fall_y": 860,
-  "camera_y": 500,
-  "camera_y_note": "Pins the camera vertically, keeping the framing this greybox level was built and screenshotted with. Omit it and the camera follows the player, which is what a level with real height needs.",
-  "spawn": [128, 640],
-  "solids": [[0, 640, 896, 128], [1024, 640, 448, 128], [1568, 640, 352, 128], [320, 608, 96, 32], [1152, 576, 96, 64]],
-  "hazards": [[640, 608, 48, 32]],
-  "crates": [[260, 640], [1100, 640], [1700, 640]],
-  "crates_note": "Breakable targets, [x, ground_y]. Area2D only, never solid, so they cannot block or alter the platforming route. Delete this array to remove them; the attacks work without any targets present.",
-  "enemies": [[1350, 640]],
-  "bottles": [[470, 640, 2]],
-  "brews": [[1200, 576, 2]],
-  "brews_note": "The brown bottle, same [x, ground_y, bars] but against the mana bar. He spawns with three blasts of five and nothing else refills them, so this one sits on the raised platform just short of the punk: spend mana on the crates and the climb buys it back before the fight.",
-  "bottles_note": "Milk, [x, ground_y, bars]. The third value is health-BAR SEGMENTS, not points: 2 means two of the bar's five. It used to be raw points, so an older level file's 50 would now read as fifty bars. Player spawns on 25 of 100 health; this one sits between the first crate and the spikes, so it is found after the player has learnt to punch and before the first real hazard.",
-  "signs": [[66, 502, "01 / GET MOVING", "Read the landing. Then jump."], [948, 454, "02 / MIND THE GAP"], [1756, 450, "FINISH"]],
-  "signs_note": "Painted on the background, [x, y, heading] or [x, y, heading, subtitle]. World coordinates, drawn at a fixed font size because one world unit is one logical screen pixel.",
-  "hills": [140, 520, 900, 1240, 1560, 1860],
-  "hills_note": "Background hill peaks, x only. Optional: a level that omits this gets them spaced evenly across its width.",
-  "finish": [1832, 528, 48, 112]
+  "theme": "magic_cliffs",
+  "music": "magic_cliffs",
+  "tagline": "Learn it by doing it.",
+  "brief": "Five stretches of coast. Each one asks for one thing you have not done yet.",
+  "scope": "The practice course. Same cliffs, same sea and same cast as The Fractured Isles, at a fraction of its length and with nothing in it that has not been introduced first. Off the course (see levels/index.json); the title screen's PRACTICE row is the only way in.",
+
+  "teaching_note": "Every lesson is taught by the shape of the level, not by a line of text. Nothing here says which key to press. What it does instead is make each stretch impossible to leave until the thing it teaches has been done, and put the first, safe version of that thing before the one that costs you anything. Read left to right: 1 THE SHALLOWS is movement and a gap that cannot kill you - miss it and you land on a rock a jump below, which teaches the jump and the climb in one go. 2 BANDITS opens with the same jump over a real pit, then shuts a gate on the first one: fists, and a bottle to drink afterwards. It is also the one stretch that spells a control out - see `coach` - because a fight is the one thing the shape of a level cannot mime. 3 THE ROCKS puts a hunter at throwing range with two rocks at your feet - shoot him and he reads it coming and guards, throw one and he cannot. 4 THE STAIR is three ledges with a bandit on the top one, met from below and in the air. 5 THE ANVIL is Mark, who walks through anything you trade with him. The flag is past his gate, so it is not a stretch you can run.",
+
+  "width": 4560,
+  "fall_y": 1100,
+  "horizon": 648,
+  "ground": {
+    "lean": 0.15,
+    "break_step": 52,
+    "break_jitter": 8,
+    "texture": 1,
+    "edge_left_x": -3,
+    "edge_right_x": 9,
+    "lean_min_width": 408
+  },
+  "ground_note": "The same numbers The Fractured Isles is cut with, so the two levels are visibly the same coast. features/world/scenery.gd generates every cliff from `solids` - the art cannot end up somewhere you cannot stand, because it is drawn from the same rectangles the player collides with.",
+
+  "spawn": [120, 648],
+
+  "solids": [
+    [-24, 648, 564, 1452],
+    [564, 720, 96, 1380],
+    [684, 648, 324, 1452],
+    [1008, 564, 216, 1536],
+
+    [1392, 648, 720, 1452],
+
+    [2112, 648, 792, 1452],
+
+    [3036, 648, 288, 1452],
+    [3324, 564, 204, 1536],
+    [3528, 480, 204, 1620],
+
+    [3864, 648, 660, 1452]
+  ],
+  "solids_note": "[x, top_y, w, h]. The height is how far the cliff runs down toward the sea, not anything the player can reach - fall_y is at 1100 and every mass here is deeper than that. An optional fifth value names a piece of art (bridge, island_large); without one the rectangle is drawn as grassed cliff, which is what all ten of these are.",
+
+  "gates": [2112, 2904, 3732, 4380],
+  "gates_note": "The x of each section's end wall, and the whole reason this level teaches anything: while a gate is shut the camera stops with it at the right edge of the screen and an invisible wall stands on the line. You have not run out of floor, you have run out of level, and the only way on is the enemy standing in it. Walking back is never blocked. Four gates, five sections - the last one ends at the flag instead.",
+
+  "hazards": [],
+  "hazards_note": "None. The lesson the drop teaches at x1224 is the same one spikes teach and it teaches it better, because the pit is also the first jump you have to commit to.",
+
+  "crates": [[1524, 648], [2400, 648], [2496, 648], [3120, 648], [4032, 648]],
+  "crates_note": "Rocks: breakable, liftable, throwable, [x, ground_y]. Area2D only, never solid, so none of them can block or alter the route - which is why no lesson here depends on one being in the way. The first sits alone in an empty stretch with a bandit visible beyond it: something to hit before something hits back. The pair at 2400 and 2496 are the ammunition for the hunter, set near him on purpose: a rock is heavy, it slows you to a bit over half speed, and an arrow knocks it out of your hands, so the carry has to be short enough to survive.",
+
+  "bottles": [[2028, 648, 2], [3960, 648, 2]],
+  "bottles_note": "Milk, [x, ground_y, bars]. The third value is health BAR SEGMENTS, not points. Both sit just after a fight rather than before one, and that is now load-bearing rather than tidy: he spawns on the whole bar and drink() refuses a bottle at full health, so one placed before the first punch would read ALREADY FULL and teach nothing. Worth two segments each - 40 points - so one lands in full on anyone who has taken a bar off.",
+
+  "brews": [[2160, 648, 2]],
+  "brews_note": "The brown bottle, same shape but against the mana bar. One, at the mouth of THE ROCKS, because that stretch is where the blast is first worth spending and the hunter is about to show you why it is not always the answer.",
+
+  "enemies": [
+    [1884, 648, "bandit"],
+    [2760, 648, "hunter"],
+    [3648, 480, "bandit"],
+    [4104, 648, "mark"]
+  ],
+  "enemies_note": "[x, ground_y, kind]. One per section, in the order they are worth meeting: the bandit is an even fight, the hunter has to be answered from range, the second bandit is met from below and in the air, and Mark cannot be traded with at all. No two in one section - this is the course where you get to fight them one at a time.",
+
+  "decor": [
+    [312, 648, "tree"],
+    [180, 648, "tuft"],
+    [468, 648, "pillar_bush"],
+    [600, 720, "bush"],
+    [780, 648, "tuft"],
+    [936, 648, "bush"],
+    [540, 696, "vine"],
+    [1104, 564, "tree"],
+    [1200, 564, "tuft"],
+    [1224, 612, "vine"],
+
+    [1464, 648, "tuft"],
+    [1596, 648, "pillar_bush"],
+    [1728, 648, "tree"],
+    [2064, 648, "bush"],
+    [1392, 696, "vine_rock"],
+
+    [2244, 648, "tree"],
+    [2592, 648, "tuft"],
+    [2844, 648, "bush"],
+    [2904, 696, "vine"],
+
+    [3072, 648, "tuft"],
+    [3252, 648, "bush"],
+    [3396, 564, "tuft"],
+    [3492, 564, "pillar_bush"],
+    [3588, 480, "tree"],
+    [3708, 480, "tuft"],
+    [3324, 612, "vine"],
+    [3528, 528, "vine"],
+
+    [3900, 648, "tuft"],
+    [4284, 648, "tree"],
+    [4440, 648, "pillar_bush"],
+    [3864, 696, "vine_rock"]
+  ],
+  "decor_note": "[x, bottom_y, piece]. Art only, never collision. Plants stand on a surface, so their y is the top of the solid under them; vine and vine_rock hang DOWN a cliff face, so their y sits below the lip they hang from. scripts/check_levels.py warns if a standing plant is left in the air after the ground under it moves.",
+
+  "signs": [
+    [72, 498, "01 / THE SHALLOWS", "Nothing can hurt you here more than the drops...."],
+    [1440, 498, "02 / BANDITS", "The isles are full of these. Engage carefully."],
+    [2160, 498, "03 / THE ROCKS", "He watches the gap. Do not give him something to watch."],
+    [3084, 498, "04 / THE STAIR", "Higher ground, and someone already on it."],
+    [3912, 498, "05 / THE ANVIL", "Hit him all you like."]
+  ],
+  "signs_note": "Painted on the background, [x, y, heading] or [x, y, heading, subtitle]. Area names and a line of flavour, the same as The Fractured Isles carries - not instructions. No sign in this level names a key, because a level that has to tell you what to press has not taught you anything.",
+
+  "coach": [
+    [1392, 2112, "J  /  STRIKE", "strike"],
+    [1392, 2112, "K  /  BLAST", "blast"]
+  ],
+  "coach_note": "[x_from, x_to, text, action]. The one place in this level that names a key, and it is deliberate: everything else here is taught by shape - a gap you must jump, a gate that will not open - and a fight is the one thing shape cannot mime. You can stand in front of a bandit all day without discovering that J is a fist. Shown while the player is inside the span, one at a time, topmost first, and each line retires itself for good the moment the thing it names has been done once: `strike` on any swing, `blast` on any blast. Both are lifetime counters, so a retry does not put a lesson back. The span is the bandit's whole stretch, from the landing at 1392 to his gate at 2112, which puts the first line on screen beside the rock at 1524 - something to hit before something hits back.",
+
+  "finish": [4440, 536, 48, 112]
 }

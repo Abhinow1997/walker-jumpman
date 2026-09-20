@@ -1,7 +1,17 @@
 {
- "_note": "The course order: what NEW JOURNEY plays through, what the in-game level list offers, and the only place that knows how many levels the course has. Each id is godot/levels/<id>.json; a level file owns its own title and copy, so nothing is duplicated here. Finishing one loads the next.",
- "_off_course": "first_steps and proving_ground are the greybox tutorial and prototyping slices. They are deliberately NOT listed: the course is the themed Fractured Isles alone, and a new journey should not open on a greybox. Both level files are still shipped, still validated by scripts/check_levels.py, and First Steps is what the title screen's PRACTICE row boots — so dropping them from the order took them off the course, not out of the game. Putting either back is one line in `order`.",
+ "_note": "Two lists, and the difference between them is the whole file. `order` is THE COURSE: what NEW JOURNEY plays through, in order, each one loading the next when you reach its flag. `also_listed` is everything else the in-game level list offers. LOAD GAME shows both, the course first — so every level that ships can be picked, and only the course chains. A level file owns its own title and copy, so nothing is duplicated here.",
+
  "order": [
-  "fractured_isles"
- ]
+  "first_steps",
+  "fractured_isles",
+  "dragons_roost"
+ ],
+ "_order_note": "A new journey opens on First Steps, carries on into The Fractured Isles and ends at The Dragon's Roost. First Steps used to be off the course on the grounds that a new game should not open on a greybox — it is not a greybox any more. It is the same coast as the Isles, five short stretches long, and every one of them teaches something the Isles then asks for, which is the right way into the game rather than a detour from it. The Roost is the other end of the same thought: one arena and one flying boss, which asks for the jump, the strike and the blast at once and gives no credit for any of them alone.",
+
+ "also_listed": [
+  "proving_ground"
+ ],
+ "_also_listed_note": "Shown in the level list, not part of the course: picking one plays it and finishing it goes nowhere, because nothing follows it. Add an id here to make it selectable without putting it on the course. Nothing needs to appear in both lists — the list the menu shows is `order` followed by whatever is in here that is not already in it.",
+
+ "_unlisted_note": "levels/greybox.json is in neither, on purpose. It is the test fixture — see the why_note in that file — and it is flagged `\"listed\": false` as well, so it stays out of the list however it is reached."
 }

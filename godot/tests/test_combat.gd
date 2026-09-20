@@ -52,16 +52,40 @@ func fresh() -> void:
 ## The signal matters: an enemy whose struck_player goes nowhere can swing all it
 ## likes and the player's health never moves, so a jump attack would look like a
 ## miss.
-func spawn_foe(kind: String, at: Vector2) -> Area2D:
+## `on_roster` puts him in game.enemies as well as in the scene. Off by default
+## because a test enemy on the roster also becomes a gate holder and a camera
+## consideration; on for anything that needs the session to talk to him, which
+## right now means warn_of_blast — that is delivered by the session walking
+## `enemies`, so an enemy who is only a child never hears a blast coming.
+func spawn_foe(kind: String, at: Vector2, on_roster: bool = false) -> Area2D:
 	var foe := Enemy.new()
 	foe.kind = kind
 	foe.position = at
 	foe.fall_limit = float(game.level.fall_y)
 	foe.struck_player.connect(game._on_player_struck)
+	if on_roster:
+		game.enemies.append(foe)
 	game.add_child(foe)
 	await steps(2)
 	foe.target = game.player
 	return foe
+
+## Tell an enemy a blast is on its way from `gap` px in front of him, and wait
+## for him to decide. Returns true if his arms came up. The warning is delivered
+## by hand rather than by throwing a real one, so the geometry under test is the
+## gap and nothing else — no animation timing, no mana, no travel.
+func incoming(foe: Area2D, gap: float) -> bool:
+	var from := Vector2(foe.position.x - gap, foe.position.y)
+	foe.warn_of_blast(from, 1.0, 560.0)
+	var waited := 0
+	while waited < 90:
+		await steps(1)
+		waited += 1
+		if foe.guarding():
+			return true
+		if foe.guard_due < 0.0 and foe.guard_hold <= 0.0:
+			return false
+	return false
 
 ## Point the bandits at the player. Only for tests that are about the bandits.
 func arm_enemies() -> void:
@@ -149,6 +173,14 @@ func finish_attack(cap: int = 90) -> int:
 
 ## Picks the bottle up and waits for the lift to finish. Drinking is a second
 ## beat now — he has to be holding it — so every drink test goes through here.
+## Takes a bar off him, so a milk bottle has somewhere to go. He spawns on the
+## whole bar now and drink() refuses one at full health — which is the game's
+## rule and is checked on its own — so every test that is ABOUT the drink has to
+## give him a reason to want one first. Exactly one bottle's worth, so a full
+## bottle still lands in full and the six seconds stay six.
+func thirsty() -> void:
+	game.player.health = game.player.MAX_HEALTH - 40
+
 func take_bottle(limit: int = 60) -> bool:
 	if not game.pick_up():
 		return false
@@ -615,6 +647,400 @@ func run() -> void:
 		 "apex": Enemy.JUMP_VELOCITY * Enemy.JUMP_VELOCITY / (2.0 * Enemy.GRAVITY),
 		 "drop_limit": Enemy.DROP_LIMIT})
 
+	# --- the guard: mashing K stops being the answer ------------------------
+	# Three blasts killed a bandit, and nothing about throwing them from across
+	# the room was worse than throwing them from arm's length. So the answer to
+	# every fight in the game was the same key, held down.
+	#
+	# Now anyone with time to SEE one coming gets his arms up. What "time" means
+	# is the whole design: a fixed reaction per kind, cut to a fraction of itself
+	# while he is braced — and he braces on every blast that goes past him, hit
+	# or miss. Mash it and he reads them from almost on top of him; throw one and
+	# wait, or throw it from close, and it lands.
+	await fresh()
+	var deck2 := -600.0
+	for parked2 in game.enemies:
+		parked2.target = null
+	game._add_solid(Rect2(2000, deck2, 900, 200))
+	await steps(2)
+	game.player.position = Vector2(2100, deck2)
+	game.player.velocity = Vector2.ZERO
+
+	var blocker: Area2D = await spawn_foe("bandit", Vector2(2600, deck2))
+	blocker.target = null      # this is about the blast, not about the chase
+	var cold: float = blocker.guard_reaction * 560.0
+	check("a-blast-from-across-the-room-is-seen-coming",
+		await incoming(blocker, cold + 110.0),
+		{"reaction_px": cold, "thrown_from": cold + 110.0})
+
+	# What a block is worth. Not immunity — a fifth still gets through — and no
+	# stagger, so he is not held still by being shot at.
+	var unhurt: int = blocker.health
+	var pool: float = blocker.guard
+	var stopped: bool = blocker.take_hit(45, Vector2(blocker.position.x - 40.0, blocker.position.y))
+	check("a-guarded-blast-is-soaked-not-ignored",
+		stopped and blocker.health < unhurt and unhurt - blocker.health <= 12
+			and blocker.guard < pool and blocker.state != blocker.State.HURT,
+		{"lost": unhurt - blocker.health, "of": 45, "guard": blocker.guard,
+		 "was": pool, "state": blocker.state})
+
+	# Cold, from inside his reaction, there is no guard at all. This is the
+	# counter: close the distance.
+	blocker.reset()
+	blocker.target = null
+	await steps(2)
+	check("a-blast-from-close-up-cannot-be",
+		not await incoming(blocker, cold - 50.0),
+		{"reaction_px": cold, "thrown_from": cold - 50.0})
+
+	# And the anti-spam rule, which is the whole point. The same throw, from the
+	# same place, read this time because one went past a moment ago.
+	blocker.reset()
+	blocker.target = null
+	await steps(2)
+	var cold_throw: bool = await incoming(blocker, cold - 50.0)
+	var braced_throw: bool = await incoming(blocker, cold - 50.0)
+	check("but-mashing-it-gets-that-same-throw-read",
+		not cold_throw and braced_throw,
+		{"cold": cold_throw, "braced": braced_throw, "braced_px": blocker.guard_reaction
+			* blocker.BRACED_REACTION * 560.0})
+
+	# Guards break. Spend the pool and the blow that empties it is the one that
+	# gets through — full damage, full stagger, and no guard for a while after.
+	blocker.reset()
+	blocker.target = null
+	await steps(2)
+	var blocks := 0
+	var broke := false
+	for i in range(8):
+		if not await incoming(blocker, cold + 110.0):
+			break
+		var hp: int = blocker.health
+		var _b: bool = blocker.take_hit(45, Vector2(blocker.position.x - 40.0, blocker.position.y))
+		if hp - blocker.health >= 45:
+			broke = true
+			break
+		blocks += 1
+	check("a-guard-can-be-broken-by-spending-it",
+		broke and blocks >= 2,
+		{"blocked": blocks, "broke": broke, "guard": blocker.guard,
+		 "pool": blocker.max_guard})
+	check("and-a-broken-guard-staggers-him",
+		blocker.state == blocker.State.HURT and blocker.guard < 1.0,
+		{"state": blocker.state, "guard": blocker.guard})
+
+	# A guard faces one way. Walking round him is not a thing the player can do
+	# — there is no depth — but the blast he did not see is still the blast that
+	# works, and a thrown rock from behind counts.
+	blocker.reset()
+	blocker.target = null
+	await steps(2)
+	var _seen: bool = await incoming(blocker, cold + 110.0)
+	blocker.facing = 1.0        # looking away from where the blow lands
+	var behind: int = blocker.health
+	var _hit2: bool = blocker.take_hit(45, Vector2(blocker.position.x - 40.0, blocker.position.y))
+	check("a-blow-from-behind-is-not-guarded",
+		behind - blocker.health >= 45,
+		{"lost": behind - blocker.health, "guarding": blocker.guarding()})
+
+	# The boss has no guard, and on purpose: his pack ships no defend frame, so
+	# a block of his would be invisible. Pinned here so that stays a decision.
+	var boss: Area2D = await spawn_foe("dragon_lord", Vector2(2300, deck2))
+	boss.target = null
+	await steps(2)
+	var boss_guarded: bool = await incoming(boss, 400.0)
+	check("the-boss-does-not-guard",
+		not boss_guarded and boss.max_guard == 0.0,
+		{"pool": boss.max_guard, "guarded": boss_guarded})
+
+	# What he does instead: breathes on it. The range he can do it from is his
+	# own wind-up rather than a number — the fire is 0.36 s into his swing, so he
+	# needs that much of the blast's flight to meet it.
+	var wind_up: float = boss.hit_lead("punch") * 560.0
+	boss.reset()
+	boss.target = null
+	await steps(2)
+	boss.warn_of_blast(Vector2(boss.position.x - (wind_up + 140.0), boss.position.y),
+			1.0, 560.0)
+	var swung_at_it := false
+	var fire_out := false
+	for i in range(90):
+		await steps(1)
+		if boss.state == boss.State.PUNCH:
+			swung_at_it = true
+		if boss.burns_projectiles():
+			fire_out = true
+	check("the-boss-answers-one-with-his-own-fire",
+		swung_at_it and fire_out,
+		{"swung": swung_at_it, "fire_out": fire_out, "wind_up_px": wind_up})
+
+	# And cannot from inside it — the same lesson the guard teaches, arrived at
+	# from the other direction. blast.gd asks burns_projectiles() before it
+	# resolves a hit; capture_boss.gd drives that end to end with real blasts.
+	boss.reset()
+	boss.target = null
+	await steps(2)
+	boss.warn_of_blast(Vector2(boss.position.x - (wind_up - 60.0), boss.position.y),
+			1.0, 560.0)
+	var swung_close := false
+	for i in range(60):
+		await steps(1)
+		if boss.state == boss.State.PUNCH:
+			swung_close = true
+			break
+	check("but-not-one-thrown-from-inside-that-wind-up", not swung_close,
+		{"thrown_from": wind_up - 60.0, "wind_up_px": wind_up})
+
+	# End to end, through the session: a real blast, really thrown, really seen.
+	# Everything above hands the enemy the warning directly; this is the wiring.
+	await fresh()
+	for parked3 in game.enemies:
+		parked3.target = null
+	game._add_solid(Rect2(2000, deck2, 900, 200))
+	await steps(2)
+	var shot_at: Area2D = await spawn_foe("bandit", Vector2(2600, deck2), true)
+	shot_at.target = null
+	game.player.position = Vector2(2600 - 280.0, deck2)
+	game.player.velocity = Vector2.ZERO
+	game.player.facing = 1.0
+	game.player.mana = game.player.MAX_MANA
+	await steps(3)
+	var guarded_a_real_one := false
+	var before_shot: int = shot_at.health
+	game.player.test_blast_pressed = true
+	for i in range(140):
+		await steps(1)
+		if shot_at.guarding():
+			guarded_a_real_one = true
+		if shot_at.health < before_shot:
+			break
+	check("a-thrown-blast-reaches-him-as-a-warning",
+		guarded_a_real_one and shot_at.health < before_shot
+			and before_shot - shot_at.health <= 12,
+		{"guarded": guarded_a_real_one, "lost": before_shot - shot_at.health,
+		 "blasts": game.blasts.size()})
+	game.enemies.erase(shot_at)
+
+	# --- the dragon: the one enemy with no feet on the ground ----------------
+	# Flown in its own arena rather than on the fixture, because every number
+	# in the flyer style is measured against the roost_deck it took off from and the
+	# arena is built to those numbers. scripts/../tests/diag_dragon.gd prints
+	# the whole fight; this pins the five things it must not stop doing.
+	await fresh()
+	game.load_level("dragons_roost")
+	game.start_session()
+	game.player.test_control = true
+	await steps(3)
+	var roost_deck := 648.0
+	var wyrm: Area2D = game.enemies[0] if game.enemies.size() == 1 else null
+	check("the-roost-holds-one-dragon-and-nothing-else",
+		wyrm != null and wyrm.kind == "dragon" and wyrm.style == "flyer",
+		{"enemies": game.enemies.size(),
+		 "kind": wyrm.kind if wyrm != null else "<none>",
+		 "style": wyrm.style if wyrm != null else "<none>"})
+
+	# Its own art, not the other boss's. Two kinds a tab apart in PROFILES read
+	# the same folder if anything ever crosses them over, and the animations
+	# are named rather than counted for the reason mark's manifest check is.
+	# Its own art, not the other boss's, and ALL of it. The zip ships one
+	# animation; the other thirteen are decoded out of the preview gifs by
+	# scripts/extract_dragon.py, and a decoder that quietly stopped working
+	# would show up first as animations going missing from this list.
+	var roost_anims: Dictionary = wyrm.data().get("animations", {}) if wyrm != null else {}
+	var roost_wanted := ["idle", "idle_air", "walk", "walk_air", "claw", "swoop",
+			"fire", "fire_air", "hurt", "hurt_air", "takeoff", "land", "death"]
+	var roost_absent: Array = roost_wanted.filter(func(k): return not roost_anims.has(k))
+	check("the-dragon-loads-its-own-manifest",
+		roost_absent.is_empty()
+		and str(wyrm.data().get("_source", "")).contains("demo_lugia")
+		and float(wyrm.data().get("faces", 1)) == -1.0,
+		{"missing": roost_absent, "faces": wyrm.data().get("faces", 0) if wyrm != null else 0,
+		 "source": wyrm.data().get("_source", "") if wyrm != null else "<none>"})
+
+	# Four attacks across two phases, each with the box it hits with measured
+	# off its own art. The phase tag is what keeps a standing fire breath from
+	# being thrown a hundred px up.
+	var wyrm_moves: Dictionary = wyrm.data().get("moves", {}) if wyrm != null else {}
+	var air_moves: Array = wyrm_moves.keys().filter(
+		func(k): return str(wyrm_moves[k].get("phase", "")) == "air")
+	var ground_moves: Array = wyrm_moves.keys().filter(
+		func(k): return str(wyrm_moves[k].get("phase", "")) == "ground")
+	check("it-has-an-attack-for-each-phase",
+		air_moves.size() == 2 and ground_moves.size() == 2
+		and wyrm_moves.has("swoop") and wyrm_moves.has("claw")
+		and wyrm_moves.has("fire") and wyrm_moves.has("fire_air"),
+		{"air": air_moves, "ground": ground_moves})
+
+	# Perched until the fight starts. This is the one thing that lets a flyer
+	# be placed and validated like anything else — see check_levels.py, which
+	# fails any enemy that is not standing on a solid.
+	game.player.position = Vector2(wyrm.home.x - wyrm.aggro - 80.0, roost_deck)
+	game.player.velocity = Vector2.ZERO
+	await steps(6)
+	check("the-dragon-waits-on-its-perch",
+		not wyrm.aloft and wyrm.grounded and absf(wyrm.position.y - roost_deck) < 1.0,
+		{"aloft": wyrm.aloft, "grounded": wyrm.grounded, "y": wyrm.position.y})
+
+	# And takes off when walked up to, and holds its altitude.
+	#
+	# Physics ticks rather than steps(): one step() is a PROCESS frame and
+	# covers up to eight of them, which is long enough for the dragon to
+	# launch, reach cruise AND start its first pass — so a sample taken on the
+	# step boundary read 46, the bottom of a swoop, and called it the cruise.
+	# The pass has its own check below; this one wants the height before it.
+	game.player.position = Vector2(wyrm.home.x - 420.0, roost_deck)
+	game.player.velocity = Vector2.ZERO
+	var cruise: float = float(wyrm.prof.get("cruise", 0.0))
+	var roost_settled := 0.0
+	for i in range(240):
+		await physics_frame
+		game.player.position.y = roost_deck
+		roost_settled = roost_deck - wyrm.position.y
+		if wyrm.aloft and wyrm.swoop < 0.0 and absf(roost_settled - cruise) < 8.0:
+			break
+	check("it-takes-off-and-holds-its-cruise",
+		wyrm.aloft and absf(roost_settled - cruise) < 8.0,
+		{"aloft": wyrm.aloft, "held": roost_settled, "cruise": cruise})
+
+	# The two measurements the arena is built around, asserted so a tuning
+	# change to either side shows up here rather than in a playtest:
+	#   * out of reach from the floor. The player apexes at 106.7 and his
+	#     highest hit box is 36 above his feet; the dragon's body box starts
+	#     at its soles, so cruise has to clear the sum.
+	#   * inside the shot. The camera shows 270 above his feet and the raised
+	#     wingtip is 104 above the dragon's own soles.
+	var roost_apex: float = 106.7
+	var punch_top: float = 36.0
+	var wingtip: float = 104.0
+	check("cruising-it-is-over-a-jumped-punch",
+		cruise > roost_apex + punch_top,
+		{"cruise": cruise, "jumped_punch_reaches": roost_apex + punch_top})
+	check("and-still-inside-the-shot",
+		cruise + wingtip < 270.0,
+		{"top_of_the_dragon": cruise + wingtip, "camera_shows": 270.0})
+
+	# A pass has to come low enough for two boxes to meet it: the player's
+	# standing punch (22 to 36 above his feet) and the blast (25 to 43). Both
+	# are measured against the dragon's soles, so this is the one number that
+	# decides whether the fight can be won at all.
+	var roost_lowest := 1e9
+	var swooped := false
+	for i in range(420):
+		await steps(1)
+		game.player.position.x = wyrm.home.x - 380.0
+		game.player.position.y = roost_deck
+		if wyrm.swoop >= 0.0:
+			swooped = true
+			roost_lowest = minf(roost_lowest, roost_deck - wyrm.position.y)
+	check("a-pass-brings-it-into-reach",
+		swooped and roost_lowest < 36.0,
+		{"bottomed_out_at": roost_lowest, "standing_punch_tops_at": punch_top,
+		 "blast_flies_at": 43.5})
+
+	# And it does not stay up. The whole reason the pack's ground set is worth
+	# decoding is that the dragon uses it: after `air_time` it lands, fights on
+	# its feet for `ground_time` with a different attack and a different walk,
+	# and takes off again. Driven here for one full turn of that.
+	var saw_ground := false
+	var saw_air_again := false
+	var ground_attack := ""
+	var air_attack := ""
+	var landed_at := -1
+	for i in range(2400):
+		await physics_frame
+		game.player.position.x = wyrm.home.x - 300.0
+		game.player.position.y = roost_deck
+		game.player.health = game.player.MAX_HEALTH
+		if wyrm.state == wyrm.State.PUNCH:
+			if wyrm.aloft:
+				if air_attack == "":
+					air_attack = wyrm.move
+			elif ground_attack == "":
+				ground_attack = wyrm.move
+		if not wyrm.aloft and wyrm.grounded and wyrm.engaged and wyrm.shift < 0.0:
+			if not saw_ground:
+				landed_at = i
+			saw_ground = true
+		elif saw_ground and wyrm.aloft and landed_at >= 0 and i > landed_at + 60:
+			saw_air_again = true
+			break
+	check("it-comes-down-and-fights-on-its-feet",
+		saw_ground and ground_attack != "" and ground_attack != air_attack,
+		{"landed_after_s": landed_at / 60.0, "in_the_air": air_attack,
+		 "on-its-feet": ground_attack})
+	check("and-then-takes-off-again",
+		saw_air_again,
+		{"air_time": wyrm.prof.get("air_time"), "ground_time": wyrm.prof.get("ground_time")})
+
+	# Its answer to a thrown blast is height, not a guard: it has no defend
+	# frame either, and this is the same anti-spam rule the other three enemies
+	# get, reached by the one axis a flyer owns.
+	check("the-dragon-does-not-guard",
+		wyrm.max_guard == 0.0 and wyrm.climbs,
+		{"pool": wyrm.max_guard, "climbs": wyrm.climbs})
+	var cold_range: float = wyrm.guard_reaction * 560.0
+	wyrm.dodge = 0.0
+	wyrm.braced = 0.0
+	var was_high := roost_deck - wyrm.position.y
+	wyrm.warn_of_blast(Vector2(wyrm.position.x - (cold_range + 140.0),
+			wyrm.position.y), 1.0, 560.0)
+	var roost_climbed: bool = wyrm.dodge > 0.0
+	for i in range(40):
+		await steps(1)
+		game.player.position.y = roost_deck
+	check("it-climbs-over-one-it-saw-coming",
+		roost_climbed and roost_deck - wyrm.position.y > was_high,
+		{"dodged": roost_climbed, "was": was_high, "now": roost_deck - wyrm.position.y,
+		 "reads_one_from": cold_range})
+	wyrm.dodge = 0.0
+	wyrm.braced = 0.0
+	await steps(2)
+	wyrm.warn_of_blast(Vector2(wyrm.position.x - (cold_range - 60.0),
+			wyrm.position.y), 1.0, 560.0)
+	check("but-not-over-one-thrown-from-inside-its-reaction",
+		wyrm.dodge <= 0.0,
+		{"thrown_from": cold_range - 60.0, "reads_one_from": cold_range})
+
+	# And the ending the whole level exists for. Beaten, it does not fall over
+	# — there is no collapse in six frames of wing-flap and none is roost_wanted. It
+	# turns away, climbs, and is gone, and the flag opens while you watch it go.
+	var shut_before: float = game.gate_shut_at()
+	var died_at: Vector2 = wyrm.position
+	var struck_from := Vector2(wyrm.position.x - 200.0, roost_deck)
+	var _down: bool = wyrm.take_hit(wyrm.health, struck_from)
+	# Beaten, it goes DOWN first. The pack draws a collapse and that is what
+	# plays; the fly-away is the second half of it, below.
+	check("the-dragon-goes-down-before-it-leaves",
+		not wyrm.alive() and wyrm.facing > 0.0 and not wyrm.aloft,
+		{"alive": wyrm.alive(), "facing": wyrm.facing, "aloft": wyrm.aloft,
+		 "struck_from_the": "left"})
+	check("and-the-gate-opens-the-moment-it-is-beaten",
+		shut_before < INF and game.gate_shut_at() == INF,
+		{"was": shut_before, "now": game.gate_shut_at()})
+	# And then it gets up and goes. Measured from the DECK it roost_collapsed on
+	# rather than from where it was struck, because it falls out of the air
+	# first and the climb starts from the bottom of that.
+	#
+	# Physics ticks, not steps(): the whole thing runs about four seconds and a
+	# step() covering up to eight ticks makes the budget for that unknowable.
+	var roost_flew := 0.0
+	var roost_rose := 0.0
+	var roost_ticks := 0
+	var roost_floor := died_at.y
+	var roost_collapsed := false
+	while wyrm.visible and roost_ticks < 420:
+		await physics_frame
+		roost_ticks += 1
+		if not wyrm.aloft:
+			roost_floor = maxf(roost_floor, wyrm.position.y)
+			roost_collapsed = roost_collapsed or wyrm.sprite.animation == "death"
+		roost_flew = maxf(roost_flew, absf(wyrm.position.x - died_at.x))
+		roost_rose = maxf(roost_rose, roost_floor - wyrm.position.y)
+	check("it-collapses-on-the-deck-and-then-flies-out",
+		not wyrm.visible and roost_collapsed and roost_flew > 400.0 and roost_rose > 240.0,
+		{"gone": not wyrm.visible, "played_the_collapse": roost_collapsed,
+		 "flew": roost_flew, "rose": roost_rose, "after_s": roost_ticks / 60.0})
+
 	# --- the two paths the rock needs ---------------------------------------
 	# Neither is used by the crate or the bottle: both break straight into flying
 	# debris and both have drawn tumble angles. The rock sheet has five break
@@ -875,6 +1301,7 @@ func run() -> void:
 
 	# --- the brown bottle is mana ------------------------------------------
 	await fresh()
+	thirsty()
 	var brew: Node2D = null
 	for item in game.bottles:
 		if item.refills == "mana":
@@ -899,6 +1326,7 @@ func run() -> void:
 		# Full mana refuses the drink for the same reason full health refuses
 		# milk: the bottle is worth keeping.
 		await fresh()
+		thirsty()
 		for item in game.bottles:
 			if item.refills == "mana":
 				brew = item
@@ -1005,13 +1433,21 @@ func run() -> void:
 	# --- health and the bottle ---------------------------------------------
 	await fresh()
 	check("level-has-a-bottle", game.bottles.size() > 0, {"bottles": game.bottles.size()})
-	# Not "starts low" any more — he starts nearly full. What still has to hold is
-	# that he starts BELOW max, because drink() refuses a bottle at full health
-	# and the tutorial's drink beat depends on there being room for one.
-	check("starts-with-room-for-a-bottle",
-		game.player.health == game.player.START_HEALTH
-		and game.player.health < game.player.MAX_HEALTH,
+	# He starts on the whole bar now. Which means drink() will refuse a bottle
+	# until something has taken a piece out of him — that is the deal START_HEALTH
+	# documents, and it is why every bottle on the course sits after a fight.
+	#
+	# Both of these have to be asked BEFORE thirsty(), which is the helper every
+	# other drink block opens with: it is what makes room for a bottle, and it
+	# would answer the question this block is asking.
+	check("starts-on-a-full-bar",
+		game.player.health == game.player.MAX_HEALTH,
 		{"health": game.player.health, "max": game.player.MAX_HEALTH})
+	check("a-bottle-is-refused-at-full-health",
+		game.player.refill_full("health"),
+		{"health": game.player.health})
+	# And now there is room for one. Everything below is about the drink.
+	thirsty()
 
 	var bottle: Area2D = game.bottles[0]
 	# Far from it: no prompt, and drinking does nothing.
@@ -1081,6 +1517,7 @@ func run() -> void:
 	# Stopping is not a forfeit. He keeps what he swallowed, the bottle keeps
 	# the rest, and the next drink on it is correspondingly shorter.
 	await fresh()
+	thirsty()
 	bottle = game.bottles[0]
 	game.player.position = bottle.position
 	await steps(3)
@@ -1123,6 +1560,7 @@ func run() -> void:
 
 	# A half-full bottle is a half-length drink from the start.
 	await fresh()
+	thirsty()
 	bottle = game.bottles[0]
 	bottle.contents = 0.5
 	game.player.position = bottle.position
@@ -1166,6 +1604,7 @@ func run() -> void:
 		{"id": "attacking", "act": "attack"},
 	]:
 		await fresh()
+		thirsty()
 		bottle = game.bottles[0]
 		game.player.position = bottle.position
 		await steps(3)
@@ -1205,6 +1644,7 @@ func run() -> void:
 	# Every other interruption leaves him holding it; a blow throws it clear, on
 	# the same launch a thrown crate uses.
 	await fresh()
+	thirsty()
 	bottle = game.bottles[0]
 	var floor_y: float = bottle.position.y
 	game.player.position = bottle.position
@@ -1239,17 +1679,20 @@ func run() -> void:
 		{"health": game.player.health, "before": health_before,
 		 "bar_down_would_be": health_before - 20})
 
-	# At full health the bottle is refused rather than wasted.
+	# At full health the bottle is refused rather than wasted — which is where he
+	# starts, so nothing has to be set up for this one any more.
 	await fresh()
 	bottle = game.bottles[0]
 	game.player.position = Vector2(bottle.position.x, bottle.position.y)
-	game.player.health = game.player.MAX_HEALTH
 	await steps(3)
-	check("drink-refused-at-full", not game.drink() and not bottle.consumed,
+	check("drink-refused-at-full",
+		game.player.health == game.player.MAX_HEALTH
+		and not game.drink() and not bottle.consumed,
 		{"health": game.player.health, "consumed": bottle.consumed})
 
 	# Retry restores both the bottle and the starting health.
 	await fresh()
+	thirsty()
 	bottle = game.bottles[0]
 	game.player.position = Vector2(bottle.position.x, bottle.position.y)
 	await steps(3)
@@ -1257,15 +1700,19 @@ func run() -> void:
 	var healed: int = game.player.health
 	game.restart_attempt()
 	await steps(3)
+	# Healed above where the drink started him, and the retry puts him back on the
+	# whole bar. Measured against what thirsty() left him on rather than against
+	# START_HEALTH, which is now the ceiling and cannot be exceeded.
 	check("retry-restores-bottle-and-health",
 		not bottle.consumed and game.player.health == game.player.START_HEALTH
-		and healed > game.player.START_HEALTH,
+		and healed > game.player.MAX_HEALTH - 40,
 		{"health": game.player.health, "was": healed, "consumed": bottle.consumed})
 
 	# --- the bottle is a prop too ------------------------------------------
 	# Same knock-and-shatter logic as the crate, and smashing it destroys the
 	# health it was worth. That is the cost of swinging at everything.
 	await fresh()
+	thirsty()
 	bottle = game.bottles[0]
 	var bhome: Vector2 = bottle.position
 	check("bottle-is-hittable", bottle.get_collision_layer() & 64 != 0,
@@ -1320,6 +1767,7 @@ func run() -> void:
 
 	# A bottle already drunk is gone, so a punch must not find one to hit.
 	await fresh()
+	thirsty()
 	bottle = game.bottles[0]
 	game.player.position = bottle.position
 	await steps(3)
@@ -1405,6 +1853,7 @@ func run() -> void:
 
 	# --- a punch breaks a drink and drops the bottle -------------------------
 	await fresh()
+	thirsty()
 	var drink_bottle: Area2D = game.bottles[0]
 	game.player.position = drink_bottle.position
 	game.player.health = game.player.MAX_HEALTH - 20
@@ -1589,8 +2038,11 @@ func run() -> void:
 		box.broken and box.position.x > 560.0,
 		{"x": box.position.x, "ticks": empty_flight})
 
-	# The bottle is the other half of the rule: lifted first, drunk second.
+	# The bottle is the other half of the rule: lifted first, drunk second. Thirsty
+	# first of all, or the refusal under test would be "you are full" rather than
+	# "your hands are empty".
 	await fresh()
+	thirsty()
 	flask = game.bottles[0]
 	game.player.position = flask.position
 	await steps(3)

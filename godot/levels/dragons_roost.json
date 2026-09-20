@@ -1,0 +1,48 @@
+{
+  "id": "dragons-roost",
+  "title": "The Dragon's Roost",
+  "theme": "magic_cliffs",
+  "music": "magic_cliffs",
+  "tagline": "Something still lives out here.",
+  "brief": "One ledge, one dragon, and nowhere on it he cannot reach you.",
+
+  "scope": "The last level on the course, and the whole of it is the final boss fight. There is no platforming here worth the name - a hop in, an arena, a flag - because the level IS the fight and anything else would be in the way of it.",
+
+  "fight_note": "The dragon fights in two phases and the arena has to hold both.\n\nIN THE AIR it is the only thing in the game with no feet on the ground, and three numbers follow from that. See the \"dragon\" profile and the flying block in features/combat/enemy.gd.\n\n  * It cruises 156 above the deck it took off from. A player on the flat reaches 143 at the top of a jump, so from the floor it cannot be hit at all. Standing there waiting is legitimate and slow.\n  * The two floating stones are 96 up. A jump from one reaches 239, well into it. That is the only reason they exist, and why there are two at opposite ends of the arena: the dragon circles, and a single perch you can be cornered on is a trap rather than an answer.\n  * It answers a thrown blast by climbing over it, unless the throw was inside its reaction - 168 px cold, 76 once it has seen one and is braced for the next. So the energy strike still beats it, at knife range, and only while it is down. Which is the same lesson the guard taught on the way here, asked again by something that cannot block.\n\nON ITS FEET it is an ordinary bruiser and the arena needs nothing special for it: it walks in at 150, which is outrunnable like everything else in the cast, claws at 86 and breathes the standing version of the same fire from 125 to 180. Nine seconds up, seven down, with a drawn take-off and landing between them that cannot be interrupted. That phase is why the deck is as long as it is - there has to be somewhere to back off to - and the gap at 720 is the one thing in the level it will not follow you over.\n\nThe deck is dead flat on purpose. A flyer measures every altitude it holds from the height it took off at, so a perch standing above or below the ground the fight happens over would put its whole envelope in the wrong place.",
+
+  "width": 2880,
+  "fall_y": 1100,
+  "horizon": 648,
+
+  "ground": {"lean": 0.15, "break_step": 52, "break_jitter": 8, "texture": 1, "edge_left_x": -3, "edge_right_x": 9, "lean_min_width": 408},
+  "ground_note": "The same numbers The Fractured Isles and First Steps are cut with, so all three levels are visibly the same coast. features/world/scenery.gd generates every cliff from `solids`, so the art cannot drift off the collision.",
+
+  "spawn": [120, 648],
+
+  "solids": [[-24, 648, 744, 192], [816, 648, 696, 240], [1512, 648, 636, 168], [2148, 648, 732, 216], [1104, 552, 74, 24, "island_large"], [1680, 552, 74, 24, "island_large"]],
+  "solids_note": "The approach ends at 720 and the arena starts at 816 - a 96 px hop, 45% of the jump envelope, and the gentlest crossing on the course. It is there to say the level has started, not to test anything. The two floating stones are the pack's own islands, 96 above the deck against a 107 apex, and they are the only thing in the arena that is not flat.\n\nThe arena is three touching blocks of different depths rather than one, which is the only thing this level's geometry does differently. features/world/scenery.gd draws rock edges at the ENDS of a solid, and a boss arena is by nature one long unbroken deck with both ends off screen - as a single 2064-wide block it came out as a flat black band under a grass line, with none of the broken rock the rest of the coast is made of. Three blocks put a torn rock column at each seam, and stopping them 168 to 240 down instead of 1452 puts open sea under the island. Nothing about the surface changes: all three top out at 648, the turf runs over the joins, and from up there it is one rock.",
+
+  "gates": [2400],
+  "gates_note": "One gate, and the dragon holds it. It perches at 2100, inside the section, so the wall at 2400 stays shut until it is beaten - and while it is shut the camera stops with the wall on the right edge of the screen, which is what frames the arena. Nothing blocks going back: retreating over the hop is a real answer to a swoop.",
+
+  "hazards": [],
+  "hazards_note": "None, for the reason The Fractured Isles gives: spikes kill outright whatever your health is, and this is a health-bar fight from the moment the gate shuts. The sea under the hop is the only thing here that can finish you without the dragon doing it.",
+
+  "enemies": [[2100, 648, "dragon"]],
+  "enemies_note": "One. It stands on the deck like any other enemy, which is what lets scripts/check_levels.py measure it, and it takes off the moment the player comes inside its 560 of aggro - around x 1540, with the second stone underfoot. It comes back down on its own clock to fight on foot, and beaten it goes down on the deck before it climbs out of the level.",
+
+  "crates": [[900, 648], [966, 648]],
+  "crates_note": "Two, at the mouth of the arena. Nobody needs targets to learn on this late - these are cover you can pick up and throw, and the last thing in the level a blast will reliably connect with.",
+
+  "bottles": [[540, 648, 3]],
+  "brews": [[624, 648, 3]],
+  "bottles_note": "Milk and brew, three bars of five each, stood side by side on the approach rather than inside the arena. Everything the fight needs is picked up before the fight: once the gate shuts there is no topping up.",
+
+  "signs": [[252, 512, "07 / THE ROOST", "Nothing has walked out this far in a long time."], [1284, 512, "IT SEES YOU"]],
+  "signs_note": "Two, and neither names a key - the same rule the rest of the course keeps. Both sit at y 512, which is where First Steps paints its own: high enough to read against the sky, low enough to clear the two HUD bars. At 442 the second one was drawn straight through the mana bar.",
+
+  "decor": [[180, 648, "tree"], [420, 648, "bush", -4], [660, 648, "tuft"], [702, 648, "grass_short"], [706, 690, "vine"], [830, 700, "vine_rock"], [846, 648, "tuft"], [1014, 648, "bush", 3], [1152, 552, "tuft"], [1290, 648, "tuft"], [1452, 648, "pillar_bush"], [1728, 552, "tuft"], [1878, 648, "bush", -5], [2010, 648, "tuft"], [2262, 648, "grass_short"], [2334, 648, "tuft"], [2610, 648, "tree", 4], [2814, 648, "bush"], [438, 250, "rock_mass", 120, 220, 0.8], [2706, 300, "rock_mass", 160, 240, 0.7]],
+  "decor_note": "[x, y, piece] with the piece's bottom edge at y; a fourth value tilts it. The two rock_mass entries hang from the sky, and both are deliberately OUTSIDE the arena - one over the approach, one over the flag. A hanging mass over the fight would sit in exactly the air the dragon cruises in (492 world), and the boss would spend the whole fight drawn in front of a rock. Art only, never collision.",
+
+  "finish": [2544, 536, 48, 112]
+}

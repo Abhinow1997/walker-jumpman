@@ -5,6 +5,7 @@ extends Control
 
 const Session = preload("res://game/session.gd")
 const Music = preload("res://game/music.gd")
+const Storyboard = preload("res://ui/storyboard.gd")
 const BACKDROP := preload("res://ui/art/title_bg.png")
 
 ## Each plate is its own sheet crop, already scaled to the size it is drawn at,
@@ -31,16 +32,23 @@ const DIM := Color(0.62, 0.66, 0.70)
 ## Picked out of the cracks in the plates so the highlight belongs to the art.
 const GLOW := Color(0.31, 0.85, 0.91)
 
-## Where PRACTICE drops in. First Steps is the tutorial slice: it introduces
-## every mechanic once on flat greybox, which is what someone who picked
-## "practice" is after. It is off the course entirely (see levels/index.json), so
-## this row is the only way into it and the two rows cannot collide.
+## Where PRACTICE drops in. First Steps is the practice course: the same cliffs,
+## sea and cast as The Fractured Isles, cut into five short stretches that each
+## ask for one thing the player has not done yet.
+##
+## It is also the first level of the course now, so this row and NEW JOURNEY
+## land in the same place. They are not the same thing — a journey carries on
+## into the Isles when you reach the flag and this drops you in for the practice
+## alone — but with no save files between them there is nothing yet to tell them
+## apart. Worth collapsing into one row the day finishing a level records
+## anything.
 const PRACTICE_LEVEL := "first_steps"
 
 ## The menu's music. The same loop The Fractured Isles plays, because the pack
 ## ships one and the course is that level: the handoff is seamless rather than
-## two tracks colliding. PRACTICE boots a greybox slice, which names no track,
-## so choosing it stops the menu music.
+## two tracks colliding. First Steps names the same track, so PRACTICE carries
+## straight on from the menu as well — it used to be the one row that cut the
+## music off, back when it booted a greybox slice.
 const TRACK := "magic_cliffs"
 
 var index: int = 0
@@ -97,32 +105,36 @@ func _gui_input(event: InputEvent) -> void:
 func _choose(row: int) -> void:
 	match ROWS[row]["act"]:
 		"journey":
-			# The course order's first level — The Fractured Isles. Not named
-			# here: putting a prologue ahead of it in index.json is what moves
-			# where NEW JOURNEY lands, and this row follows the order.
-			_boot(Session.catalogue()[0], true)
+			# The course order's first level — First Steps, and on into the Isles
+			# when you reach its flag. Not named here: which level a new journey
+			# opens on is index.json's decision, and this row follows the order.
+			#
+			# The one row that does not boot straight into its level: a new
+			# journey opens on the storyboard, and that hands off to the level
+			# named here when it ends or is skipped. PRACTICE deliberately does
+			# not — it is the course played for its own sake, and an opening you
+			# have already watched is not something to sit through again to
+			# reach it.
+			Storyboard.open(get_tree(), Session.catalogue()[0])
 		"practice":
 			_boot(PRACTICE_LEVEL, true)
 		"select":
 			# No save files exist, so this opens the session's own level list
 			# instead: it boots without starting, which leaves it in State.MENU.
-			_boot(Session.catalogue()[0], false)
+			# That list is every level that ships, not just the course — see
+			# listing() in session.gd — so this row is how you pick one.
+			_boot(Session.listing()[0], false)
 		"quit":
 			get_tree().quit()
 
 func _boot(level_id: String, playing: bool) -> void:
-	## Hands off to a session and takes the title out of the tree. The session is
-	## built here rather than by loading game/main.tscn so that level_id is set
+	## Hands off to a session and takes the title out of the tree. The handoff
+	## itself lives in Session.boot, because the storyboard makes the same one
+	## at the end of the opening and the two must not drift: the session is
+	## built there rather than by loading game/main.tscn so that level_id is set
 	## before add_child, which is the order session.gd documents for booting
 	## straight into a level.
-	var game := Session.new()
-	game.level_id = level_id
-	var outgoing := get_tree().current_scene
-	get_tree().root.add_child(game)
-	get_tree().current_scene = game
-	if playing:
-		game.start_session()
-	outgoing.queue_free()
+	Session.boot(get_tree(), level_id, playing)
 
 func _draw() -> void:
 	draw_texture_rect(BACKDROP, Rect2(Vector2.ZERO, DESIGN), false)

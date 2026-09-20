@@ -85,6 +85,12 @@ ANIMS = {
     # the same pair the player's own rise and fall are drawn from.
     "jump":  {"pics": [63, 64],         "loop": False,
               "hold": [0.300, 0.300]},
+    # The guard. 60 is LF2's defend - arms in, weight back - and 61 its
+    # broken-defend, the moment it gives. enemy.gd shows one or the other by
+    # hand rather than playing the run: frame 0 while the guard holds, frame 1
+    # on the blow that empties it.
+    "guard": {"pics": [60, 61],         "loop": False,
+              "hold": [0.300, 0.250]},
 }
 
 ## Index into punch's pics, not an LF2 pic: the frame with the arm out.
@@ -105,6 +111,11 @@ ARM_EXPECTED = (39, -43, -33)
 ## clear, so this tells them apart with room to spare and a re-rip that shifts
 ## the grid fails loudly instead of leaving him sliding along the ground.
 AIRBORNE_CLEAR = 5
+## And the mirror of it: a guard is a stance, so its feet are ON the floor line
+## like every other grounded pose. Cheap, and it catches the same regrid that
+## AIRBORNE_CLEAR does, from the other side.
+GUARD_PLANTED = 2
+
 
 
 
@@ -208,6 +219,16 @@ def main():
                      "- that is a standing pose, not an airborne one"
                      % (n, clear, AIRBORNE_CLEAR))
         print("jump   pic %d clears the floor line by %d px" % (n, clear))
+
+    for n in ANIMS["guard"]["pics"]:
+        box = pic(sheet, n).getbbox()
+        if box is None:
+            sys.exit("guard: pic %d is empty" % n)
+        clear = ORIGIN[1] - (box[3] - 1)
+        if clear > GUARD_PLANTED:
+            sys.exit("guard: pic %d has its feet %d px off the floor line - that is "
+                     "an airborne pose, not a stance" % (n, clear))
+        print("guard  pic %d stands on the floor line" % n)
 
     arm = arm_extent(pic(sheet, ANIMS["punch"]["pics"][HIT_FRAME]))
     if arm is None:

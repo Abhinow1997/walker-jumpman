@@ -58,17 +58,47 @@ func fresh(id: String = "") -> void:
 func run() -> void:
 	var order: Array = Game.catalogue()
 
-	# --- the catalogue ------------------------------------------------------
-	# The course is the themed level and nothing else: NEW JOURNEY boots
-	# order[0], and it must not open on a greybox slice. first_steps and
-	# proving_ground are still shipped and still reachable — see index.json and
-	# the title screen's PRACTICE row — they are simply not the course.
-	check("the-course-starts-in-the-isles",
-		order.size() >= 1 and order[0] == "fractured_isles",
+	# --- the catalogue and the list -----------------------------------------
+	# Two lists, and the difference between them is the point. `order` is the
+	# COURSE: what NEW JOURNEY walks through, opening on the practice course and
+	# carrying on into the Isles. listing() is what LOAD GAME OFFERS, which is
+	# every level that ships — you may pick one that is on the way to nowhere.
+	check("a-new-journey-opens-on-the-practice-course",
+		order.size() >= 2 and order[0] == "first_steps"
+		and order[1] == "fractured_isles",
 		{"order": order})
-	check("no-greybox-on-the-course",
-		not order.has("first_steps") and not order.has("proving_ground"),
-		{"order": order})
+	var rows: Array = Game.listing()
+	check("the-list-offers-more-than-the-course",
+		rows.size() > order.size() and rows.has("proving_ground"),
+		{"listing": rows, "order": order})
+	check("the-course-comes-first-in-the-list",
+		rows.slice(0, order.size()) == Array(order),
+		{"listing": rows, "order": order})
+	# The fixture is not content and must never be offered as any.
+	check("the-fixture-is-not-on-the-list",
+		not rows.has("greybox") and not order.has("greybox"),
+		{"listing": rows})
+	# The real chain rather than the stand-in one further down: the course is
+	# three levels long now, so reaching the flag on each really does load the
+	# next, and that is the thing a new journey is.
+	await fresh("first_steps")
+	check("first-steps-leads-into-the-isles",
+		game.next_level_id() == "fractured_isles",
+		{"next": game.next_level_id(), "order": Game.catalogue()})
+	await fresh("fractured_isles")
+	check("the-isles-lead-to-the-roost",
+		game.next_level_id() == "dragons_roost",
+		{"next": game.next_level_id(), "order": Game.catalogue()})
+	# And the Roost is the end of it. Nothing follows the final boss, so
+	# finishing it replays it — see confirm() on State.COMPLETE.
+	await fresh("dragons_roost")
+	check("the-roost-is-the-end-of-the-course",
+		game.next_level_id() == "" and order.back() == "dragons_roost",
+		{"next": game.next_level_id(), "last": order.back()})
+	await fresh("proving_ground")
+	check("a-listed-level-off-the-course-leads-nowhere",
+		game.next_level_id() == "",
+		{"next": game.next_level_id()})
 	var shipped_ids: Array = all_levels()
 	check("every-level-on-the-course-exists",
 		not order.is_empty() and Array(order).all(func(id): return shipped_ids.has(id)),
@@ -96,8 +126,10 @@ func run() -> void:
 
 	# --- defaults -----------------------------------------------------------
 	await fresh()
-	check("defaults-to-the-tutorial",
-		game.level_id == "first_steps" and str(game.level.title) == "First Steps",
+	# The fixture, not a level anyone plays: both title-screen rows name the
+	# level they want, so nothing but a test ever reaches this default.
+	check("defaults-to-the-fixture",
+		game.level_id == "greybox" and str(game.level.title) == "Greybox",
 		{"level_id": game.level_id, "title": str(game.level.get("title", ""))})
 
 	# --- booting straight into a level --------------------------------------
@@ -146,7 +178,9 @@ func run() -> void:
 	var shipped: Array = order.duplicate()
 	Game._catalogue = ["first_steps", "proving_ground"]
 
-	await fresh()
+	# Named rather than left to the default: the default is the fixture, and the
+	# fixture is deliberately not a row on any course, pretend or otherwise.
+	await fresh("first_steps")
 	check("next-after-the-first", game.next_level_id() == "proving_ground",
 		{"next": game.next_level_id()})
 	game.start_session()
@@ -163,7 +197,7 @@ func run() -> void:
 	# --- the menu -----------------------------------------------------------
 	# Still on the stand-in order: a one-row list cannot show that the highlight
 	# picks a level or that the ends wrap.
-	await fresh()
+	await fresh("first_steps")
 	game.open_menu()
 	check("menu-opens-on-the-current-level", game.menu_index == 0 and game.state == Game.State.MENU,
 		{"menu_index": game.menu_index, "state": game.state})
@@ -199,22 +233,28 @@ func run() -> void:
 		{"level_id": game.level_id})
 
 	# --- an off-course level -------------------------------------------------
-	# First Steps is shipped and playable but not on the course, which the level
-	# list only knows about. So it loads, it plays, and opening the list over it
-	# highlights the course's first row rather than the level you are standing
-	# in — there is no row for that level to highlight. Confirming then starts
-	# the course, which is the only thing the list offers.
-	await fresh("first_steps")
+	# Proving Ground is shipped, offered by the list, and on the way to nowhere.
+	# So it loads, it plays, the list highlights the row you are actually
+	# standing in — which it could not do while the list was only the course —
+	# and reaching its flag chains to nothing.
+	await fresh("proving_ground")
 	game.start_session()
 	await steps(2)
 	check("an-off-course-level-still-plays",
-		game.level_id == "first_steps" and game.state == Game.State.PLAYING
+		game.level_id == "proving_ground" and game.state == Game.State.PLAYING
 		and game.next_level_id() == "",
 		{"level_id": game.level_id, "state": game.state})
 	game.open_menu()
-	check("the-list-cannot-highlight-an-off-course-level",
-		game.menu_index == 0 and Game.catalogue()[game.menu_index] == "fractured_isles",
-		{"menu_index": game.menu_index, "order": Game.catalogue()})
+	check("the-list-highlights-the-level-you-are-in",
+		Game.listing()[game.menu_index] == "proving_ground",
+		{"menu_index": game.menu_index, "listing": Game.listing()})
+	# And picking one from the list plays it, course or not.
+	game.menu_index = Game.listing().find("proving_ground")
+	game.confirm()
+	await steps(6)
+	check("the-list-can-start-an-off-course-level",
+		game.level_id == "proving_ground",
+		{"level_id": game.level_id, "state": game.state})
 
 	# --- sections hold the player until the fight is over --------------------
 	# The rule the Isles are built on: you do not walk past a fight. Checked on
@@ -280,11 +320,34 @@ func run() -> void:
 	# section's fight and then the pit past it, and every check below reads a
 	# player who is somewhere else entirely.
 	game.player.test_axis = 0.0
+	# Watched tick by tick, because the thing under test is one frame wide. He is
+	# standing against the wall, which is where a fight backed into a gate always
+	# ends, so the far bound has the furthest possible distance to travel when it
+	# lets go — about 570 px, which is what the camera used to cross in a single
+	# frame the instant the last enemy fell.
+	var worst_jump := 0.0
+	var camera_was: float = game.camera.position.x
 	for foe in game.section_holders(0):
 		while foe.alive():
 			foe.take_hit(60, foe.position - Vector2(40, 0))
-			await steps(2)
-	await steps(3)
+			for _t in range(8):
+				await physics_frame
+				worst_jump = maxf(worst_jump, absf(game.camera.position.x - camera_was))
+				camera_was = game.camera.position.x
+	for _t in range(90):
+		await physics_frame
+		worst_jump = maxf(worst_jump, absf(game.camera.position.x - camera_was))
+		camera_was = game.camera.position.x
+	# A pan, not a cut. The release moves at most 2300 px/s, so 38 px in a tick;
+	# following a running player is 6. The cut it replaced was 570 in one.
+	check("an-opening-gate-pans-rather-than-cuts",
+		worst_jump < 60.0,
+		{"worst_px_in_one_tick": worst_jump,
+		 "camera_x": game.camera.position.x})
+	check("and-the-pan-finishes",
+		game.camera.position.x > float(game.gates[0]) - Game.VIEW_HALF.x,
+		{"camera_x": game.camera.position.x,
+		 "was_held_at": float(game.gates[0]) - Game.VIEW_HALF.x + Game.GATE_INSET})
 	check("clearing-a-section-opens-it",
 		game.section_clear(0) and game.section_of(game.player.position.x) == 0
 		and game.gate_shut_at() == INF,
@@ -318,7 +381,7 @@ func run() -> void:
 		{"clear": game.section_clear(0), "shut_at": game.gate_shut_at()})
 
 	# A level with no gates is untouched by any of this.
-	await fresh("first_steps")
+	await fresh("greybox")
 	game.start_session()
 	await steps(2)
 	check("a-level-with-no-gates-is-never-held",
@@ -363,7 +426,7 @@ func run() -> void:
 
 	# A level with no music of its own stops it rather than carrying the wrong
 	# track into a greybox slice.
-	game.load_level("first_steps")
+	game.load_level("greybox")
 	await steps(3)
 	check("a-level-with-no-music-is-silent",
 		not music.playing and music.track == "",
@@ -379,7 +442,7 @@ func run() -> void:
 		{"theme": str(game.level.get("theme", ""))})
 	check("the-theme-art-is-imported", not game.scenery.pieces.is_empty(),
 		{"pieces": game.scenery.pieces.size()})
-	await fresh("first_steps")
+	await fresh("greybox")
 	check("a-greybox-level-has-no-scenery", not is_instance_valid(game.scenery),
 		{"theme": str(game.level.get("theme", ""))})
 

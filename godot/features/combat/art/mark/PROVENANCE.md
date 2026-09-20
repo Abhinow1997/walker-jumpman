@@ -44,6 +44,7 @@ and idle line up, but Mark's punch and hurt runs do not.
 | `punch` | 10, 11, 12 | wind-up, full extension, follow-through |
 | `hurt` | 30, 36, 33, 34 | two recoils, knocked off his feet, flat |
 | `jump` | 63, 64 | rising, legs swept back; falling, knees up |
+| `guard` | 60, 61 | arms in; then the frame it gives way on |
 
 The Bandit's punch is `10, 13, 11`; Mark's extension is pic 11, so his is
 `10, 11, 12`. `hurt` keeps the shape `enemy.gd` expects — it reads the first two
@@ -56,6 +57,12 @@ pose plants them 1 px above it, these sit 8 to 13 px clear — so the extractor
 checks that clearance on every run rather than trusting the indices. A re-rip
 that shifts the grid fails loudly instead of leaving him sliding through the air
 in a walk cycle.
+
+`guard` is LF2's defend pair, added when the enemies learned to block a thrown
+blast. `enemy.gd` shows one or the other by hand rather than playing the run:
+frame 0 for as long as the guard holds, frame 1 on the blow that empties it. The
+extractor checks these two sit ON the floor line, which is the mirror of the
+check `jump` gets and catches the same regrid from the other side.
 
 ## Geometry
 

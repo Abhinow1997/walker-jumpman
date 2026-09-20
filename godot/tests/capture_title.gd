@@ -58,6 +58,16 @@ func boot(row: int, expect: Game.State) -> String:
 	title.index = row
 	title._choose(row)
 	for i in range(6): await step()
+	# NEW JOURNEY opens the storyboard rather than a level, and that hands off
+	# when it ends. The suite does not sit through fifty-seven seconds of
+	# voice-over to reach what is behind it: test_mode collapses the fade and
+	# skip() then boots on the spot. capture_storyboard.gd is what checks the
+	# opening itself.
+	if current_scene.has_method("skip"):
+		print("BOOT row %d: storyboard first, skipping to the level" % row)
+		current_scene.test_mode = true
+		current_scene.skip()
+		for i in range(2): await step()
 	var game := current_scene
 	assert(game is Node2D, "row %d did not install a session" % row)
 	assert(game.state == expect,

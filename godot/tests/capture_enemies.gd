@@ -166,6 +166,76 @@ func capture(kind: String, foe: Area2D) -> void:
 	else:
 		print(kind + ": no jump shot — an archer never leaps at you")
 
+	# Guard: a real blast, really thrown from outside his own reaction — the
+	# distance is read off the enemy rather than written down, because Mark needs
+	# 280 px of warning where the hunter needs 146, and a number that suits one
+	# catches nothing on the other. Clamped to stay on this floor and west of the
+	# spikes at 800.
+	var stand := Vector2(1050, 640)
+	foe.reset()
+	foe.position = stand
+	foe.home = stand
+	foe.visible = true
+	foe.target = null
+	var throw_from: float = maxf(680.0, stand.x - (foe.guard_reaction * 560.0 + 120.0))
+	# Clear the lane. proving_ground keeps a brew at x700, which is under the
+	# muzzle from here — a blast thrown at Mark from far enough back for him to
+	# read it smashed the bottle on frame one and never left. Props are parked
+	# rather than broken so the earlier crate and bottle shots are untouched.
+	for prop in game.crates + game.bottles:
+		if is_instance_valid(prop) and prop.position.x > throw_from - 60.0 \
+				and prop.position.x < stand.x:
+			prop.position = Vector2(prop.position.x, stand.y - 2000.0)
+	game.player.position = Vector2(throw_from, stand.y)
+	game.player.velocity = Vector2.ZERO
+	game.player.facing = 1.0
+	game.player.mana = game.player.MAX_MANA
+	await steps(3)
+	game.player.test_blast_pressed = true
+	var guarded := false
+	for i in range(180):
+		await steps(1)
+		if foe.guarding() and not game.blasts.is_empty():
+			foe.set_physics_process(false)
+			for b in game.blasts:
+				b.set_physics_process(false)
+			var mid: float = (foe.position.x + game.blasts[0].global_position.x) * 0.5
+			await shot(kind + "-08-guard", Vector2(mid, stand.y - 20.0), 330)
+			foe.set_physics_process(true)
+			for b in game.blasts:
+				b.set_physics_process(true)
+			guarded = true
+			break
+	if not guarded:
+		print(kind + ": guard not caught")
+
+	# And the frame it gives way on. Its pool is emptied by hand rather than by
+	# standing here throwing blasts at him until it runs out.
+	foe.reset()
+	foe.position = stand
+	foe.home = stand
+	foe.target = null
+	await steps(2)
+	foe.warn_of_blast(Vector2(stand.x - 400.0, stand.y), 1.0, 560.0)
+	var braced_up := false
+	for i in range(90):
+		await steps(1)
+		if foe.guarding():
+			braced_up = true
+			break
+	if braced_up:
+		foe.guard = 1.0     # one blow from empty
+		var _broke: bool = foe.take_hit(45, Vector2(stand.x - 40.0, stand.y))
+		await steps(2)
+		foe.set_physics_process(false)
+		await shot(kind + "-09-guard-break", stand)
+		foe.set_physics_process(true)
+	else:
+		print(kind + ": guard break not caught")
+	foe.reset()
+	foe.position = spot
+	foe.home = spot
+
 	# Hurt: the player strikes back; catch the recoil.
 	foe.target = null
 	foe.position = spot

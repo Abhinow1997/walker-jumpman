@@ -15,6 +15,10 @@ const HALO := Color(0.96, 0.95, 0.91, 0.92)
 const HALO_WIDTH := 4
 ## Behind the two meters that have to read as a length rather than as text.
 const TROUGH := Color(0.11, 0.16, 0.21, 0.55)
+## The level's coaching lines — see _coach_prompt. Warmer than INK so a line that
+## is teaching you something does not read as the same thing as a line telling
+## you what is under your feet, and dark enough to sit inside the same halo.
+const COACH := Color("8a4a2c")
 
 ## Health and mana come from the same sheet, cut into a full and an empty version
 ## each by scripts/extract_hud_bars.py. The empty one is drawn, then the full one
@@ -64,6 +68,7 @@ func _ready() -> void:
 	## nearest sampling would break the frame's straight edges up unevenly.
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_load_bars()
+	_load_panels()
 
 func _process(delta: float) -> void:
 	## Eases both bars toward the player. Separate from _draw because the draw
@@ -129,6 +134,14 @@ func centered(text: String, y: float, font_size: int, color: Color = INK) -> voi
 	var width := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	text_at(text, Vector2((640-width)/2, y), font_size, color)
 
+func wrapped(text: String, box: Rect2, y: float, font_size: int,
+			 lines: int = 2, color: Color = INK) -> void:
+	## Centred and broken to the width of the card it is written on. The level
+	## briefs are whole sentences and the card is about 214 wide; draw_string does
+	## not wrap, so they simply ran off both edges of the panel and over the frame.
+	draw_multiline_string(ThemeDB.fallback_font, Vector2(box.position.x, y), text,
+		HORIZONTAL_ALIGNMENT_CENTER, box.size.x, font_size, lines, color)
+
 func _centred_over_level(text: String, y: float, font_size: int, color: Color = INK) -> void:
 	var width := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	over_level(text, Vector2((640-width)/2, y), font_size, color)
@@ -139,33 +152,102 @@ func _centred_over_level(text: String, y: float, font_size: int, color: Color = 
 ## than being the one fixed rectangle it used to be. The session hit-tests
 ## clicks against button_rect() and row_at() rather than repeating the numbers.
 
+## Cut from the UI kit by scripts/extract_panels.py, which also measures where
+## the writing goes inside each one and publishes it as fractions of the art —
+## so re-cropping a panel moves its text with it and nothing here is re-typed.
+##
+## The menu wears the big runed frame, the one with the game's name on its
+## headstone: it is the front screen. Pause and results wear the small stone
+## pop-up, because an in-game message should not be a full-screen monument.
+const PANELS := "res://ui/art/panels.json"
+const PANEL_ART := "res://ui/art/"
+## The art is written at the size it is drawn in PHYSICAL pixels, so 0.5 here,
+## x1.5 for the HUD layer and x4/3 for a 1280x720 window come back to 1 — the
+## same arrangement as the health bars.
+const PANEL_SCALE := 0.5
+## Both panels hang from one bottom line with the button under it, so the
+## overlay sits in the same place whichever of the two is showing.
+const PANEL_BOTTOM := 282.0
+const BUTTON_AT := Rect2(235, 290, 170, 40)
+## Borrowed off the kit's own START plate. The kit's buttons are not used — see
+## the note in extract_panels.py — but its green is.
+const BUTTON_FACE := Color("498c69")
+const BUTTON_LIP := Color("6fb98a")
+
+## Only the fallback shape, for a checkout that has not imported the art yet.
 const PANEL_W := 340.0
-## The pause and results panel is the original 318x159 one, so PANEL_MID is set
-## to leave it exactly where it was; the menu grows downward from the same middle.
 const PANEL_MID := 182.5
 const ROW_H := 22.0
 
-func _panel_height() -> float:
-	## Roughly six levels before the list runs into the button. Past that the
-	## menu needs to scroll rather than grow.
-	if game.state == game.State.MENU:
-		return 140.0 + game.catalogue().size() * ROW_H
-	return 159.0
+## name -> {tex, size, interior, text_box}. Empty if the art is missing, which
+## puts every panel back on the plain rectangle it used to be.
+var panels := {}
 
-func _panel_top() -> float:
-	return PANEL_MID - _panel_height() / 2.0
+func _load_panels() -> void:
+	var text := FileAccess.get_file_as_string(PANELS)
+	if text.is_empty():
+		push_warning("hud: %s is missing. Run scripts/extract_panels.py." % PANELS)
+		return
+	var data: Dictionary = JSON.parse_string(text)
+	for name in data:
+		var spec: Dictionary = data[name]
+		var path: String = PANEL_ART + str(spec.file)
+		if not ResourceLoader.exists(path):
+			push_warning("hud: panel art not imported yet; falling back to plain panels")
+			panels.clear()
+			return
+		panels[name] = {
+			"tex": load(path),
+			"size": Vector2(float(spec.size[0]), float(spec.size[1])) * PANEL_SCALE,
+			"interior": spec.interior,
+			"text_box": spec.text_box,
+		}
+
+func _panel_name() -> String:
+	return "panel_menu" if game.state == game.State.MENU else "panel_popup"
+
+func panel_rect() -> Rect2:
+	var spec: Dictionary = panels.get(_panel_name(), {})
+	if spec.is_empty():
+		var h: float = 140.0 + game.listing().size() * ROW_H 			if game.state == game.State.MENU else 159.0
+		return Rect2((640.0 - PANEL_W) / 2.0, PANEL_MID - h / 2.0, PANEL_W, h)
+	var size: Vector2 = spec.size
+	return Rect2((640.0 - size.x) / 2.0, PANEL_BOTTOM - size.y, size.x, size.y)
+
+## One of the panel's measured regions, in HUD coordinates. `interior` is
+## everything inside the frame; `text_box` the pale card within it, which on the
+## big panel is a smaller area than the parchment around it.
+func _face(key: String) -> Rect2:
+	var r := panel_rect()
+	var spec: Dictionary = panels.get(_panel_name(), {})
+	if spec.is_empty():
+		return r.grow(-16.0)
+	var f: Array = spec[key]
+	return Rect2(r.position.x + float(f[0]) * r.size.x,
+				 r.position.y + float(f[1]) * r.size.y,
+				 (float(f[2]) - float(f[0])) * r.size.x,
+				 (float(f[3]) - float(f[1])) * r.size.y)
 
 func button_rect() -> Rect2:
-	return Rect2(220, _panel_top() + _panel_height() - 47.0, 200, 34)
+	return BUTTON_AT
 
 func _row_rect(i: int) -> Rect2:
-	return Rect2((640 - PANEL_W) / 2.0 + 16.0, _panel_top() + 52.0 + i * ROW_H, PANEL_W - 32.0, ROW_H)
+	## The level list sits on the parchment, between the heading and the card
+	## below it. The rows tighten as the list grows rather than the panel growing:
+	## the frame is a fixed piece of art now and cannot be stretched to fit.
+	var inner := _face("interior")
+	var card := _face("text_box")
+	var top: float = inner.position.y + 24.0
+	var band: float = maxf(card.position.y - 6.0 - top, ROW_H)
+	var rows: float = maxf(float(game.listing().size()), 1.0)
+	var h: float = minf(ROW_H, band / rows)
+	return Rect2(inner.position.x + 8.0, top + i * h, inner.size.x - 16.0, h)
 
 ## Which level row the given point is over, or -1. Only meaningful on the menu.
 func row_at(at: Vector2) -> int:
 	if not is_instance_valid(game) or game.state != game.State.MENU:
 		return -1
-	for i in game.catalogue().size():
+	for i in game.listing().size():
 		if _row_rect(i).has_point(at):
 			return i
 	return -1
@@ -275,6 +357,41 @@ func _drink_prompt() -> void:
 	# Clear of the ground line, so it never sits on top of the level geometry.
 	_centred_over_level(label, 275, 13, Color("8d98a2") if dim else INK)
 
+func _coach_prompt() -> void:
+	## The level naming a key, for the one thing the shape of a level cannot
+	## mime. Everything else on the practice course is taught by geometry — a gap
+	## you have to jump, a gate that will not open — but you can stand in front of
+	## a bandit indefinitely without ever discovering that J is a fist.
+	##
+	## Level data, not a rule in here: `coach` is [x_from, x_to, text, action],
+	## and the level decides where a line belongs and what retires it. The first
+	## line in range whose action has not been done yet is the one on screen, so
+	## they arrive in the order the level lists them and each disappears for good
+	## once its lesson has landed. See coach_note in levels/first_steps.json.
+	var at: float = game.player.position.x
+	for entry in game.level.get("coach", []):
+		if entry.size() < 4 or at < float(entry[0]) or at > float(entry[1]):
+			continue
+		if _coached(str(entry[3])):
+			continue
+		# Above the lift and drink line, which can be on screen at the same time:
+		# the stretch this is written for has a rock standing in it.
+		_centred_over_level(str(entry[2]), 252, 13, COACH)
+		return
+
+func _coached(action: String) -> bool:
+	## Has he done it? Lifetime counts, so a retry never puts a lesson back.
+	match action:
+		"strike":
+			# Any swing that is not a blast: the jab, the kick and the charge are
+			# all the same key and all the same lesson.
+			return game.player.attacks_thrown - game.player.blasts_thrown > 0
+		"blast":
+			return game.player.blasts_thrown > 0
+		"jump":
+			return game.player.jumps > 0
+	return true    # an action nothing knows how to check is already learnt
+
 func _draw() -> void:
 	if not is_instance_valid(game):
 		return
@@ -298,6 +415,7 @@ func _draw() -> void:
 	draw_rect(Rect2(20,351,600*progress,4), Color("2fb98a"))
 	if game.state == game.State.PLAYING:
 		_gate_cue()
+		_coach_prompt()
 		_drink_prompt()
 		return
 	if game.state == game.State.DYING:
@@ -307,19 +425,28 @@ func _draw() -> void:
 	# Edge to edge. It used to stop short of the two cream strips, which hid the
 	# seam; with nothing bracketing the screen any more, a dimmed middle and two
 	# bright bands read as a rendering fault rather than as a modal panel.
-	draw_rect(Rect2(0,0,640,360), Color(0.10,0.16,0.20,0.16))
-	var top := _panel_top()
-	var h := _panel_height()
-	var left := (640.0 - PANEL_W) / 2.0
-	draw_rect(Rect2(left, top, PANEL_W, h), Color("fffdf7"))
-	draw_rect(Rect2(left, top, PANEL_W, 4), Color("ef875f"))
-	if game.state == game.State.MENU:
-		_level_select(top)
+	# Darker than it was: the panels are stone and parchment now rather than a
+	# white card, and a 16% wash left them competing with the level behind them.
+	draw_rect(Rect2(0,0,640,360), Color(0.06,0.09,0.13,0.45))
+	var r := panel_rect()
+	var spec: Dictionary = panels.get(_panel_name(), {})
+	if spec.is_empty():
+		draw_rect(r, Color("fffdf7"))
+		draw_rect(Rect2(r.position, Vector2(r.size.x, 4)), Color("ef875f"))
 	else:
-		_message_panel(top)
+		draw_texture_rect(spec.tex, r, false)
+	if game.state == game.State.MENU:
+		_level_select()
+	else:
+		_message_panel()
+	# Drawn rather than taken from the kit, whose plates all have their word baked
+	# in — this one says four different things. Its colours are the kit's.
 	var button := button_rect()
-	draw_rect(button, Color("287c68"))
-	centered(_button_label(), button.position.y + 22.0, 14, Color("fffdf7"))
+	draw_rect(button, BUTTON_FACE)
+	draw_rect(Rect2(button.position, Vector2(button.size.x, 3.0)), BUTTON_LIP)
+	draw_rect(button, BUTTON_LIP, false, 2.0)
+	centered(_button_label(), button.position.y + button.size.y * 0.66, 14,
+			Color("f4efe2"))
 
 func _button_label() -> String:
 	if game.state == game.State.PAUSED:
@@ -329,26 +456,35 @@ func _button_label() -> String:
 		return "ENTER  /  NEXT LEVEL" if game.next_level_id() != "" else "ENTER  /  PLAY AGAIN"
 	return "ENTER  /  START"
 
-func _level_select(top: float) -> void:
-	## The menu is the level select. It reads the order from levels/index.json
-	## and each title from the level file itself, so adding a level is one line
-	## in the index and nothing here.
-	var order: Array = game.catalogue()
-	centered("Choose a level.", top + 34, 20)
+func _level_select() -> void:
+	## The menu is the level select, and it lists EVERY level that ships rather
+	## than the course: the course is what a new journey walks through, and this
+	## is what you are allowed to pick. See listing() in session.gd. Each title
+	## comes from the level file itself, so adding a level is one line in the
+	## index and nothing here.
+	var inner := _face("interior")
+	var card := _face("text_box")
+	var order: Array = game.listing()
+	# On the parchment, above the card. The panel's own headstone already carries
+	# the game's name, so this only has to say what the list is for.
+	centered("Choose a level.", inner.position.y + 17.0, 18)
 	for i in order.size():
 		var row := _row_rect(i)
 		var picked: bool = i == game.menu_index
 		if picked:
-			draw_rect(row, Color("287c68"))
+			# A burnt-in mark on the parchment. The old green block belonged to the
+			# white card it used to sit on.
+			draw_rect(row, Color(0.24, 0.13, 0.08, 0.50))
 		text_at("%d.  %s" % [i + 1, game.level_title(order[i])],
-				Vector2(row.position.x + 10, row.position.y + 16), 14,
-				Color("fffdf7") if picked else INK)
+				Vector2(row.position.x + 10, row.position.y + row.size.y - 6.0), 14,
+				Color("ffeeca") if picked else INK)
+	# What the highlighted level is, on the card below the list — which is what
+	# that card is drawn for.
 	var chosen: String = order[clampi(game.menu_index, 0, order.size() - 1)]
-	var foot := top + 52.0 + order.size() * ROW_H
-	centered(str(game.level_data(chosen).get("brief", "")), foot + 18.0, 12)
-	centered("W/S or the arrows to choose.", foot + 34.0, 12)
+	wrapped(str(game.level_data(chosen).get("brief", "")), card, card.position.y + 18.0, 12)
+	centered("W/S or the arrows to choose.", card.end.y - 10.0, 12)
 
-func _message_panel(top: float) -> void:
+func _message_panel() -> void:
 	var title := str(game.level.get("tagline", ""))
 	var detail := str(game.level.get("brief", ""))
 	var foot := "One jump. No double jump. Unlimited retries."
@@ -360,6 +496,7 @@ func _message_panel(top: float) -> void:
 		detail = "%.1f seconds   /   %d retries" % [game.last_finish_time, game.deaths]
 		if game.next_level_id() != "":
 			foot = "Next: %s" % game.level_title(game.next_level_id())
-	centered(title, top + 40, 24)
-	centered(detail, top + 74, 12)
-	centered(foot, top + 94, 12)
+	var card := _face("text_box")
+	centered(title, card.position.y + 30.0, 22)
+	wrapped(detail, card, card.position.y + 52.0, 12)
+	wrapped(foot, card, card.end.y - 22.0, 12)

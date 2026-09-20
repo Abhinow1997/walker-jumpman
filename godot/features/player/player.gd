@@ -59,22 +59,25 @@ const CHARGE_FROM := 150.0
 ## blast animation's release frame, then scaled with the art (x0.75).
 const BLAST_MUZZLE := Vector2(22.5, -34.5)
 
-## He starts most of the way up, so the bar reads healthy at spawn rather than
-## looking like a punishment before the first fight. This was 25.
+## He starts full. It was 25, then 60, and it is the whole bar now: the first
+## thing a player sees is the bar, and a bar that starts short reads as a
+## punishment for something they have not done yet.
 ##
-## 60 is not arbitrary and is the highest it can go: a bottle is worth two of the
-## bar's five segments, 40 points, and a drink that would overflow is clamped —
-## which also cuts the drink SHORT, because its six seconds are proportional to
-## how much he actually swallows. Above 60 a full bottle can no longer land in
-## full, so the drink gets quicker and quietly worth less the healthier he
-## starts. 60 + 40 is exactly 100. Raising this means raising MAX_HEALTH with it,
-## or accepting that the white bottle no longer delivers what it says.
+## What that costs, so it is a decision rather than a surprise: a milk bottle is
+## worth two of the bar's five segments — 40 points — and drink() REFUSES a
+## bottle at full health rather than wasting it. So a bottle found before the
+## first fight cannot be drunk, and says ALREADY FULL instead. That is why both
+## bottles on the practice course sit just after a fight and not before one; a
+## level that puts one in front of an untouched player is putting a locked door
+## there. The old 60 existed to make 60 + 40 land exactly on 100 so a full
+## bottle could always be swallowed whole, which stops mattering once you are
+## expected to have been hit before you reach one.
 ##
 ## The punks take it away a bar at a time. Spikes and falls remain instant death
 ## — that rule is the game's, and a health bar does not get to quietly replace
 ## it — so health is what enemies spend and hazards still ignore.
 const MAX_HEALTH := 100
-const START_HEALTH := 60
+const START_HEALTH := MAX_HEALTH
 
 ## Mana is what the blast costs, and the blast is the only thing that spends it.
 ## Punches and kicks stay free: the blast is the move that reaches across the
@@ -218,6 +221,12 @@ var last_drink_consumed: float = 0.0
 var last_drink_left: float = 0.0
 var hits_landed: int = 0
 var attacks_thrown: int = 0
+## Of those, the ones that were blasts. Split out so "has he ever thrown a
+## punch" and "has he ever thrown a blast" are separate questions — which is
+## what the level's coaching lines ask before they stop showing themselves.
+## Lifetime, like attacks_thrown: a retry does not un-learn a control, so
+## neither is reset in reset_at.
+var blasts_thrown: int = 0
 var test_attack_pressed: bool = false
 var test_blast_pressed: bool = false
 
@@ -522,6 +531,8 @@ func begin_attack(key: String) -> bool:
 	# evidence run reports.
 	if key != "drink":
 		attacks_thrown += 1
+	if key == "blast":
+		blasts_thrown += 1
 	return true
 
 func _end_attack() -> void:

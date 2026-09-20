@@ -6,13 +6,13 @@ Standalone game repository: [nikbearbrown/walker-jumpman](https://github.com/nik
 
 Clone with `git clone https://github.com/nikbearbrown/walker-jumpman.git`, then import `walker-jumpman/godot/project.godot` in the regular Godot editor. No .NET runtime or external assets are required. On macOS, the launcher below also works when Godot is installed in Applications; on other platforms, use the editor or `godot --path godot` from the cloned folder.
 
-Double-click [walker-jumpman.command](walker-jumpman.command) to play. The game opens on the title screen: **NEW JOURNEY** starts the course in The Fractured Isles, **PRACTICE** drops into the First Steps greybox slice, and **LOAD GAME** opens the in-game level list (**W/S or up/down** to choose, **Enter** to start). In play, **A/D or left/right** to move, **Space** to jump, **J** to attack or throw, **K** to blast, **E** to lift or drink, **R** to retry, **Escape/P** to pause and **M** for the menu. Reach the flag. Retries are unlimited, and finishing a level goes straight to the next one.
+Double-click [walker-jumpman.command](walker-jumpman.command) to play. The game opens on the title screen: **NEW JOURNEY** plays the opening and then starts the course in First Steps, carries on into The Fractured Isles and ends at The Dragon's Roost, **PRACTICE** drops straight into First Steps, and **LOAD GAME** opens the in-game level list — every level that ships, course or not (**W/S or up/down** to choose, **Enter** to start). In play, **A/D or left/right** to move, **Space** to jump, **J** to attack or throw, **K** to blast, **E** to lift or drink, **R** to retry, **Escape/P** to pause and **M** for the menu. Reach the flag. Retries are unlimited, and finishing a level goes straight to the next one.
 
-The title screen and The Fractured Isles share the Magic Cliffs loop — the pack ships one track — so starting a new journey carries the music straight on rather than restarting it. The greybox slices are silent. Music lives in [music.gd](godot/game/music.gd), the one node in the project that outlives a scene.
+The title screen, the opening's title card and all three course levels share the Magic Cliffs loop — the pack ships one track — so starting a new journey carries the music straight on rather than restarting it. First Steps names the same track, so PRACTICE carries it on too; the greybox fixture and Proving Ground are silent. Music lives in [music.gd](godot/game/music.gd), the one node in the project that outlives a scene.
 
-The stage is cut into sections and you do not walk past a fight. While enemies are still standing in your section the camera stops dead, an invisible wall stands on the line, and you can see you have run out of screen rather than out of floor; put them down and both let go, with a chevron at the edge to say so. Walking back is never blocked. The Fractured Isles is four sections, the last being the Archway platform where the boss fight will go — it has no gate yet, so the flag ends it.
+The stage is cut into sections and you do not walk past a fight. While enemies are still standing in your section the camera stops dead, an invisible wall stands on the line, and you can see you have run out of screen rather than out of floor; put them down and both let go — the wall at once, the camera over about half a second, panning forward rather than cutting, with a chevron at the edge to say so. That pan is the only smoothing on the camera's horizontal: a fight backed into a gate ends with you pressed against the wall, which is the furthest the framing ever has to travel, and it used to travel it in one frame while you were still mid-swing. Walking back is never blocked. The Fractured Isles is four sections, the last being the Archway platform where the boss fight will go — it has no gate yet, so the flag ends it.
 
-Two bars sit in the top corner. Health is the green one: punks take it, the white milk bottles give it back, and spikes and pits ignore it entirely — those are still instant deaths. Mana is the blue one, and the blast is the only thing that spends it: five a shot out of a hundred, so twelve shots from a spawn and twenty on a full bar. It also trickles back on its own, a shot's worth every ten seconds, and the brown bottles top it up faster. Punching and kicking stay free, so an empty mana bar costs you the ranged option for a few seconds and nothing else.
+Two bars sit in the top corner. Health is the green one and **you start on all of it**: punks take it, the white milk bottles give it back, and spikes and pits ignore it entirely — those are still instant deaths. A milk bottle found before anything has hit you says ALREADY FULL rather than being wasted, which is why every bottle on the course sits just after a fight. Mana is the blue one, and the blast is the only thing that spends it: five a shot out of a hundred, so twelve shots from a spawn and twenty on a full bar. It also trickles back on its own, a shot's worth every ten seconds, and the brown bottles top it up faster. Punching and kicking stay free, so an empty mana bar costs you the ranged option for a few seconds and nothing else.
 
 Neither bar snaps. Both slide to their new level over about a third of a second, while the number beside them changes at once — so a hit or a blast is something you watch land, and the slow refill is visible as movement rather than a figure that is quietly different next time you look.
 
@@ -21,6 +21,47 @@ Neither bar snaps. Both slide to their new level over about a third of a second,
 This simple level has two steps, two gaps, one spike hazard, and a finish. It is the control/retry slice, not the full three-zone/cherry design below. See [build results and limitations](BUILD-REPORT.md). To edit, import [godot/project.godot](godot/project.godot) into Godot.
 
 The first Walker example is a compact 2D platformer built around readable jumps, optional cherries and quick retries. Every new game project uses the `walker-` prefix. The original `jumping-man-godot` recovery collection remains separate and unchanged; it is not included or required here. Historical design references to sibling recovery files refer to the author's local source collection, not files shipped in this repository.
+
+## The opening
+
+NEW JOURNEY plays a cold open before the level: four storyboard panels against
+a recorded monologue, then the game's title card, then the level faded up out of
+black. **Space, Enter or Escape** skips it at any point and lands in exactly the
+same place.
+
+| | |
+|---|---|
+| 0:00 | the isles, faded up out of black over a second |
+| 0:18 | the ledge, where he is asleep |
+| 0:30 | the screech |
+| 0:45 | the run |
+| 0:56 | the title card, and the game's music starts |
+| 1:00 | the level, faded up out of black |
+
+The panels are cut off the recording's own playback position rather than a
+timer, so a frame hitch shows the right panel late instead of the wrong panel on
+time. The cut times live in [storyboard.gd](godot/ui/storyboard.gd) and nowhere
+else, and everything that reads them — the capture, the diagnostic — derives its
+boundaries from that table rather than repeating the numbers.
+
+The opening fades up rather than cutting in because NEW JOURNEY is leaving a lit
+menu. Panel 0 is the establishing shot and the only one he is not in, which is
+what makes it the one to arrive out of black: there is no character to read yet,
+so nothing is missed while it does.
+
+The music is the transition. The menu loop is hushed on the way in, because the
+recording carries its own bed and two would collide; it is cued again on the
+title card, and First Steps names that same track — so the cue in `_build_world`
+finds it already playing and does nothing. The loop runs unbroken from the logo
+into play, which is why there is no cross-fade here and no silence to cover.
+
+`godot --path godot --script tests/capture_storyboard.gd` takes the whole thing
+the way a player does and writes eight frames into `evidence/screens/`; it
+asserts the cut times as arithmetic, then crosses 0:30 for real off the playing
+stream, and checks the music node is the same one still playing after the
+handoff rather than a restarted copy. `tests/diag_audio.gd` is the headless
+check that the cues still fall inside the recording — re-render that mp3 shorter
+and the 0:45 panel would simply never appear.
 
 ## Read in this order
 
@@ -41,15 +82,66 @@ The first Walker example is a compact 2D platformer built around readable jumps,
 ## Adding a level
 
 Levels are data. One JSON file each in [godot/levels/](godot/levels), and
-[index.json](godot/levels/index.json) says which of them are *the course* and in
-what order — the only file that knows how long the game is. The course is The
-Fractured Isles and nothing else: NEW JOURNEY starts at the top of that list, and
-a new game should not open on a greybox.
+[index.json](godot/levels/index.json) keeps two lists. `order` is **the course**:
+what NEW JOURNEY walks through, each level loading the next when you reach its
+flag, and the only file that knows how long the game is. `also_listed` is
+everything else the in-game level list offers. **LOAD GAME shows both**, the
+course first — so every level that ships can be picked, and only the course
+chains. Nothing has to appear twice: the list is `order` followed by whatever is
+in `also_listed` that is not already in it.
 
-First Steps and Proving Ground are still shipped, still validated and still
-playable — First Steps is what PRACTICE boots — they are simply off the course.
-First Steps is the tutorial and prototyping slice: it introduces every mechanic
-once, and it is what the test suites are written against.
+The course opens on First Steps, carries on into The Fractured Isles and ends at
+The Dragon's Roost. Learning the game is the first stretch of it rather than a
+detour beside it, and the last is one arena and one flying boss.
+
+Five levels ship, all validated by `scripts/check_levels.py`:
+
+* **First Steps** is the practice course and the first level of the journey.
+  Same cliffs, sea and cast as The Fractured Isles, cut into five short stretches
+  that each ask for one thing you have not done yet — see below.
+* **The Fractured Isles** is the course proper.
+* **The Dragon's Roost** is the final boss fight and nothing else: a hop in, a
+  flat arena with two floating stones to take height from, and the dragon. It is
+  the end of the course, so finishing it replays it.
+* **Proving Ground** is the greybox prototyping slice: somewhere to try a
+  mechanic without dressing a level around it. Listed, so you can pick it; not on
+  the course, so it chains to nothing.
+* **Greybox** is the test fixture and nothing else. It is in neither list and is
+  flagged `"listed": false` as well, so it can never be offered as something to
+  play. Every suite boots it, because
+  a fixture has to be cheap to simulate and still there next week. It holds the
+  geometry First Steps had until First Steps became content — which is exactly
+  why it had to move out: half of `test_game` and `test_combat` were asserting
+  against a level someone was editing for how it plays.
+
+### The practice course
+
+First Steps teaches the game by the shape of the level rather than by a wall of
+text. It names a key in exactly one place, for the one lesson shape cannot carry.
+What it does everywhere else is make each stretch
+impossible to leave until the thing it teaches has been done, and put the safe
+version of that thing before the one that costs anything:
+
+| | asks for | how it insists |
+|---|---|---|
+| **01 The Shallows** | moving, and a jump | A gap with a rock sitting a jump below it. Miss and you land, climb out, and try again — the one gap in the game that cannot kill you |
+| **02 Bandits** | committing to a jump, then fists | The same jump over a real pit, then a gate that will not open while the bandit behind it is standing. A milk bottle after, which is when the drink prompt first means anything. The one stretch that names a key — see below |
+| **03 The Rocks** | picking something up and throwing it | A hunter shooting across the stretch and two rocks at your feet. Blast him and he reads it coming and guards; throw a rock and he cannot — he gets no warning of that one |
+| **04 The Stair** | height, and hitting from the air | Three ledges with a bandit on the top one, met from below. A long run at the bottom of it, which is where the shoulder charge turns up on its own |
+| **05 The Anvil** | footwork | Mark, who eats anything you trade with him. The flag is past his gate, so this is not a stretch you can run |
+
+Only the first two rules are strictly enforceable — a gate is the only hard stop
+the game has, and rocks and bottles are never solid, so no lesson can be built on
+one being in the way. The rest are situations with one good answer rather than
+one possible answer, which is most of what a level can do without talking.
+
+**Bandits is the exception, and it talks.** A fight is the one thing the shape of
+a level cannot mime: you can stand in front of a bandit indefinitely without ever
+discovering that J is a fist. So that stretch carries two coaching lines — the
+strike, then the blast — and each retires itself for good the moment the thing it
+names has been done once. They are level data, not a rule in the HUD: `coach` is
+`[x_from, x_to, text, action]`, so a level decides where a line belongs and what
+counts as having learnt it, and no other level uses one.
 
 To add one, write `godot/levels/<id>.json`; put `<id>` in the index's `order` to
 make it part of the course, or leave it out to keep it off. Nothing else changes
@@ -69,7 +161,7 @@ the next level all read from the file.
 | `crates` | `[[x, y]]` | optional. Breakable, throwable, never an obstacle. Drawn as the glowing rock; the key is the slot, not the art |
 | `bottles` | `[[x, y, bars]]` | optional. White milk bottles; `bars` is **health-bar segments, 1–5**, not points |
 | `brews` | `[[x, y, bars]]` | optional. Brown bottles, same units against the **mana** bar |
-| `enemies` | `[[x, y]]`, `[[x, y, kind]]` or `[[x, y, kind, "perch"]]` | optional. One entry each. `kind` is `"bandit"` (the default), `"mark"` or `"hunter"`; each is a folder under `features/combat/art/` cut by `scripts/extract_<kind>.py`. `"perch"` marks one that does **not** hold its section's gate |
+| `enemies` | `[[x, y]]`, `[[x, y, kind]]` or `[[x, y, kind, "perch"]]` | optional. One entry each. `kind` is `"bandit"` (the default), `"mark"`, `"hunter"`, `"dragon_lord"` or `"dragon"`; each is a folder under `features/combat/art/` cut by `scripts/extract_<kind>.py`. `"perch"` marks one that does **not** hold its section's gate. A `"dragon"` is a flyer and needs flat ground under its perch — every altitude it holds is measured from the height it took off at |
 | `gates` | `[x, ...]` | optional. Section end walls, left to right. Three gates make four sections |
 | `signs` | `[[x, y, heading]]` or `[[x, y, heading, subtitle]]` | background text, in world coordinates |
 | `hills` | `[x, ...]` | optional, greybox only. Omit and six are spaced evenly across the width |
@@ -81,8 +173,8 @@ the next level all read from the file.
 ### Themes
 
 A level with no `theme` is drawn procedurally by `session.gd`, the original
-greybox: flat rectangles, drawn hills, a flag. First Steps and Proving Ground
-are these.
+greybox: flat rectangles, drawn hills, a flag. Proving Ground and the test
+fixture are these.
 
 A level with one is drawn by [scenery.gd](godot/features/world/scenery.gd) from
 the same data. **Terrain is not authored** — the cliffs, grass and caps are
@@ -191,7 +283,7 @@ you actually tune lives in the level file.
 
 ## Enemies
 
-Three enemies share one script
+Five enemies share one script
 ([`features/combat/enemy.gd`](godot/features/combat/enemy.gd)) but fight to
 different personalities, keyed by kind in its `PROFILES` table. Place any of them
 with `[x, y, "kind"]` in a level's `enemies` array.
@@ -201,6 +293,8 @@ with `[x, y, "kind"]` in a level's `enemies` array.
 | `bandit` | charger | rushes you: from mid-range he commits a fast dash, so standing still in front of him is punished. An even match otherwise — one bar of health, one bar of damage. Even the charge stays slower than your run, so leaving is always an answer. |
 | `mark` | bruiser | the tank: far more health, a heavier blow, and **super-armour on his own swing** — catch him mid-punch and he eats it and follows through, so you cannot trade jabs and win. Slow, though; the answer is footwork, not standing your ground. |
 | `hunter` | archer | keeps his distance and **looses arrows** across the gap, kiting backwards to hold the range. Draws the bow, fires a straight-flying arrow, and is forced to his fists only if you close on him. Fragile. |
+| `dragon_lord` | bruiser | the boss at the end of The Fractured Isles. A mark turned up: twice the health, a longer reach measured off his own flame, and two specials picked by distance. No guard — he **burns** a thrown blast out of the air instead, see below. |
+| `dragon` | flyer | the final boss, and the only thing in the game that fights in two phases. It sits on its perch until you walk in, **roars**, and takes off; in the air it cruises out of reach, **swoops**, and breathes fire along the deck. Then it **lands** and fights you on its feet — walking in, clawing, and breathing standing fire — before going back up. No guard: its answer to a blast is to **climb over it**. See below. |
 
 Every kind stands where the level put it until the fight starts — walk inside its
 `aggro` range, or hit it from outside — and **after that it follows you**, however
@@ -240,15 +334,133 @@ The hunter jumps for terrain only, never at you. An archer who leaps has given u
 the one thing he is for; his answer to a player on a ledge is to back off and
 shoot.
 
+**They block.** Three blasts used to kill a bandit, and throwing them from across
+the room was no worse than throwing them from arm's length — so the answer to
+every fight was the same key, held down. Now anyone with time to *see* one coming
+gets his arms up, and the whole design is in what "time" means:
+
+* Each kind has a **reaction**, in seconds of warning. Against the blast's
+  560 px/s that is a distance: 168 px for a bandit, 280 for Mark, 146 for the
+  hunter. Thrown from inside it there is no guard at all.
+* Seeing one go past — hit or miss — leaves him **braced** for two seconds, and
+  a braced enemy reads the next one from **45% of that range**. That is the
+  anti-spam rule: mash K and a bandit blocks from 76 px, which is nearly his own
+  reach.
+* A block is not immunity. A fifth of the blow gets through, it costs him the
+  ground he was going to walk, and it **spends a pool** worth one to one and a
+  half times his health. The blow that empties the pool is the one that is *not*
+  blocked: full damage, full stagger, and the broken-guard frame. The pool
+  refills over six seconds, and until it can soak a whole blast again every
+  shot simply breaks it afresh — so spending a guard is the opening, and
+  finishing him through it is the payoff.
+
+So there are two clean ways to land one, and both are the opposite of mashing:
+**get inside his reaction**, or **throw one and wait** — space them past the
+two-second brace and anything inside 168 px lands on a bandit untouched. Mashed
+from across the room, the same kill costs five blasts and 25 mana instead of
+three and 15.
+
+**The Dragon Lord burns them instead.** He cannot block — his pack ships idle,
+walk, attack, hurt and death and no defend frame — so his answer is the one a
+boss should have anyway: told a blast is coming, he throws his attack early
+enough that the fire is out when it arrives, and anything that flies into the
+fire is destroyed rather than resolved. A boss who blocks is a wall; a boss who
+answers a thrown fireball with a bigger one is a fight.
+
+The range he can do it from is his own animation rather than a number — the flame
+is 0.36 s into the swing, which is about 200 px of the blast's flight — and a
+swing takes 1.2 s, so he meets roughly every other one. Mashing K at him from
+across the arena went from ten blasts and 50 mana to about nineteen and 95, which
+is more than a full bar. Inside 200 px he has no time to wind up and every one
+lands. It also works the other way round: a blast lobbed into a swing he was
+already making burns just the same, so it is worth watching what he is doing
+before you press the key.
+
+`tests/diag_guard.gd` prints the blast-by-blast ledger for every kind, guards and
+fire alike, if you want to re-check any of these trades.
+
+**The dragon climbs over them.** It has no defend frame either — six frames of
+wing-flap and not one of them is a block — but it already lives on the one axis
+a blast does not use. The thing flies dead flat, so told one is coming it goes
+over the top, and the cost is the pass it was in the middle of. That is a trade
+rather than a switch: spamming K at it buys you safety and does no damage at
+all, and it reads the next one from closer every time, exactly as a guard does.
+Get inside its reaction — 168 px cold, 76 braced — and the blast lands, but only
+while it is down at the bottom of a swoop, because cruising it is above the line
+the blast flies along in the first place.
+
+### The flyer
+
+The dragon is a fifth style, and the only enemy that is really two: it fights
+in the air and it fights on its feet, and the pack draws both. Fourteen
+animations, thirteen of them decoded out of watermarked preview gifs — see
+`features/combat/art/dragon/PROVENANCE.md`, which explains how and proves it.
+
+**In the air** it uses none of what the others rely on — no gravity, no floor
+probe, no walk, no charge, no kiting — so its whole approach is one function
+(`_advance_flyer`) and `_integrate` skips the floor for it. **On the ground**
+it is an ordinary bruiser and runs the same `_advance_chase` every other enemy
+does, which is the point of the split: the ground half is not new movement.
+
+`anim_for()` is what joins them. A flyer has two of nearly everything — two
+idles, two walks, two hurts, two ways of breathing fire — and while it is up,
+any animation with an `_air` variant plays that one instead. `basic_move()` is
+the same idea for the attacks, which cannot be one animation with a suffix
+because they land on different frames with different boxes: **swoop** in the
+air, **claw** on the ground.
+
+It **starts perched**, standing on a solid the level put it on like anything
+else. That is what lets `check_levels.py` measure it, and it makes the take-off
+— the one moment in the whole pack drawn facing the camera — a beat of the
+fight rather than something that happened before you arrived.
+
+It does not stay up. Nine seconds in the air, then a committed landing, seven
+on its feet, then a committed take-off, round and round. In the air it has
+three heights, and the arena is built around them:
+
+* **Cruise, 156 above the deck.** You apex at 107 and your highest hit box is 36
+  above your feet, so from the floor you reach 143 — you cannot touch it. The
+  two floating stones are 96 up, and a jump from one reaches 239. Taking the
+  height is the answer; the stones are at opposite ends because a dragon that
+  circles would make a single perch a corner to be trapped in.
+* **The pass.** It noses down first and opens the throttle second, so the run in
+  is a dive rather than one long diagonal, and it will not begin one from inside
+  340 — it needs that much to finish descending before it strikes. It bottoms
+  out at 23 above your feet, which is low enough for both your standing punch
+  (36) and the blast (43) to reach, and it throws the strike a wind-up early so
+  the blow lands where you will be rather than a body length behind you.
+* **The climb**, above, when it reads a blast.
+
+and one more attack that is not a pass at all: it drops to your level at range
+and **hoses fire along the deck**. The counter to that one is to get *inside*
+the band, which is the same counter the Dragon Lord's breath has.
+
+On its feet it walks in at 150 — outrunnable, like everything else in the cast
+— **claws** at 86 and breathes the standing version of the same fire from 125
+to 180. That phase is the fight's breathing space and its danger both: it is
+the only time the dragon is reliably in reach, and the only time it can corner
+you against a wall.
+
+Beaten, it goes **down** first: dropped out of the air if that is where it was,
+and folding forward on the deck in the collapse the pack draws. Then it gets
+up, turns away from whoever put it there, and flies out of the level over about
+two and a half seconds. The gate it was holding opens the moment it is beaten,
+not when the body is cleared, so the way on is already open while you are still
+watching it go.
+
 The personality lives entirely in `PROFILES` — health, speed, damage, cooldown,
-knockback, leap, and how it closes (walk, charge, or shoot and kite). A kind with
-no row falls back to a plain walker. Art, reach and hit geometry still come from each
+knockback, leap, guard, reaction, and how it closes (walk, charge, shoot and
+kite, or fly). A kind with no row falls back to a plain walker. Art, reach and hit geometry still come from each
 kind's manifest, so you can retune a bruiser without recutting a sprite. The
 hunter's arrow is its own object ([`features/combat/arrow.gd`](godot/features/combat/arrow.gd)) —
 the LF2 rip has his bow-draw frames but no arrow, so the shaft is drawn, not cut.
 
 `godot --path godot --script tests/capture_enemies.gd` renders each kind in the
 game — including the hunter's arrow in flight — to `evidence/<kind>/`.
+`tests/capture_dragon.gd` does the same for the final boss, but as a fight
+rather than a set of poses: perch, take-off, cruise, pass, strike, climb and
+fly-away, into `evidence/dragon/`. `tests/diag_dragon.gd` prints the numbers
+behind it.
 
 ## Proposed defaults ready for review
 

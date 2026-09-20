@@ -112,6 +112,15 @@ func _physics_process(delta: float) -> void:
 		var target = result.collider
 		if target == null or already_hit.has(target):
 			continue
+		# Flown into something's fire. Asked before take_hit and not through it,
+		# because this is a rule about projectiles and take_hit is the contract
+		# every hittable thing in the game shares — a crate should not have to
+		# know what a blast is. The Dragon Lord answers one by breathing on it
+		# (he has no guard); see burns_projectiles in features/combat/enemy.gd.
+		if target.has_method("burns_projectiles") and target.burns_projectiles():
+			already_hit.append(target)
+			landed = true
+			continue
 		if target.has_method("take_hit"):
 			if target.take_hit(damage, global_position):
 				already_hit.append(target)

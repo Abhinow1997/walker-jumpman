@@ -1,0 +1,269 @@
+{
+ "_generated_by": "scripts/extract_dragon.py",
+ "_source": "Assests/demo_lugia (sheet + 10 preview gifs, stamp removed)",
+ "animations": {
+  "claw": {
+   "durations": [
+    0.08,
+    0.08,
+    0.09,
+    0.1,
+    0.07,
+    0.13,
+    0.08,
+    0.08,
+    0.12
+   ],
+   "file": "claw.png",
+   "frames": 9,
+   "loop": false
+  },
+  "death": {
+   "durations": [
+    0.09,
+    0.09,
+    0.1,
+    0.12,
+    0.16,
+    0.3
+   ],
+   "file": "death.png",
+   "frames": 6,
+   "loop": false
+  },
+  "fire": {
+   "durations": [
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09
+   ],
+   "file": "fire.png",
+   "frames": 10,
+   "loop": false
+  },
+  "fire_air": {
+   "durations": [
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09
+   ],
+   "file": "fire_air.png",
+   "frames": 10,
+   "loop": false
+  },
+  "hurt": {
+   "durations": [
+    0.07,
+    0.1,
+    0.16
+   ],
+   "file": "hurt.png",
+   "frames": 3,
+   "loop": false
+  },
+  "hurt_air": {
+   "durations": [
+    0.07,
+    0.1,
+    0.16
+   ],
+   "file": "hurt_air.png",
+   "frames": 3,
+   "loop": false
+  },
+  "idle": {
+   "durations": [
+    0.16,
+    0.16,
+    0.16,
+    0.16
+   ],
+   "file": "idle.png",
+   "frames": 4,
+   "loop": true
+  },
+  "idle_air": {
+   "durations": [
+    0.11,
+    0.11,
+    0.11,
+    0.11,
+    0.11,
+    0.11
+   ],
+   "file": "idle_air.png",
+   "frames": 6,
+   "loop": true
+  },
+  "jump": {
+   "durations": [
+    0.12,
+    0.12
+   ],
+   "file": "jump.png",
+   "frames": 2,
+   "loop": false
+  },
+  "land": {
+   "durations": [
+    0.07,
+    0.08,
+    0.1,
+    0.09,
+    0.09,
+    0.12
+   ],
+   "file": "land.png",
+   "frames": 6,
+   "loop": false
+  },
+  "swoop": {
+   "durations": [
+    0.11,
+    0.15,
+    0.06,
+    0.15,
+    0.09,
+    0.12
+   ],
+   "file": "swoop.png",
+   "frames": 6,
+   "loop": false
+  },
+  "takeoff": {
+   "durations": [
+    0.09,
+    0.1,
+    0.13,
+    0.16,
+    0.13,
+    0.08,
+    0.07,
+    0.09
+   ],
+   "file": "takeoff.png",
+   "frames": 8,
+   "loop": false
+  },
+  "walk": {
+   "durations": [
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09,
+    0.09
+   ],
+   "file": "walk.png",
+   "frames": 8,
+   "loop": true
+  },
+  "walk_air": {
+   "durations": [
+    0.07,
+    0.07,
+    0.07,
+    0.07,
+    0.07,
+    0.07
+   ],
+   "file": "walk_air.png",
+   "frames": 6,
+   "loop": true
+  }
+ },
+ "cell": [
+  209,
+  111
+ ],
+ "faces": -1,
+ "hit_damage": 34,
+ "hit_frame": 3,
+ "hit_rect": [
+  -1.5,
+  -78.0,
+  82.5,
+  123.0
+ ],
+ "moves": {
+  "claw": {
+   "anim": "claw",
+   "basic": true,
+   "damage": 30,
+   "hit_frame": 5,
+   "hit_rect": [
+    43.5,
+    -70.5,
+    42.0,
+    58.5
+   ],
+   "phase": "ground"
+  },
+  "fire": {
+   "anim": "fire",
+   "damage": 38,
+   "hit_frame": 8,
+   "hit_rect": [
+    43.5,
+    -88.5,
+    136.5,
+    124.5
+   ],
+   "phase": "ground",
+   "range": [
+    125.5,
+    180.0
+   ]
+  },
+  "fire_air": {
+   "anim": "fire_air",
+   "damage": 34,
+   "hit_frame": 7,
+   "hit_rect": [
+    43.5,
+    -90.0,
+    136.5,
+    126.0
+   ],
+   "phase": "air",
+   "range": [
+    121.0,
+    180.0
+   ]
+  },
+  "swoop": {
+   "anim": "swoop",
+   "basic": true,
+   "damage": 34,
+   "hit_frame": 3,
+   "hit_rect": [
+    -1.5,
+    -78.0,
+    82.5,
+    123.0
+   ],
+   "phase": "air"
+  }
+ },
+ "origin": [
+  122.0,
+  71.0
+ ],
+ "render_scale": 1.5
+}

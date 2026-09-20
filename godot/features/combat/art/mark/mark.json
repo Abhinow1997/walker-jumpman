@@ -2,6 +2,15 @@
  "_generated_by": "scripts/extract_mark.py",
  "_source": "Little Fighter 2 Mark (ripped sheet, unlicensed fan content)",
  "animations": {
+  "guard": {
+   "durations": [
+    0.3,
+    0.25
+   ],
+   "file": "guard.png",
+   "frames": 2,
+   "loop": false
+  },
   "hurt": {
    "durations": [
     0.1,
