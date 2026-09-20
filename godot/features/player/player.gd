@@ -22,7 +22,10 @@ const HITTABLE := 64
 ##
 ##   ground   must be standing on the floor to start it
 ##   chain    move this one buffers into when attack is pressed again
-##   planted  ignores the movement axis for its duration
+##   planted  ignores the movement axis while his feet are on the floor. It
+##            cannot apply in mid-air, because there is nothing to plant: an
+##            airborne move that zeroed the axis would brake the jump it was
+##            thrown from and drop him short of wherever he was going.
 ##   drive    forced forward speed, for moves that carry you
 ##   ends_on_land  an air move that is cut short by touching down
 ##   loops         the animation repeats; the move's length is decided elsewhere
@@ -38,7 +41,18 @@ const MOVES := {
 	"punch_b": {"ground": true,  "chain": "",        "planted": true},
 	"kick":    {"ground": false, "chain": "",        "planted": false, "ends_on_land": true},
 	"charge":  {"ground": true,  "chain": "",        "planted": false, "drive": 300.0},
-	"blast":   {"ground": true,  "chain": "",        "planted": true,  "spawn_frame": 4},
+	# Throwable in mid-air, unlike every other committed move here. He plants
+	# his feet to throw one when he has feet to plant, and simply keeps his arc
+	# when he does not — see `planted` above.
+	#
+	# It matters because the muzzle rides HIM: BLAST_MUZZLE is measured from
+	# his feet, so a blast thrown at the top of a jump flies 107 px higher than
+	# one thrown standing. That is the whole point of it. A flat shot passes
+	# under a cruising dragon and over a crouching nobody; a jumped one is the
+	# only way to put an energy strike into something above head height, and it
+	# is equally the reason a jumped shot sails over a bandit standing right in
+	# front of you. Height is now the player's decision rather than a constant.
+	"blast":   {"ground": false, "chain": "",        "planted": true,  "spawn_frame": 4},
 	"drink":   {"ground": true,  "chain": "",        "planted": true,  "loops": true},
 	# Picking up and throwing. LF2 draws one bending pose for both weights and
 	# tells them apart by where the weapon point puts the object, so the object
@@ -683,7 +697,11 @@ func _physics_process(delta: float) -> void:
 	_advance_attack(delta)
 
 	var rules: Dictionary = MOVES.get(attack, {})
-	if rules.get("planted", false):
+	# Only where there is something to plant. Every other planted move is also
+	# `ground`, so it can never be mid-air to begin with and nothing about them
+	# changes; the blast is the one that can, and a blast that zeroed the axis
+	# in flight would brake the jump it was thrown from.
+	if rules.get("planted", false) and is_on_floor():
 		axis = 0.0
 	# A committed move cannot be jumped out of. The request is dropped rather
 	# than buffered, so it does not fire the instant the move ends.

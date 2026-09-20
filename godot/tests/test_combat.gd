@@ -87,6 +87,20 @@ func incoming(foe: Area2D, gap: float) -> bool:
 			return false
 	return false
 
+## Wait until the engine agrees his feet are down AND nothing is mid-swing.
+##
+## Teleporting does not put him on the floor — move_and_slide has to run first,
+## and until it has, last_floor_tick is stale and a jump press is refused. The
+## attack half matters just as much: a committed move cannot be jumped out of,
+## so an animation still running from the previous check eats the next jump.
+func settled() -> bool:
+	for i in range(60):
+		await physics_frame
+		game.player.test_axis = 0.0
+		if game.player.is_on_floor() and game.player.attack == "":
+			return true
+	return false
+
 ## Point the bandits at the player. Only for tests that are about the bandits.
 func arm_enemies() -> void:
 	for bandit in game.enemies:
@@ -1187,6 +1201,159 @@ func run() -> void:
 		and bruiser.sprite.modulate.r > bruiser.sprite.modulate.g + 0.3,
 		{"state": bruiser.state, "flash": bruiser.hurt_flash,
 		 "modulate": str(bruiser.sprite.modulate)})
+
+	# --- the blast goes up with him ----------------------------------------
+	# It used to be a ground move: `ground: true` in MOVES, refused in mid-air,
+	# so every blast in the game left his hand at the same height and there was
+	# nothing to decide. Now the muzzle rides HIM — BLAST_MUZZLE is measured
+	# from his feet — so a jumped shot flies a jump higher.
+	#
+	# Which cuts both ways, and both are asserted below: it is the only way to
+	# put an energy strike into something above head height, and it is equally
+	# why a jumped shot sails clean over a bandit standing in front of you.
+	await fresh()
+	var air_deck := -1200.0
+	for parked_air in game.enemies:
+		parked_air.target = null
+	game._add_solid(Rect2(2000, air_deck, 1200, 200))
+	await steps(2)
+
+	# Standing.
+	game.player.position = Vector2(2100, air_deck)
+	game.player.velocity = Vector2.ZERO
+	game.player.facing = 1.0
+	await settled()
+	game.player.mana = game.player.MAX_MANA
+	game.player.test_blast_pressed = true
+	var flat_at := -1.0
+	for i in range(90):
+		await steps(1)
+		if not game.blasts.is_empty():
+			flat_at = air_deck - game.blasts[0].position.y
+			break
+	check("a-standing-blast-leaves-at-chest-height",
+		flat_at > 25.0 and flat_at < 45.0, {"above_his_feet": flat_at})
+	for spent in game.blasts:
+		spent.queue_free()
+	game.blasts.clear()
+
+	# Jumped, thrown at the top. `settled()` matters here: a committed move
+	# cannot be jumped out of, so a blast animation still running from the
+	# check above would silently eat the jump press.
+	game.player.position = Vector2(2100, air_deck)
+	game.player.velocity = Vector2.ZERO
+	await settled()
+	var high_at := -1.0
+	var kept_vx := 0.0
+	var into_vx := 0.0
+	game.player.mana = game.player.MAX_MANA
+	game.player.test_jump_pressed = true
+	await physics_frame
+	var apex_seen := 0.0
+	var let_go := false
+	for i in range(140):
+		# Running while he throws, which is what the momentum check is for.
+		game.player.test_axis = 1.0
+		apex_seen = maxf(apex_seen, air_deck - game.player.position.y)
+		if not let_go and not game.player.is_on_floor() \
+				and game.player.velocity.y >= -20.0:
+			let_go = true
+			into_vx = game.player.velocity.x
+			game.player.test_blast_pressed = true
+		if let_go and high_at < 0.0 and not game.blasts.is_empty():
+			high_at = air_deck - game.blasts[0].position.y
+			kept_vx = game.player.velocity.x
+		await physics_frame
+		if high_at >= 0.0:
+			break
+	game.player.test_axis = 0.0
+	check("a-jumped-blast-leaves-a-jump-higher",
+		high_at > flat_at + 60.0 and apex_seen > 90.0,
+		{"above_his_feet": high_at, "standing_was": flat_at, "apex": apex_seen})
+	# A planted move plants his FEET, and in mid-air there are none to plant.
+	# Braking here would drop him short of whatever he jumped over.
+	check("and-does-not-brake-the-jump-it-was-thrown-from",
+		into_vx > 200.0 and absf(kept_vx - into_vx) < 20.0,
+		{"into": into_vx, "out": kept_vx})
+
+	# And the trade, at the heights it actually turns on. Three numbers decide
+	# all of it, and none of them is a guess:
+	#
+	#   a standing shot leaves at 34 above his feet and the blast's box is 9
+	#   either side of that; a jumped one leaves at 105; and a dragon cruises
+	#   with its body between 156 and 252 above the deck.
+	#
+	# So from the floor NEITHER shot reaches it — 43 and 114 against a belly at
+	# 156 — which is the thing that makes the arena's floating stones the
+	# answer rather than decoration. From one of those, 96 up, the flat shot is
+	# still short at 139 and the jumped one lands at 228. That is the whole
+	# mechanic, and the cost is the check after it.
+	var reach_cases := [
+		# [player stands at, target, target height, jumped, should land]
+		[0.0, "bandit", 0.0, false, true],
+		[0.0, "bandit", 0.0, true, false],
+		[96.0, "dragon", 156.0, false, false],
+		[96.0, "dragon", 156.0, true, true],
+	]
+	for row in reach_cases:
+		var stand_at: float = row[0]
+		var foe_kind: String = row[1]
+		var foe_up: float = row[2]
+		var jumped_shot: bool = row[3]
+		var should: bool = row[4]
+		await fresh()
+		for parked_t in game.enemies:
+			parked_t.target = null
+		game._add_solid(Rect2(2000, air_deck, 1200, 200))
+		if stand_at > 0.0:
+			game._add_solid(Rect2(2150, air_deck - stand_at, 140, 24))
+		await steps(2)
+		var mark_foe: Area2D = await spawn_foe(foe_kind, Vector2(2500, air_deck))
+		# Parked: this is about where the shot goes, not about the fight. A
+		# flyer with no target holds the height it is given and does not drift.
+		mark_foe.target = null
+		if foe_up > 0.0:
+			mark_foe.aloft = true
+			mark_foe.grounded = false
+			mark_foe.deck_y = air_deck
+			mark_foe.position.y = air_deck - foe_up
+			mark_foe.velocity = Vector2.ZERO
+		await steps(2)
+		var foe_was: int = mark_foe.health
+		game.player.position = Vector2(2210, air_deck - stand_at)
+		game.player.velocity = Vector2.ZERO
+		await settled()
+		game.player.facing = 1.0
+		game.player.mana = game.player.MAX_MANA
+		if jumped_shot:
+			game.player.test_jump_pressed = true
+			await physics_frame
+			var fired := false
+			for i in range(160):
+				if not fired and not game.player.is_on_floor() \
+						and game.player.velocity.y >= -20.0:
+					fired = true
+					game.player.test_blast_pressed = true
+				await physics_frame
+				if mark_foe.health < foe_was:
+					break
+		else:
+			game.player.test_blast_pressed = true
+			for i in range(160):
+				await physics_frame
+				if mark_foe.health < foe_was:
+					break
+		var landed_it: bool = mark_foe.health < foe_was
+		check("a-%s-blast-from-%s-%s-a-%s" % [
+				"jumped" if jumped_shot else "flat",
+				"a-stone" if stand_at > 0.0 else "the-deck",
+				"reaches" if should else "misses",
+				foe_kind],
+			landed_it == should,
+			{"hit": landed_it, "expected": should,
+			 "stood_at": stand_at, "target_at": air_deck - mark_foe.position.y})
+		mark_foe.queue_free()
+		await steps(1)
 
 	# --- the blast costs mana ----------------------------------------------
 	# The one thing that spends the bar, and the one thing that refuses to run
