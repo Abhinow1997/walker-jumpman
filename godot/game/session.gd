@@ -10,6 +10,7 @@ const Enemy = preload("res://features/combat/enemy.gd")
 const Arrow = preload("res://features/combat/arrow.gd")
 const Stone = preload("res://features/combat/stone.gd")
 const Scenery = preload("res://features/world/scenery.gd")
+const Portal = preload("res://features/world/portal.gd")
 const Music = preload("res://game/music.gd")
 const LEVEL_DIR := "res://levels/"
 ## What boots, and what every test gets unless it asks for something else.
@@ -74,10 +75,14 @@ var blasts: Array[Node2D] = []
 var arrows: Array[Node2D] = []
 ## Rocks falling down the shafts of a climbing level, and when each of that
 ## level's `rockfall` sources is next due to let one go. Both are empty for
-## every level that names no rockfall, which is every level but The Spire.
+## every level that names no rockfall, which is every level but The Climb.
 var stones: Array[Node2D] = []
 var rockfall_due: Array[float] = []
 var goal: Area2D
+## What STANDS in the goal — the lit stone over the finish. Drawn by its own
+## node rather than in _draw() below, because it moves: this node redraws once
+## when the level is built and the marker breathes every frame.
+var portal: Node2D
 var deaths: int = 0
 var elapsed: float = 0.0
 var retry_remaining: float = 0.0
@@ -125,11 +130,15 @@ func _clear_world() -> void:
 	stones.clear()
 	rockfall_due.clear()
 	goal = null
+	portal = null
 	scenery = null
 	player = null
 	camera = null
 	gates.clear()
 	gate_walls.clear()
+	seal_wall = null
+	seal_at = INF
+	sealed = false
 	hud = null
 	drinking_bottle = null
 
@@ -172,6 +181,12 @@ func _build_world() -> void:
 		hazard_areas.append(_add_area(Rect2(entry[0], entry[1], entry[2], entry[3]), 8, true))
 	var f: Array = level.finish
 	goal = _add_area(Rect2(f[0], f[1], f[2], f[3]), 16, false)
+	# Added before the crates and the player so both draw over it: he walks INTO
+	# the light rather than behind it.
+	portal = Portal.new()
+	portal.game = self
+	portal.position = Portal.stand_at(f)
+	add_child(portal)
 	# Crates are added before the player so he draws over them, and they are
 	# Area2D with no collision mask: they are targets, never obstacles. Walking
 	# into one does nothing, so no crate can block or alter the platforming route.
@@ -219,6 +234,7 @@ func _build_world() -> void:
 		add_child(foe)
 	_build_gates()
 	_fence_flyers()
+	_build_arena()
 	player = Player.new()
 	player.blast_fired.connect(_on_blast_fired)
 	player.drink_ended.connect(_on_drink_ended)
@@ -268,6 +284,53 @@ const GATE_WALL := Vector2(24.0, 2400.0)
 ## which costs nothing: the wall is at the edge either way.
 const GATE_INSET := 48.0
 
+## --- the door behind a boss -------------------------------------------------
+##
+## Ordinary gates only ever stop you going ON. Walking back is never blocked,
+## because a wall behind you in a fight takes away the room you need to fight
+## in. A boss is the exception, and The Fractured Isles showed why: the dragon
+## is fenced into its own section (see _fence_flyers), so a player who simply
+## walked west out of the arena stood two sections back on a deck it could not
+## follow him onto, and the fight stopped happening. The gate ahead of him held
+## the flag; nothing held the way out.
+##
+## So while a boss is fighting, the wall BEHIND its section is solid too, and
+## the camera stops against it the same way it stops against the one in front.
+## The box that closes is the boss's own section — which is already the arena
+## as far as everything else is concerned: it is what fly_bounds fences the
+## dragon into, so the two of them end up shut in exactly the same room.
+##
+## A boss arena is the level's `boss_arena`: the x its fight is sealed behind.
+## Optional, and only The Fractured Isles names one — 6912, the lip of the
+## dragon's deck. Its SECTION opens at 6110, out in the middle of the chasm,
+## which would leave the four stepping stones inside the fight (the ledges he
+## crossed to get there) and stand the wall in mid-air over the water.
+##
+## Named rather than worked out from the deck the boss stands on, which was
+## the first cut of this and is wrong on The Dragon's Roost: its two bosses
+## stand on 1512..2148 and one of the two floating stones you need to reach
+## the flying one is at 1188, outside it. A derived line would have walled that
+## stone out of its own fight. Where an arena begins is a level's decision.
+##
+## The wall, where it stands, and whether it is shut. LATCHED rather than
+## recomputed every frame, for two reasons: it cannot flicker while he stands
+## on the line, and it only latches once he is CLEAR of it, so a fight that
+## somehow began with him on the wrong side can still be walked into. Cleared
+## by the boss going, which a retry does for free — reset() puts every enemy
+## back on its feet and takes `engaged` with it.
+var seal_wall: StaticBody2D = null
+var seal_at: float = INF
+var sealed: bool = false
+## How far past the line he has to be before it shuts behind him. One wall
+## width: he is 15 across and the wall stands WEST of the line, so at 24 he is
+## clear of it and cannot be caught inside it when it turns solid.
+##
+## Not more than that. The Fractured Isles wakes its dragon from a story card
+## cued at 6960, which is 48 past the lip at 6912 — a margin of 64 never
+## latched at all, and the first run of tests/diag_arena_seal.gd watched him
+## stroll back out over the stones with the fight on.
+const SEAL_MARGIN := 24.0
+
 func _build_gates() -> void:
 	gates.clear()
 	gate_walls.clear()
@@ -279,22 +342,61 @@ func _build_gates() -> void:
 		var wall := _add_solid(Rect2(x, -GATE_WALL.y / 2.0, GATE_WALL.x, GATE_WALL.y))
 		gate_walls.append(wall)
 
+func arena_of(foe: Node2D) -> Vector2:
+	## The box a boss fight happens in: its section, cut back to the level's
+	## `boss_arena` line when it names one. The section is the outside edge —
+	## it is where the gate ahead stands and nothing may cross that — and the
+	## arena line is the inside one.
+	var box := section_bounds(section_of(foe.home.x))
+	box.x = maxf(box.x, arena_line())
+	return box
+
+func arena_line() -> float:
+	## Where this level seals a boss fight behind, or -INF for a level that
+	## does not. One number per level: a level with two bosses fights them in
+	## one room.
+	return float(level.get("boss_arena", -INF))
+
 func _fence_flyers() -> void:
-	## A flyer is fenced into the section it was placed in, which for a boss is
-	## its arena. Everything else in the cast is bounded by the floor running
-	## out from under it; a flyer has no floor, and backs away from a player who
-	## crowds it, so without this a player in the corner of a gated arena can
-	## push the boss out through the side of the screen. See fly_bounds in
-	## features/combat/enemy.gd for the measurement, and tests/diag_arena.gd
-	## for how to take it again.
+	## A flyer is fenced into its arena. Everything else in the cast is bounded
+	## by the floor running out from under it; a flyer has no floor, and backs
+	## away from a player who crowds it, so without this a player in the corner
+	## of a gated arena can push the boss out through the side of the screen.
+	## See fly_bounds in features/combat/enemy.gd for the measurement, and
+	## tests/diag_arena.gd for how to take it again.
 	##
-	## The SECTION and not the framed arena. A gate frames the last 960 before
+	## The arena and not the framed section. A gate frames the last 960 before
 	## its wall, and The Dragon's Roost arena is wider than that — fencing to
 	## the frame would keep its dragon out of the half of its own deck the
-	## player can stand on.
+	## player can stand on. On a level that names a `boss_arena` it is that box
+	## and not the whole section either: the same room the player is sealed
+	## into, so the boss cannot drift out over a chasm he cannot follow it onto
+	## and off the side of the screen. A level naming none is fenced to its
+	## section exactly as before.
 	for foe in enemies:
 		if is_instance_valid(foe) and foe.is_flyer():
-			foe.fly_bounds = section_bounds(section_of(foe.home.x))
+			foe.fly_bounds = arena_of(foe)
+
+func _build_arena() -> void:
+	## The wall that shuts behind a boss fight, built with the level and left
+	## open until there is a fight to shut in. Its own body rather than one of
+	## the gate walls: a gate stands on a line the level author chose for the
+	## fight AHEAD of it, and the back of an arena is a different place — 6912
+	## against 6110 on the Isles.
+	seal_wall = null
+	seal_at = INF
+	sealed = false
+	if arena_line() == -INF:
+		return          # this level does not shut its fights in
+	for foe in enemies:
+		if is_instance_valid(foe) and foe.is_boss():
+			seal_at = minf(seal_at, arena_of(foe).x)
+	if seal_at == INF or seal_at <= 0.0:
+		return          # no boss, or its arena starts at the edge of the level
+	# West of the line, so the whole deck stays standable.
+	seal_wall = _add_solid(Rect2(seal_at - GATE_WALL.x, -GATE_WALL.y / 2.0,
+			GATE_WALL.x, GATE_WALL.y))
+	seal_wall.collision_layer = 0
 
 func section_of(x: float) -> int:
 	## Which section a point is in. The last section has no gate, so anything
@@ -351,9 +453,10 @@ func gate_shut_at() -> float:
 
 func _sync_gates() -> void:
 	## One pass a frame: each wall is solid exactly while its own section is not
-	## clear. Driven off alive() rather than off a death signal, so a retry —
-	## which puts every enemy back on its feet — closes the walls again with no
-	## extra bookkeeping.
+	## clear, or while it is the door shut behind a boss fight. Driven off
+	## alive() rather than off a death signal, so a retry — which puts every
+	## enemy back on its feet — closes the walls again with no extra bookkeeping.
+	_sync_boss_seal()
 	for i in gate_walls.size():
 		var wall := gate_walls[i]
 		if not is_instance_valid(wall):
@@ -361,6 +464,23 @@ func _sync_gates() -> void:
 		# Layer 1 is World, which is the only thing the player collides with.
 		# Dropping to 0 leaves the body in place and lets him walk through it.
 		wall.collision_layer = 0 if section_clear(i) else 1
+
+func _sync_boss_seal() -> void:
+	## Shuts the arena behind a boss fight and opens it again when the fight is
+	## over. See seal_wall.
+	if not is_instance_valid(seal_wall):
+		return
+	if boss() == null:
+		sealed = false
+	elif not sealed and is_instance_valid(player) \
+			and player.position.x > seal_at + SEAL_MARGIN:
+		sealed = true
+	seal_wall.collision_layer = 1 if sealed else 0
+
+func gate_behind_at() -> float:
+	## The x of the wall shut behind him, or -INF. The camera reads it for its
+	## left edge, the way gate_shut_at gives it the right one.
+	return seal_at if sealed else -INF
 
 func _sync_descent() -> void:
 	## The perch snipers come off their shelves once the ground below them is
@@ -1487,6 +1607,18 @@ func _drop_stone(at: Vector2) -> Node2D:
 ## drink reach: this is "am I standing at it", not "am I touching it".
 const PICKUP_RANGE := Vector2(54.0, 70.0)
 
+func to_hud(at: Vector2) -> Vector2:
+	## A point in the world, in the HUD's own 640x360 design space.
+	##
+	## Here rather than in hud.gd because the three numbers it needs — where the
+	## camera is, half a viewport, and the scale the HUD layer is drawn at — all
+	## live here, and a second copy of them is a second place to be wrong. It is
+	## what lets a prompt be drawn OVER the thing it is about instead of in the
+	## middle of the screen.
+	if not is_instance_valid(camera):
+		return at
+	return (at - camera.position + VIEW_HALF) / HUD_SCALE
+
 func carryable_in_reach() -> Node2D:
 	## The nearest thing he could pick up, or null. Crates and bottles are the
 	## same question, so they are asked it the same way rather than the bottle
@@ -1679,13 +1811,24 @@ func _physics_process(delta: float) -> void:
 		# ordinary play: no gate, nothing held, camera on its mark to the pixel
 		# the way it has always been. Only the release is eased, and only while
 		# it lasts.
-		var want: float = maxf(player.position.x + 200, VIEW_HALF.x)
-		var bound: float = maxf(far, VIEW_HALF.x)
+		# The near edge is half a viewport into the level, or the door shut
+		# behind a boss fight when there is one — same inset as the far edge,
+		# so the wall lands just inside the screen instead of exactly on it and
+		# he is never the thing that gets clipped.
+		var near: float = VIEW_HALF.x
+		var behind := gate_behind_at()
+		if behind > -INF:
+			near = maxf(near, behind + VIEW_HALF.x - GATE_INSET)
+		var want: float = maxf(player.position.x + 200, near)
+		var bound: float = maxf(far, near)
 		if want > bound:
 			camera_held = want - bound          # held: exact, and it snaps
 		else:
 			camera_held = maxf(0.0, camera_held - GATE_RELEASE * delta)
-		camera.position.x = want - camera_held
+		# Clamped to `near` after the hold as well as before it: the hold is a
+		# distance left over from a gate that has just opened, and it must not
+		# drag the view back through a door that is still shut.
+		camera.position.x = maxf(want - camera_held, near)
 		camera.position.y = _follow_y(camera.position.y)
 	if is_instance_valid(hud):
 		hud.queue_redraw()
@@ -1819,26 +1962,15 @@ func _draw() -> void:
 			var x: float = entry[0] + i * spike_w
 			draw_colored_polygon(PackedVector2Array([Vector2(x,spike_base),Vector2(x+spike_w*0.5,entry[1]),Vector2(x+spike_w,spike_base)]), Color("d24e42"))
 
-## The flag and the signs — see the note in _draw about why these are not part of
-## the greybox above.
+## The painted area names — see the note in _draw about why these are not part
+## of the greybox above.
+##
+## The end of the level used to be drawn here too: a pole and a pennant, three
+## flat polygons. It is features/world/portal.gd now, a node of its own, because
+## what stands there moves and this canvas is redrawn once per level.
 func _draw_markers() -> void:
 	var font := ThemeDB.fallback_font
 	var ink := Color("25354a")
-	var f: Array = level.finish
-	var finish_x: float = float(f[0])
-	var foot: float = float(f[1]) + float(f[3])
-	var mast: float = float(f[1]) - 28.0
-	# Warm rather than the old green: against the greybox anything read, but on
-	# grass a green pennant disappears into the hill behind it. This is the
-	# menu's own accent, which is the one colour in the game nothing else on a
-	# cliff is wearing.
-	draw_line(Vector2(finish_x + 6, foot), Vector2(finish_x + 6, mast), ink, 6)
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(finish_x + 10, mast), Vector2(finish_x + 64, mast + 20),
-		Vector2(finish_x + 10, mast + 48)]), Color("ef875f"))
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(finish_x + 10, mast), Vector2(finish_x + 36, mast + 10),
-		Vector2(finish_x + 10, mast + 20)]), Color("ffeeca"))
 	# Signs are painted on the background from the level file: [x, y, heading]
 	# or [x, y, heading, subtitle]. They were three hard-coded draw_string calls
 	# naming First Steps' own zones, which no second level could ever reuse.

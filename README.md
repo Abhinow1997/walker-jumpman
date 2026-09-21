@@ -6,11 +6,15 @@ Standalone game repository: [nikbearbrown/walker-jumpman](https://github.com/nik
 
 Clone with `git clone https://github.com/nikbearbrown/walker-jumpman.git`, then import `walker-jumpman/godot/project.godot` in the regular Godot editor. No .NET runtime or external assets are required. On macOS, the launcher below also works when Godot is installed in Applications; on other platforms, use the editor or `godot --path godot` from the cloned folder.
 
-Double-click [walker-jumpman.command](walker-jumpman.command) to play. The game opens on the title screen: **NEW JOURNEY** plays the opening and then starts the course in First Steps, carries on into The Fractured Isles and ends at The Dragon's Roost, **PRACTICE** drops straight into First Steps, and **LOAD GAME** opens the in-game level list — every level that ships, course or not (**W/S or up/down** to choose, **Enter** to start). In play, **A/D or left/right** to move, **Space** to jump, **J** to attack or throw, **K** to blast, **E** to lift or drink, **R** to retry, **Escape/P** to pause and **M** for the menu. Reach the flag. Retries are unlimited, and finishing a level goes straight to the next one.
+Double-click [walker-jumpman.command](walker-jumpman.command) to play. The game opens on the title screen: **NEW JOURNEY** plays the opening and then starts the course in First Steps, carries on into The Fractured Isles, climbs The Climb and ends at The Dragon's Roost, **PRACTICE** drops straight into First Steps, and **LOAD GAME** opens the in-game level list — every level that ships, course or not (**W/S or up/down** to choose, **Enter** to start). In play, **A/D or left/right** to move, **Space** to jump, **J** to attack or throw, **K** to blast, **E** to lift or drink, **R** to retry, **Escape/P** to pause and **M** for the menu. Reach the lit stone at the end. Retries are unlimited, and finishing a level goes straight to the next one.
 
-The title screen, the opening's title card and all three course levels share the Magic Cliffs loop — the pack ships one track — so starting a new journey carries the music straight on rather than restarting it. First Steps names the same track, so PRACTICE carries it on too; the greybox fixture is silent. Music lives in [music.gd](godot/game/music.gd), the one node in the project that outlives a scene.
+The title screen, the opening's title card and all four course levels share the Magic Cliffs loop — the pack ships one track — so starting a new journey carries the music straight on rather than restarting it. First Steps names the same track, so PRACTICE carries it on too; the greybox fixture is silent. Music lives in [music.gd](godot/game/music.gd), the one node in the project that outlives a scene.
 
-The stage is cut into sections and you do not walk past a fight. While enemies are still standing in your section the camera stops dead, an invisible wall stands on the line, and you can see you have run out of screen rather than out of floor; put them down and both let go — the wall at once, the camera over about half a second, panning forward rather than cutting, with a chevron at the edge to say so. That pan is the only smoothing on the camera's horizontal: a fight backed into a gate ends with you pressed against the wall, which is the furthest the framing ever has to travel, and it used to travel it in one frame while you were still mid-swing. Walking back is never blocked. The Fractured Isles is four sections, the last being the Archway platform, which is the dragon's fight — it has no gate, so the flag ends it, and that means the boss can be run past.
+The stage is cut into sections and you do not walk past a fight. While enemies are still standing in your section the camera stops dead, an invisible wall stands on the line, and you can see you have run out of screen rather than out of floor; put them down and both let go — the wall at once, the camera over about half a second, panning forward rather than cutting, with a chevron at the edge to say so. That pan is the only smoothing on the camera's horizontal: a fight backed into a gate ends with you pressed against the wall, which is the furthest the framing ever has to travel, and it used to travel it in one frame while you were still mid-swing. Walking back is never blocked — **except out of a boss fight**. The dragon is fenced into its arena, so a player who walked west out of that arena stood somewhere it could not follow and the fight simply stopped happening. A level names the line its fight is sealed behind (`boss_arena`), and a wall stands there from the moment the boss wakes with the player inside until its body is gone, with the camera stopping against it exactly as it stops against a gate. The Fractured Isles puts it at 6912, the lip of the dragon's deck: its section opens at 6110, out in the middle of the chasm, so sealing there would leave the four stepping stones inside the fight — the ledges he crossed to get there — and stand the wall in mid-air over the water. The Dragon's Roost puts it at 816, the first ground past the only gap in that level, and deliberately not at 1512 where its two bosses actually stand: the west floating stone is at 1188, and the two stones are the only way to reach the flying one. The boss is fenced to the same box either way, so it and the player are shut in one room. The Fractured Isles is five sections; the dragon's is the fourth, and a gate at 7800 stands behind it so the way out cannot be reached with the boss still up. It had no gate once, and the level could be finished by running underneath the fight.
+
+**Prompts belong to First Steps and to no other level.** Walk up to something you can lift and a small plate appears over it with the key on a cap — `E` `LIFT`, `J` `THROW`, `HOLD E` `DRINK 6.0s` — and it stands over the THING, so with two rocks in reach it says which one it means. It used to be a line of outlined text centred on the screen, which put the words E / LIFT in the middle of a pit on the far side of the frame from the rock they were about, in the same face and at the same size as the death banner. Two of them name a bar instead of a thing: drink, and the bar that bottle pours into is named beside it while it climbs; throw your first blast, and the one it came out of is named for a couple of seconds while it dips. Nothing else in the game ever says what the green bar and the blue one are. One level sets `hints` and it is the first one: the course teaches the hands in its opening level, and a game still naming keys on its third has not taught them. The gate chevron is not a prompt and stays everywhere — that is the camera answering a question you are asking, not a lesson you have already had. The cost of the rule is that LOAD GAME can drop a first-time player straight into a later level with nothing cued on its bottles; the course is the way in, and the list is for going back to a level you have played.
+
+**The end of a level is a lit stone**, hanging over the finish with light falling out of it and a pool of it on the ground. The rock is the art pack's own `archway` piece — which is not an archway but a floating stone with a hole bored through it — lit from behind so the hole is a way through; the light, the shaft and the pool are drawn in rows one art pixel tall, so they step like everything else on screen. It replaced a flat salmon pennant on a grey pole: three polygons with smooth edges, one colour and no shading, which read as a placeholder from the moment this game had any art in it. It is [portal.gd](godot/features/world/portal.gd), a node built with the level and thrown away with it rather than a shape on the session's canvas, because it moves — the stone rises and falls on one clock, the light breathes on another, and sparks run up the shaft into it. Collision is untouched: the goal is still the level's own `finish` rect, and this is only what stands in it. It stops asking to be redrawn once it is off the side of the screen, which is most of a level: `_draw` lays about 535 one-pixel rows and runs whether or not anyone can see it. [diag_portal.gd](godot/tests/diag_portal.gd) measures it at 1.08 ms a frame in shot and nothing out of it — a stack of twenty-one markers timed against none, because one against this machine's frame-to-frame noise was unreadable.
 
 Two bars sit in the top corner. Health is the green one and **you start on all of it**: punks take it, the white milk bottles give it back, and spikes and pits ignore it entirely — those are still instant deaths. A milk bottle found before anything has hit you says ALREADY FULL rather than being wasted, which is why every bottle on the course sits just after a fight. Mana is the blue one, and the blast is the only thing that spends it: five a shot out of a hundred, so twelve shots from a spawn and twenty on a full bar. It also trickles back on its own, a shot's worth every ten seconds, and the brown bottles top it up faster. Punching and kicking stay free, so an empty mana bar costs you the ranged option for a few seconds and nothing else.
 
@@ -93,6 +97,15 @@ check that the cues still fall inside the recording — re-render that mp3 short
 and the 0:45 panel would simply never appear.
 
 ### The cards around the dragon fight
+
+**The boss track is mixed forward of everything else.** `boss_music` in the
+level file swaps the loop for as long as the boss is alive, and that track
+plays 8 dB above the coast loop: it is a quieter master to begin with, and it
+has to hold up against the fight's own roars, fire and blasts rather than sit
+under them as a bed. Both are measured at the master bus by
+[diag_music_levels.gd](godot/tests/diag_music_levels.gd) — the trim is a
+number with a reading behind it, not a taste. The mute and a story card's duck
+both still get under it.
 
 A level may also stop itself for a picture. The Fractured Isles does it twice,
 and both are full-screen: **the standoff** as he steps onto the Archway, and
@@ -223,15 +236,15 @@ actually come out of the speakers.
 Levels are data. One JSON file each in [godot/levels/](godot/levels), and
 [index.json](godot/levels/index.json) keeps two lists. `order` is **the course**:
 what NEW JOURNEY walks through, each level loading the next when you reach its
-flag, and the only file that knows how long the game is. `also_listed` is
+way out, and the only file that knows how long the game is. `also_listed` is
 everything else the in-game level list offers. **LOAD GAME shows both**, the
 course first — so every level that ships can be picked, and only the course
 chains. Nothing has to appear twice: the list is `order` followed by whatever is
 in `also_listed` that is not already in it.
 
 The course opens on First Steps, carries on into The Fractured Isles, climbs
-The Spire and ends at The Dragon's Roost. Learning the game is the first
-stretch of it rather than a detour beside it; The Spire is one hard short test
+The Climb and ends at The Dragon's Roost. Learning the game is the first
+stretch of it rather than a detour beside it; The Climb is one hard short test
 of the jump before the end; and the last is one arena and one flying boss.
 
 Six levels ship, all validated by `scripts/check_levels.py`:
@@ -242,11 +255,11 @@ Six levels ship, all validated by `scripts/check_levels.py`:
 * **The Fractured Isles** is the course proper, and it ends on the Archway
   platform with the dragon — two floating islands were added there to fight it
   from, a story card plays as you step onto the deck and another as the dragon
-  leaves, and a gate at 7800 keeps the flag behind the fight. That gate closed a real hole: the Dragon Lord who
+  leaves, and a gate at 7800 keeps the way out behind the fight. That gate closed a real hole: the Dragon Lord who
   used to stand there blocked the way with his body, and the dragon that
   replaced him cruises 156 overhead and blocks nothing, so the level could be
   finished by running underneath it.
-* **The Spire** is the climb, and the only level that goes up. Eighteen jumps
+* **The Climb** is the climb, and the only level that goes up. Eighteen jumps
   from the shore to a summit 1368 px above it, on floating land masses from the
   same pack, with rocks coming down three shafts at it. **It is the third level
   of the course**, between the Isles and the Roost — it was a listed
@@ -277,31 +290,51 @@ Six levels ship, all validated by `scripts/check_levels.py`:
 ### The practice course
 
 First Steps teaches the game by the shape of the level rather than by a wall of
-text. It names a key in exactly one place, for the one lesson shape cannot carry.
+text. It names a key in two places: at the first pit, and in the fight after it.
 What it does everywhere else is make each stretch
 impossible to leave until the thing it teaches has been done, and put the safe
 version of that thing before the one that costs anything:
 
 | | asks for | how it insists |
 |---|---|---|
-| **01 The Shallows** | moving, and a jump | A gap with a rock sitting a jump below it. Miss and you land, climb out, and try again — the one gap in the game that cannot kill you |
+| **01 The Shallows** | moving, and a jump | A 135 px gap at x549, which is the first thing the level asks for and the first thing it can kill you with. `SPACE  /  JUMP` is up for the whole walk toward it and gone the moment he leaves the ground |
 | **02 Bandits** | committing to a jump, then fists | The same jump over a real pit, then a gate that will not open while the bandit behind it is standing. A milk bottle after, which is when the drink prompt first means anything. The one stretch that names a key — see below |
 | **03 The Rocks** | picking something up and throwing it | A hunter shooting across the stretch and two rocks at your feet. Blast him and he reads it coming and guards; throw a rock and he cannot — he gets no warning of that one |
 | **04 The Stair** | height, and hitting from the air | Three ledges with a bandit on the top one, met from below. A long run at the bottom of it, which is where the shoulder charge turns up on its own |
-| **05 The Anvil** | footwork | Mark, who eats anything you trade with him. The flag is past his gate, so this is not a stretch you can run |
+| **05 The Anvil** | footwork | Mark, who eats anything you trade with him. The way out is past his gate, so this is not a stretch you can run |
 
 Only the first two rules are strictly enforceable — a gate is the only hard stop
 the game has, and rocks and bottles are never solid, so no lesson can be built on
 one being in the way. The rest are situations with one good answer rather than
 one possible answer, which is most of what a level can do without talking.
 
-**Bandits is the exception, and it talks.** A fight is the one thing the shape of
-a level cannot mime: you can stand in front of a bandit indefinitely without ever
-discovering that J is a fist. So that stretch carries two coaching lines — the
-strike, then the blast — and each retires itself for good the moment the thing it
-names has been done once. They are level data, not a rule in the HUD: `coach` is
+**Two stretches talk.** The first pit names the jump, because a gap does mime
+the jump but it mimes it while you are standing on the lip of a fall, and that
+is the first thing the game asks anyone to do. And a fight is the one thing the
+shape of a level cannot mime at all: you can stand in front of a bandit
+indefinitely without ever discovering that J is a fist. So the bandit stretch carries two coaching lines — the
+strike, then the blast — and each of the three retires itself for good the moment
+the thing it names has been done once. They are level data, not a rule in the HUD: `coach` is
 `[x_from, x_to, text, action]`, so a level decides where a line belongs and what
-counts as having learnt it, and no other level uses one.
+counts as having learnt it, and no other level uses one. The text is
+`KEY  /  VERB` and the HUD splits it on the slash to letter the cap.
+
+**The bars name themselves, once each.** They are the only part of the HUD
+nothing ever explains — the numbers beside them say how much of something
+without saying of what — so drinking names the bar that bottle is pouring into
+while it climbs, and the first blast he ever throws names the one it came out
+of while it dips. Both plates stand beside the bar and point sideways at it,
+past its number: the bars live in the top corner and there is nothing above
+them to hang a plate from. The blast one shows for 2.4 s and never again;
+`blasts_thrown` is a lifetime count, so a retry does not replay it.
+
+A lesson sits above the action cue and never repeats its key: with a rock over
+his head the cue reads `J` `THROW`, so the line saying `J` `STRIKE` steps aside
+until his hands are empty. Lifting that rock used to retire the strike lesson
+outright — a pick-up runs on the same machinery as a swing and was counted as
+one, so the prompt telling him to pick the rock up was what took the next lesson
+away. Lifting is not a swing now (`NOT_A_SWING` in `player.gd`); throwing still
+is, because throwing is pressing J at something.
 
 To add one, write `godot/levels/<id>.json`; put `<id>` in the index's `order` to
 make it part of the course, or leave it out to keep it off. Nothing else changes
@@ -317,13 +350,15 @@ the next level all read from the file.
 | `spawn` | `[x, y]` | his feet, which must be the top surface of a solid |
 | `solids` | `[[x, y, w, h]]` | platforms and floor; `y` is the **top** edge |
 | `hazards` | `[[x, y, w, h]]` | spikes. Instant death, unchanged by health |
-| `finish` | `[x, y, w, h]` | the flag; `y + h` has to meet a solid's top |
+| `finish` | `[x, y, w, h]` | the way out; `y + h` has to meet a solid's top, which is the ground the lit stone stands over |
 | `crates` | `[[x, y]]` | optional. Breakable, throwable, never an obstacle. Drawn as the glowing rock; the key is the slot, not the art |
 | `bottles` | `[[x, y, bars]]` | optional. White milk bottles; `bars` is **health-bar segments, 1–5**, not points |
 | `brews` | `[[x, y, bars]]` | optional. Brown bottles, same units against the **mana** bar |
 | `enemies` | `[[x, y]]`, `[[x, y, kind]]` or `[[x, y, kind, "perch"]]` | optional. One entry each. `kind` is `"bandit"` (the default), `"mark"`, `"hunter"`, `"dragon_lord"` or `"dragon"`; each is a folder under `features/combat/art/` cut by `scripts/extract_<kind>.py`. `"perch"` marks one that does **not** hold its section's gate. A `"dragon"` is a flyer and needs flat ground under its perch — every altitude it holds is measured from the height it took off at |
 | `gates` | `[x, ...]` | optional. Section end walls, left to right. Three gates make four sections |
+| `boss_arena` | number | optional, and every level with a boss has one. The x a boss fight is sealed behind — the only wall in the game that stops you going BACK. It has to sit inside the boss's own section and behind every boss in it; the flyer is fenced to the same box. Omit and nothing is sealed |
 | `signs` | `[[x, y, heading]]` or `[[x, y, heading, subtitle]]` | background text, in world coordinates |
+| `hints` | bool | optional, **First Steps only**. Turns on the cue over a thing you can lift, throw or drink, and the `coach` lines with it. Left out everywhere else, so nothing is prompted |
 | `hills` | `[x, ...]` | optional, greybox only. Omit and six are spaced evenly across the width |
 | `theme` | string | optional. Names an art set in `features/world/art/`. Omit for the greybox look |
 | `music` | string | optional. Names a track in `godot/audio/` without its extension. Omit and the level is silent |
@@ -336,8 +371,9 @@ the next level all read from the file.
 ### Themes
 
 A level with no `theme` is drawn procedurally by `session.gd`, the original
-greybox: flat rectangles, drawn hills, a flag. The test fixture is the only one
-of these left.
+greybox: flat rectangles and drawn hills. The test fixture is the only one of
+these left. The lit stone over the finish is not part of either renderer and is
+the same on both — see [portal.gd](godot/features/world/portal.gd).
 
 A level with one is drawn by [scenery.gd](godot/features/world/scenery.gd) from
 the same data. **Terrain is not authored** — the cliffs, grass and caps are

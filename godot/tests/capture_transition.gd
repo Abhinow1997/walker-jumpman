@@ -22,7 +22,7 @@ func run() -> void:
 	output = ProjectSettings.globalize_path("res://../evidence/transition")
 	DirAccess.make_dir_recursive_absolute(output)
 	var shipped: Array = Game.catalogue().duplicate()
-	Game._catalogue = ["first_steps", "the_spire"]
+	Game._catalogue = ["first_steps", "the_climb"]
 
 	game = Game.new()
 	game.level_id = "first_steps"

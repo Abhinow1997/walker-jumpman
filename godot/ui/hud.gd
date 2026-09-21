@@ -3,6 +3,27 @@ extends Control
 const Music = preload("res://game/music.gd")
 
 var game: Node2D
+## What each prompt slot is currently showing and when it started showing it,
+## for the fade. Two slots — the action cue and the lesson above it — so the
+## two fade independently.
+##
+## Keyed on WHAT the prompt is rather than on what it says, or the drink cue
+## would restart its fade every tenth of a second and never finish: the
+## countdown is part of its text.
+var cue_seen := {}
+## When he first spent mana, and whether that lesson is over. Held here rather
+## than on the player because it is a fact about what has been SHOWN, not about
+## what he has done — blasts_thrown is the fact, and it is lifetime, so a retry
+## does not put this back.
+var blast_at: float = -1.0
+var blast_done: bool = false
+## Whether an action cue was drawn this frame. The lesson above it reads this
+## to know which shelf to sit on — stacked when there is a plate under it,
+## down at the action cue's own height when there is not, so a lesson on its
+## own does not float a body's length over his head. Not the same question as
+## the key it returns: ALREADY FULL is a plate with no key on it.
+var action_cue_up: bool = false
+
 ## Dark ink on light paper, as before. The play HUD has no paper behind it any
 ## more, so it carries its own: every string on it is drawn with a pale outline
 ## and the same dark face on top.
@@ -22,6 +43,71 @@ const TROUGH := Color(0.11, 0.16, 0.21, 0.55)
 ## is teaching you something does not read as the same thing as a line telling
 ## you what is under your feet, and dark enough to sit inside the same halo.
 const COACH := Color("8a4a2c")
+
+## --- the prompts over the level ---------------------------------------------
+##
+## A prompt is a small plate with the key on a cap and the verb beside it,
+## standing OVER the thing it is about: the rock you can lift, or him.
+##
+## It used to be a bare line of outlined text centred on the screen — so the
+## words "E / LIFT" appeared in the middle of a pit on the far side of the
+## frame from the rock they were about, at the same size and in the same face
+## as the death banner and the menu hint. It read as a debug overlay, and it
+## never said WHICH thing it meant.
+##
+## Pale plate, dark keycap, dark ink: the same way round as the rest of this
+## HUD, which is written as dark ink on light paper because the levels are
+## mostly bright. The cap is inverted out of it because that is what a key
+## looks like.
+const CUE_TEXT := 11
+const CUE_H := 19.0
+const CUE_PAD := 6.0
+const CUE_GAP := 5.0
+const CUE_CAP_MIN := 15.0
+## How far above the anchor the plate's foot sits, in HUD pixels. A thing you
+## can pick up is small and low, so its prompt sits close over it; his own sit
+## clear of his head, and a lesson sits above those again because the two can
+## be up at once — the bandit stretch has a rock standing in it.
+## Both of the action cues clear the top of his SPRITE, which stands about 22
+## of these above the point either of them is measured from. At 20 and 26 the
+## plate sat on his head.
+const CUE_OVER_PROP := 34.0
+const CUE_OVER_HIM := 34.0
+const CUE_OVER_LESSON := 62.0
+## Kept inside the frame whatever the camera is doing, and below the two bars.
+const CUE_EDGE := 6.0
+const CUE_CEILING := 62.0
+## Faded in rather than popped. A prompt appears because you walked into range,
+## which is a gentler event than the hard cut it used to make.
+const CUE_FADE := 0.18
+const CUE_PLATE := Color(0.96, 0.95, 0.91, 0.95)
+const CUE_RIM := Color(0.15, 0.20, 0.28, 0.50)
+const CUE_CAP_FACE := Color(0.13, 0.18, 0.26, 0.95)
+const CUE_CAP_INK := Color(0.97, 0.96, 0.93)
+## ALREADY FULL is the one cue that is not an invitation, so it is greyed and
+## carries no key: there is nothing to press.
+const CUE_DIM := Color("6d7885")
+
+## --- and the two that point at a bar ----------------------------------------
+##
+## The bars are the one part of this HUD that is never explained. You can play
+## the whole of First Steps without learning that the green one is what the
+## milk bottle is filling or that the blue one is what the blast spends, and
+## the numbers beside them say how much of something without saying of what.
+##
+## So: drink, and the bar that bottle pours into is named while it climbs.
+## Blast for the first time, and the one it came out of is named while it dips.
+## Both are First Steps' only, like every other prompt here, and both point
+## sideways — the bars live in the top corner and there is nothing above them
+## to hang a plate from.
+const BAR_WORD := {"health": "HEALTH", "mana": "MANA"}
+## Clear of the number beside the bar, which is measured rather than guessed:
+## it is three digits at full health and two after one hit.
+const BAR_CUE_GAP := 12.0
+## How long the first blast holds the mana bar's name up. A blast is over in a
+## moment and the dip in the bar is eased over about a third of a second, so
+## the cue has to outlast both by enough to be read.
+const BLAST_HOLD := 2.4
 
 ## Health and mana come from the same sheet, cut into a full and an empty version
 ## each by scripts/extract_hud_bars.py. The empty one is drawn, then the full one
@@ -495,6 +581,12 @@ func _meters() -> void:
 	over_level("%d" % game.player.health, Vector2(number_x, health_at.y + middle), 13)
 	over_level("%d" % game.player.mana, Vector2(number_x, mana_at.y + middle), 13)
 
+func bar_rect(name: String) -> Rect2:
+	## Where a bar is drawn, in HUD coordinates. The same two numbers _meters
+	## lays them out from, so a cue pointing at one cannot drift off it.
+	var at := BAR_AT + Vector2(0.0, BAR_STEP if name == "mana" else 0.0)
+	return Rect2(at, bar_size * BAR_SCALE)
+
 func _boss_plate() -> void:
 	## The boss's health, across the bottom of the screen. Nothing at all while
 	## no boss is fighting, which is every level but the last two.
@@ -556,7 +648,116 @@ func _gate_cue() -> void:
 			Vector2(x - 5.0, mid + 11.0), Vector2(x + 4.0, mid),
 			Vector2(x - 5.0, mid - 11.0)]), tint)
 
-func _drink_prompt() -> void:
+func teaches() -> bool:
+	## Whether this level prompts at all — `hints` in the level file.
+	##
+	## First Steps is the only one that sets it, and that is the point of it:
+	## the course teaches lifting, throwing, drinking, the fist and the blast in
+	## its first level, and a game still naming keys three levels later has not
+	## taught anything. Off, nothing is cued over anything. The gate chevron
+	## stays on every level, because that is the camera answering a question you
+	## are asking rather than a lesson you have already had.
+	return bool(game.level.get("hints", false))
+
+func _cue_fade(slot: String, showing: String) -> float:
+	## How far into its fade the cue in this slot is. Keyed on WHAT it is —
+	## "lift", "drink" — and not on the words, because the drink cue counts down
+	## and would otherwise restart every tenth of a second and never arrive.
+	var mark: Array = cue_seen.get(slot, [])
+	if mark.size() != 2 or str(mark[0]) != showing:
+		mark = [showing, game.elapsed]
+		cue_seen[slot] = mark
+	# Clamped both ways: a retry puts game.elapsed back to zero under a cue that
+	# is already up, and a negative age has to read as "just appeared" rather
+	# than as a number below the floor.
+	return clampf((game.elapsed - float(mark[1])) / CUE_FADE, 0.0, 1.0)
+
+func _fade(tint: Color, by: float) -> Color:
+	return Color(tint.r, tint.g, tint.b, tint.a * by)
+
+func cue_box(anchor: Vector2, key: String, label: String, over: float) -> Rect2:
+	## Where a cue lands, in HUD coordinates: centred over a point in the WORLD
+	## and standing `over` above it, then held inside the frame. Public because
+	## this is the whole claim — that a prompt is over the thing it is about
+	## rather than in the middle of the screen — and a claim should be testable.
+	var font := ThemeDB.fallback_font
+	var width := CUE_PAD * 2.0 + font.get_string_size(
+			label, HORIZONTAL_ALIGNMENT_LEFT, -1, CUE_TEXT).x
+	if key != "":
+		width += cap_width(key) + CUE_GAP
+	var at: Vector2 = game.to_hud(anchor) - Vector2(width / 2.0, over + CUE_H)
+	at.x = clampf(at.x, CUE_EDGE, 640.0 - CUE_EDGE - width)
+	at.y = clampf(at.y, CUE_CEILING, 360.0 - CUE_EDGE - CUE_H)
+	return Rect2(at, Vector2(width, CUE_H))
+
+func cap_width(key: String) -> float:
+	return maxf(ThemeDB.fallback_font.get_string_size(
+			key, HORIZONTAL_ALIGNMENT_LEFT, -1, CUE_TEXT).x + 9.0, CUE_CAP_MIN)
+
+func _cue(anchor: Vector2, key: String, label: String, tint: Color,
+		over: float, fade: float) -> void:
+	var box := cue_box(anchor, key, label, over)
+	# The tail is drawn first, and points at the ANCHOR rather than at the
+	# middle of the plate: a cue shoved sideways by the edge of the screen still
+	# has to say which thing it belongs to. Three rows rather than a triangle,
+	# so its edge steps like the art behind it.
+	var point: float = clampf(game.to_hud(anchor).x, box.position.x + CUE_PAD,
+			box.end.x - CUE_PAD)
+	for row in 3:
+		var half: float = 3.0 - float(row)
+		draw_rect(Rect2(point - half, box.end.y + float(row), half * 2.0, 1.0),
+				_fade(CUE_PLATE, fade))
+	_cue_plate(box, key, label, tint, fade)
+
+func bar_cue_box(bar: Rect2, label: String) -> Rect2:
+	## A cue standing beside a bar, past its number. Its own placement and not
+	## cue_box: cue_box measures from a point in the world and is floored below
+	## the bars, which is exactly where this one may not go.
+	var font := ThemeDB.fallback_font
+	var number := font.get_string_size("100", HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	var width := CUE_PAD * 2.0 + font.get_string_size(
+			label, HORIZONTAL_ALIGNMENT_LEFT, -1, CUE_TEXT).x
+	# 10 is the gap _meters leaves between the bar and its number.
+	var left := bar.end.x + 10.0 + number + BAR_CUE_GAP
+	return Rect2(left, bar.position.y + (bar.size.y - CUE_H) / 2.0,
+			width, CUE_H)
+
+func _bar_cue(bar: Rect2, label: String, tint: Color, fade: float) -> void:
+	var box := bar_cue_box(bar, label)
+	# Pointing LEFT at the bar, for the same reason the others point down: a
+	# plate floating beside two stacked bars has to say which of them it means.
+	var middle: float = box.get_center().y
+	for column in 3:
+		var half: float = 3.0 - float(column)
+		draw_rect(Rect2(box.position.x - 1.0 - float(column), middle - half,
+				1.0, half * 2.0), _fade(CUE_PLATE, fade))
+	_cue_plate(box, "", label, tint, fade)
+
+func _cue_plate(box: Rect2, key: String, label: String, tint: Color,
+		fade: float) -> void:
+	var font := ThemeDB.fallback_font
+	# Chamfered: the body inset a pixel top and bottom, and a full-height band
+	# inset a pixel each side. A square corner on a plate this small is the one
+	# thing that would put it back to reading as a debug rectangle.
+	draw_rect(Rect2(box.position + Vector2(0.0, 1.0),
+			box.size - Vector2(0.0, 2.0)), _fade(CUE_PLATE, fade))
+	draw_rect(Rect2(box.position + Vector2(1.0, 0.0),
+			box.size - Vector2(2.0, 0.0)), _fade(CUE_PLATE, fade))
+	draw_rect(box, _fade(CUE_RIM, fade), false, 1.0)
+	var x: float = box.position.x + CUE_PAD
+	if key != "":
+		var cap := Rect2(x, box.position.y + 3.0, cap_width(key), CUE_H - 6.0)
+		draw_rect(cap, _fade(CUE_CAP_FACE, fade))
+		var cap_at := Vector2(cap.get_center().x - font.get_string_size(
+				key, HORIZONTAL_ALIGNMENT_LEFT, -1, CUE_TEXT).x / 2.0,
+				cap.position.y + cap.size.y * 0.78)
+		draw_string(font, cap_at, key, HORIZONTAL_ALIGNMENT_LEFT, -1, CUE_TEXT,
+				_fade(CUE_CAP_INK, fade))
+		x += cap.size.x + CUE_GAP
+	draw_string(font, Vector2(x, box.position.y + CUE_H * 0.70), label,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, CUE_TEXT, _fade(tint, fade))
+
+func _drink_prompt() -> String:
 	## One key, three different jobs, so the prompt has to say which one is on
 	## offer. Nothing is picked up on contact: the point of the tutorial is that
 	## lifting and drinking are both actions you take.
@@ -564,27 +765,85 @@ func _drink_prompt() -> void:
 	## say that standing still is the mechanic rather than a fault, but the
 	## health bar already says it: the drink arrives mouthful by mouthful, so the
 	## bar is climbing the whole time he is stood there.
-	if game.player.is_drinking():
-		return
+	action_cue_up = false
+	if not teaches() or game.player.is_drinking():
+		return ""
+	var key := ""
 	var label := ""
+	var what := ""
 	var dim := false
+	# Over HIM for the two things he does with his hands, over the ROCK for the
+	# one that is about a particular rock. The line this replaced was centred on
+	# the screen and could not say which of two crates it meant.
+	var anchor: Vector2 = game.player.position
+	var over := CUE_OVER_HIM
 	var held: Node2D = game.bottle_being_carried()
+	var near: Node2D = game.carryable_in_reach()
 	if held != null:
 		# Holding the bottle: the wait is whatever is left in that one, not a
 		# flat six seconds, or a part-drunk bottle looks unchanged. Which bar it
 		# fills decides whether "already full" is even the question.
 		dim = game.player.refill_full(held.refills)
-		label = "ALREADY FULL" if dim else "HOLD E  /  DRINK  %0.1fs" % held.drink_seconds(game.player)
+		what = "full" if dim else "drink"
+		key = "" if dim else "HOLD E"
+		label = "ALREADY FULL" if dim else "DRINK  %0.1fs" % held.drink_seconds(game.player)
 	elif game.player.is_carrying():
-		label = "J  /  THROW"
-	elif game.carryable_in_reach() != null:
-		label = "E  /  LIFT"
+		what = "throw"
+		key = "J"
+		label = "THROW"
+	elif near != null:
+		what = "lift"
+		key = "E"
+		label = "LIFT"
+		anchor = near.global_position
+		over = CUE_OVER_PROP
 	else:
-		return
-	# Clear of the ground line, so it never sits on top of the level geometry.
-	_centred_over_level(label, 275, 13, Color("8d98a2") if dim else INK)
+		return ""
+	_cue(anchor, key, label, CUE_DIM if dim else INK, over,
+			_cue_fade("action", what))
+	action_cue_up = true
+	return key
 
-func _coach_prompt() -> void:
+func bar_lesson() -> String:
+	## Which bar wants naming this frame: "health", "mana" or nothing.
+	##
+	## Drinking wins over the first blast if both are live, because the drink
+	## is the thing happening in front of him — and if the bottle is a brew
+	## they are the same cue anyway.
+	##
+	## Public and separate from the drawing so a headless test can ask it. It
+	## is not a pure question, though: asking it is what starts and ends the
+	## first-blast clock, so nothing but the HUD and its tests should.
+	if not teaches():
+		return ""
+	if game.player.is_drinking() and is_instance_valid(game.drinking_bottle):
+		var pour := str(game.drinking_bottle.refills)
+		return pour if BAR_WORD.has(pour) else ""
+	return "mana" if _first_mana() else ""
+
+func _bar_lesson() -> void:
+	var which := bar_lesson()
+	if which == "":
+		return
+	_bar_cue(bar_rect(which), str(BAR_WORD[which]), COACH,
+			_cue_fade("bar", which))
+
+func _first_mana() -> bool:
+	## True for BLAST_HOLD seconds after the first blast he ever throws, and
+	## never again. blasts_thrown is lifetime, so a retry does not replay it.
+	if blast_done or game.player.blasts_thrown <= 0:
+		return false
+	if blast_at < 0.0:
+		blast_at = game.elapsed
+		return true
+	# A retry winds game.elapsed back under a cue that is already up. Rather
+	# than restart the lesson, take it as given.
+	if game.elapsed < blast_at or game.elapsed - blast_at > BLAST_HOLD:
+		blast_done = true
+		return false
+	return true
+
+func _coach_prompt(taken: String = "") -> void:
 	## The level naming a key, for the one thing the shape of a level cannot
 	## mime. Everything else on the practice course is taught by geometry — a gap
 	## you have to jump, a gate that will not open — but you can stand in front of
@@ -595,15 +854,34 @@ func _coach_prompt() -> void:
 	## line in range whose action has not been done yet is the one on screen, so
 	## they arrive in the order the level lists them and each disappears for good
 	## once its lesson has landed. See coach_note in levels/first_steps.json.
+	##
+	## The text is "KEY  /  VERB" and is split on the slash, so the key goes on
+	## the cap and the verb beside it. A line with no slash is all verb and gets
+	## no cap, which is what a lesson that is not about one key should look like.
+	if not teaches():
+		return
 	var at: float = game.player.position.x
 	for entry in game.level.get("coach", []):
 		if entry.size() < 4 or at < float(entry[0]) or at > float(entry[1]):
 			continue
 		if _coached(str(entry[3])):
 			continue
-		# Above the lift and drink line, which can be on screen at the same time:
-		# the stretch this is written for has a rock standing in it.
-		_centred_over_level(str(entry[2]), 252, 13, COACH)
+		var key := ""
+		var label := str(entry[2]).strip_edges()
+		var cut := label.find("/")
+		if cut > 0:
+			key = label.substr(0, cut).strip_edges()
+			label = label.substr(cut + 1).strip_edges()
+		if key != "" and key == taken:
+			# The cue under this one is already naming the key. Nothing is
+			# retired — the lesson comes back the moment his hands are empty.
+			return
+		# Above the lift and drink cue when there is one — the stretch the
+		# fight lines are written for has a rock standing in it — and on the
+		# lower shelf when there is not.
+		_cue(game.player.position, key, label, COACH,
+				CUE_OVER_LESSON if action_cue_up else CUE_OVER_HIM,
+				_cue_fade("lesson", str(entry[3])))
 		return
 
 func _coached(action: String) -> bool:
@@ -643,8 +921,11 @@ func _draw() -> void:
 	_boss_plate()
 	if game.state == game.State.PLAYING:
 		_gate_cue()
-		_coach_prompt()
-		_drink_prompt()
+		# The action cue first, and the lesson is told which key it took. With a
+		# rock over his head the cue reads "J / THROW", and a second plate above
+		# it reading "J / STRIKE" is the same key twice in a stack.
+		_coach_prompt(_drink_prompt())
+		_bar_lesson()
 		return
 	if game.state == game.State.DYING:
 		# A defeat screen rather than a one-line hint: the banner reads the same

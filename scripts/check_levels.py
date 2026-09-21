@@ -135,6 +135,24 @@ def edge_at(solids, x, side):
     return best
 
 
+def ledges(solids):
+    """Solids merged into the surfaces you can actually stand and walk on.
+
+    Two rectangles that share a top edge and touch are one ledge, not two. A
+    climb builds its rest shelves that way - three 36 px rocks laid abreast make
+    one 108 px surface - and without this the walk below sees the far halves of
+    every shelf as ledges with no way onto them, because it only ever steps
+    UPWARD and they are level with the piece beside them.
+    """
+    out = []
+    for x0, x1, top in sorted(spans(solids), key=lambda s: (s[2], s[0])):
+        if out and abs(out[-1][2] - top) <= 0.5 and x0 <= out[-1][1] + 0.5:
+            out[-1] = (out[-1][0], max(out[-1][1], x1), top)
+        else:
+            out.append((x0, x1, top))
+    return out
+
+
 def hop(tune, a, b):
     """Can he get from platform `a` up to platform `b` in one jump? Each is an
     (x0, x1, top). Returns (ok, rise, gap, reach)."""
@@ -157,7 +175,7 @@ def climb(level, tune, errors, warnings, notes):
     stacked ledges and measures a running jump across it. That is how a climb
     used to fail validation with a pit that landed 988 px above its takeoff.
     """
-    plats = sorted(spans(level["solids"]), key=lambda s: (-s[2], s[0]))
+    plats = sorted(ledges(level["solids"]), key=lambda s: (-s[2], s[0]))
     sx, sy = float(level["spawn"][0]), float(level["spawn"][1])
     start = [p for p in plats if abs(p[2] - sy) <= 0.5 and p[0] <= sx <= p[1]]
     if not start:

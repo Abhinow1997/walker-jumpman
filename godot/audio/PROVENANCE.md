@@ -24,9 +24,20 @@ licence.**
 | Source | `Assests/xDeviruchi - Decisive Battle.wav`, added by the author 2026-09-20 |
 | Origin | **Not established.** See Rights below. |
 
-The loop that takes over while the dragon is fighting on The Fractured Isles —
-`boss_music` in that level file, cued by `current_track()` in
+The loop that takes over while the dragon is fighting — `boss_music` on both
+The Fractured Isles and The Dragon's Roost, cued by `current_track()` in
 `game/session.gd`. 120 s, 44.1 kHz stereo.
+
+**It plays 8 dB above the other tracks**, and that is a mastering difference
+rather than a preference. Its file peaks at -2.0 dBFS and averages -14.9; the
+Magic Cliffs loop is cut far hotter, so at one shared fader the battle track
+came out of the bus 3 dB *under* a loop that is deliberately well back, and
+under the fight's own roars and blasts it was reported inaudible. The trim is
+`TRIM` in `game/music.gd` and it is keyed by track, because the reason for it
+belongs to this recording and not to either level that plays it. Measured with
+`tests/diag_music_levels.gd`, which taps the master bus: with the trim the
+battle track averages -20.0 dBFS out against the coast loop's -25.0, and its
+loudest sample is -6.0, so there is nothing near clipping.
 
 **It is a wav and it should be an ogg.** 20 MB against the 2.3 MB the Magic
 Cliffs loop costs for a comparable length. There is no Vorbis encoder on the

@@ -23,7 +23,7 @@ func run() -> void:
 	var shipped: Array = Game.catalogue().duplicate()
 	# A two-level course, so the dip has somewhere to land. The shipped order is
 	# one level long and would replay instead of advancing.
-	Game._catalogue = ["first_steps", "the_spire"]
+	Game._catalogue = ["first_steps", "the_climb"]
 
 	game = Game.new()
 	game.level_id = "first_steps"
@@ -51,7 +51,7 @@ func run() -> void:
 			trace.append(snappedf(a, 0.01))
 
 	check("screen-reaches-full-black", peak > 0.98, {"peak": snappedf(peak, 0.01)})
-	check("the-level-did-change", game.level_id == "the_spire",
+	check("the-level-did-change", game.level_id == "the_climb",
 		{"level_id": game.level_id})
 	check("swap-happened-behind-the-black", swap_alpha > 0.98,
 		{"alpha_at_swap": snappedf(swap_alpha, 0.01), "tick": swap_tick})
@@ -70,7 +70,7 @@ func run() -> void:
 	quick.state = Game.State.COMPLETE
 	quick.confirm()
 	check("test_mode-swaps-with-no-fade",
-		quick.level_id == "the_spire" and is_zero_approx(quick.fade_alpha()),
+		quick.level_id == "the_climb" and is_zero_approx(quick.fade_alpha()),
 		{"level_id": quick.level_id, "alpha": quick.fade_alpha()})
 
 	Game._catalogue = shipped

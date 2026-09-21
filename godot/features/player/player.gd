@@ -272,6 +272,17 @@ var last_drink_consumed: float = 0.0
 var last_drink_left: float = 0.0
 var hits_landed: int = 0
 var attacks_thrown: int = 0
+## Moves that run on the attack machinery because they commit him the same way,
+## but that nobody would call a swing. They are kept out of attacks_thrown, the
+## figure the evidence run reports and the one the level's coaching line asks
+## before it stops telling you that J is a fist — see _coached in ui/hud.gd.
+##
+## Drinking was always out. The two pick-ups are out now: bending down for a
+## rock is E, and the rock on First Steps stands at 1524, INSIDE the bandit
+## stretch whose line says J is a fist. Lifting it retired that line before he
+## had thrown a punch, which is exactly backwards — the prompt that told him to
+## pick the rock up was what took the next lesson away.
+const NOT_A_SWING := ["drink", "pick_light", "pick_heavy"]
 ## Of those, the ones that were blasts. Split out so "has he ever thrown a
 ## punch" and "has he ever thrown a blast" are separate questions — which is
 ## what the level's coaching lines ask before they stop showing themselves.
@@ -611,9 +622,7 @@ func begin_attack(key: String) -> bool:
 	chain_queued = false
 	blast_released = false
 	struck.clear()
-	# A drink is not a swing, and must not inflate the attacks-thrown figure the
-	# evidence run reports.
-	if key != "drink":
+	if not NOT_A_SWING.has(key):
 		attacks_thrown += 1
 	if key == "blast":
 		blasts_thrown += 1

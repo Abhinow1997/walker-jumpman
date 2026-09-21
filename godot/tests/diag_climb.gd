@@ -1,5 +1,5 @@
 extends SceneTree
-## Diagnostic: climbs The Spire on the controls and reports how far it got.
+## Diagnostic: climbs The Climb on the controls and reports how far it got.
 ##
 ## Not a test; makes no assertions. scripts/check_levels.py proves every hop is
 ## inside the jump envelope on paper, and tests/test_levels.gd proves the view
@@ -37,12 +37,26 @@ func step() -> void:
 	await process_frame
 
 ## The ledges in climbing order, bottom first, as [x0, x1, top].
+##
+## Solids that share a top edge and touch are merged into one, because they are
+## one surface to stand on: the rest shelves are two or three pieces laid
+## abreast, and reading them raw turns each shelf into two or three "ledges" a
+## hop apart with no rise and no gap between them. The driver then tries to jump
+## from a shelf to the other half of itself and gets nowhere — 6 of 57 with
+## thirteen deaths, against 47 of 47 once they are merged.
 func build_chain() -> void:
 	chain.clear()
+	var raw: Array = []
 	for entry in game.level.solids:
-		chain.append([float(entry[0]), float(entry[0]) + float(entry[2]),
-					  float(entry[1])])
-	chain.sort_custom(func(a, b): return a[2] > b[2])
+		raw.append([float(entry[0]), float(entry[0]) + float(entry[2]),
+					float(entry[1])])
+	raw.sort_custom(func(a, b): return a[2] > b[2] if a[2] != b[2] else a[0] < b[0])
+	for rung in raw:
+		if not chain.is_empty() and absf(chain[-1][2] - rung[2]) < 0.5 \
+				and rung[0] <= chain[-1][1] + 0.5:
+			chain[-1][1] = maxf(chain[-1][1], rung[1])
+		else:
+			chain.append(rung)
 
 ## Which ledge he is standing on, or -1 while he is in the air. MEASURED every
 ## tick rather than counted, and that is the difference between a driver that
@@ -60,6 +74,21 @@ func footing(player) -> int:
 		if absf(player.position.y - c[2]) < 8.0 and player.position.x > c[0] - 6.0 and player.position.x < c[1] + 6.0:
 			return i
 	return -1
+
+## Is there a live stone over the ground he is about to cross? Only ones above
+## him and inside the height of a jump count: a stone already past him is not
+## his problem, and one three ledges up will have broken long before he is in
+## the air.
+func _rock_over(player, lo: float, hi: float) -> bool:
+	for stone in game.stones:
+		if not is_instance_valid(stone) or stone.broken:
+			continue
+		if stone.position.x < lo - 26.0 or stone.position.x > hi + 26.0:
+			continue
+		var above: float = player.position.y - stone.position.y
+		if above > -40.0 and above < 300.0:
+			return true
+	return false
 
 func drive() -> void:
 	var player = game.player
@@ -89,6 +118,16 @@ func drive() -> void:
 		player.test_axis = dir
 	else:
 		player.test_axis = 0.0
+	# Wait for the rock. Without this the run dies on the same ledge on every
+	# single attempt — the shafts are deterministic, so a driver that climbs at
+	# a constant rate meets the same stone at the same jump forever — and that
+	# says nothing about the level, only that this thing never looks up. It is
+	# also the one thing a person obviously does, and the skill the shafts are
+	# there to ask for.
+	if player.is_on_floor() and _rock_over(player, minf(player.position.x, next[0]),
+										   maxf(player.position.x, next[1])):
+		player.test_axis = 0.0
+		return
 	# Jump once he is within LAUNCH of the lip he is leaving, and only while he
 	# is standing on it. The gate matters: the condition stays true for the
 	# whole flight once he is past the lip, and the player buffers a press for
@@ -103,11 +142,11 @@ func drive() -> void:
 func run() -> void:
 	game = Game.new()
 	game.test_mode = true
-	game.level_id = "the_spire"
+	game.level_id = "the_climb"
 	root.add_child(game)
 	await step()
 	build_chain()
-	print("The Spire: %d ledges to climb" % (chain.size() - 1))
+	print("The Climb: %d ledges to climb" % (chain.size() - 1))
 	# Twice, and the first pass is the one that answers the question. With the
 	# punks down, anything that stops the run is the LEVEL - a gap too wide, a
 	# ledge too narrow, a turn there is no room to make. With them up it is a
@@ -126,7 +165,7 @@ func attempt(label: String, clear_the_way: bool) -> void:
 	at = 0
 	reached = 0
 	stalled = 0
-	game.load_level("the_spire")
+	game.load_level("the_climb")
 	await step()
 	game.start_session()
 	await step()
@@ -146,7 +185,7 @@ func attempt(label: String, clear_the_way: bool) -> void:
 	var ticks := 0
 	var deaths := 0
 	var stuck_on := -1
-	while ticks < 5400 and game.state != Game.State.COMPLETE:
+	while ticks < 16200 and game.state != Game.State.COMPLETE:
 		if game.state == Game.State.PLAYING:
 			drive()
 		elif game.state == Game.State.DYING:

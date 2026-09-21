@@ -1800,7 +1800,15 @@
  "enemies_note": "[x, ground_y, kind]. One per section, in the order they are worth meeting: the bandit is an even fight, the hunter has to be answered from range, the second bandit is met from below and in the air, and Mark cannot be traded with at all. No two in one section - this is the course where you get to fight them one at a time.",
  "decor_note": "[x, bottom_y, piece]. Art only, never collision. Plants stand on a surface, so their y is the top of the solid under them; vine and vine_rock hang DOWN a cliff face, so their y sits below the lip they hang from. scripts/check_levels.py warns if a standing plant is left in the air after the ground under it moves.",
  "signs_note": "Painted on the background, [x, y, heading] or [x, y, heading, subtitle]. Area names and a line of flavour, the same as The Fractured Isles carries - not instructions. No sign names a key; the one place this level spells a control out is `coach`, which is a different thing in a different place. Only the first three stretches are signed at all. THE STAIR and THE ANVIL are deliberately silent: by the time you drop into them you have met a bandit, a hunter and a gate that will not open, and a sign announcing a third fight is telling you what you can already see. Signs are here to introduce things, and they stop when there is nothing left to introduce.",
+ "hints": true,
+ "hints_note": "The only level in the game that prompts. `hints` true turns on BOTH the cue over a thing you can lift, throw or drink (ui/hud.gd, _drink_prompt) and the `coach` lines below it; every other level leaves it out and shows neither. That is the point of a first level: it teaches the hands - lift, throw, drink, fist, blast - and a game still naming keys on its third level has not taught them. The gate chevron is NOT a hint and stays everywhere: it is the camera answering a question you are asking, not a lesson you have already had. The cost of the rule is that LOAD GAME can drop a first-time player straight into The Dragon's Roost with no prompt on its bottles - accepted, because the course is the way in and the list is for going back to a level you have played.",
  "coach": [
+  [
+   240,
+   560,
+   "SPACE  /  JUMP",
+   "jump"
+  ],
   [
    1392,
    2112,
@@ -1814,5 +1822,5 @@
    "blast"
   ]
  ],
- "coach_note": "[x_from, x_to, text, action]. The one place in this level that names a key, and it is deliberate: everything else here is taught by shape - a gap you must jump, a gate that will not open - and a fight is the one thing shape cannot mime. You can stand in front of a bandit all day without discovering that J is a fist. Shown while the player is inside the span, one at a time, topmost first, and each line retires itself for good the moment the thing it names has been done once: `strike` on any swing, `blast` on any blast. Both are lifetime counters, so a retry does not put a lesson back. The span is the bandit's whole stretch, from the landing at 1392 to his gate at 2112, which puts the first line on screen beside the rock at 1524 - something to hit before something hits back."
+ "coach_note": "[x_from, x_to, text, action], read in order and shown one at a time: the first line whose span he is inside and whose lesson he has not had. Each retires itself for good the moment the thing it names has been done once - `jump` on any jump, `strike` on any swing that is not a blast, `blast` on any blast - and all three are lifetime counters, so a retry does not put a lesson back. The text is KEY / VERB and ui/hud.gd splits it on the slash to letter the keycap.\n\nJUMP, 240..560. The first pit opens at 549 and he spawns at 120, so the line is up for the whole walk toward it and gone the moment he leaves the ground. A gap does mime the jump - you cannot get past one without working it out - but it mimes it while standing on the edge of a fall, and this is the first thing the game asks anyone to do.\n\nSTRIKE then BLAST, both 1392..2112. A fight is the one thing shape cannot mime at all: you can stand in front of a bandit all day without discovering that J is a fist. The span is the bandit's whole stretch, from the landing at 1392 to his gate at 2112, which puts the first line on screen beside the rock at 1524 - something to hit before something hits back.\n\nA line steps aside while the action cue under it is already naming the same key: with that rock over his head the cue reads J / THROW, so J / STRIKE waits until his hands are empty. Nothing is retired by that - it comes straight back."
 }

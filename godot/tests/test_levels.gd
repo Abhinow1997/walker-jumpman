@@ -9,6 +9,7 @@ const Game = preload("res://game/session.gd")
 const Enemy = preload("res://features/combat/enemy.gd")
 const Music = preload("res://game/music.gd")
 const Title = preload("res://ui/title.gd")
+const Portal = preload("res://features/world/portal.gd")
 
 var game: Node2D
 var results: Array[Dictionary] = []
@@ -44,6 +45,21 @@ func all_levels() -> Array:
 			ids.append(name.trim_suffix(".json"))
 	ids.sort()
 	return ids
+
+func clear_foes_but_boss() -> void:
+	## Everything before the boss put down, which is what a player who reached
+	## its arena would have done. Its own gate is left to it.
+	for foe in game.enemies:
+		if is_instance_valid(foe) and not foe.is_boss():
+			foe.health = 0
+	await steps(4)
+
+func clear_foes() -> void:
+	## Empties the level of everyone who could interrupt. Used by the prompt
+	## checks, which are about what the HUD says and not about a fight.
+	for foe in game.enemies:
+		foe.queue_free()
+	game.enemies.clear()
 
 func fresh(id: String = "") -> void:
 	if is_instance_valid(game):
@@ -91,11 +107,11 @@ func run() -> void:
 		game.next_level_id() == "fractured_isles",
 		{"next": game.next_level_id(), "order": Game.catalogue()})
 	await fresh("fractured_isles")
-	check("the-isles-lead-up-the-spire",
-		game.next_level_id() == "the_spire",
+	check("the-isles-lead-up-the-climb",
+		game.next_level_id() == "the_climb",
 		{"next": game.next_level_id(), "order": Game.catalogue()})
-	await fresh("the_spire")
-	check("and-the-spire-leads-to-the-roost",
+	await fresh("the_climb")
+	check("and-the-climb-leads-to-the-roost",
 		game.next_level_id() == "dragons_roost",
 		{"next": game.next_level_id(), "order": Game.catalogue()})
 	# And the Roost is the end of it. Nothing follows the final boss, so
@@ -104,10 +120,10 @@ func run() -> void:
 	check("the-roost-is-the-end-of-the-course",
 		game.next_level_id() == "" and order.back() == "dragons_roost",
 		{"next": game.next_level_id(), "last": order.back()})
-	# The Spire is on the course and not also in the list beside it: `order`
+	# The Climb is on the course and not also in the list beside it: `order`
 	# then `also_listed` minus what is already in it, so nothing appears twice.
-	check("the-spire-is-on-the-course-once",
-		order.count("the_spire") == 1 and Game.listing().count("the_spire") == 1,
+	check("the-climb-is-on-the-course-once",
+		order.count("the_climb") == 1 and Game.listing().count("the_climb") == 1,
 		{"order": order, "listing": Game.listing()})
 	# A level not on the course chains to nothing. The greybox fixture is the only
 	# shipped level off the course now, so it stands in for the rule.
@@ -164,7 +180,7 @@ func run() -> void:
 	await steps(2)
 	var before: float = float(game.level.width)
 	var crates_before: int = game.crates.size()
-	game.load_level("the_spire")
+	game.load_level("the_climb")
 	await steps(2)
 	check("load_level-rebuilds-the-world",
 		float(game.level.width) == 960.0 and before == 1920.0,
@@ -178,12 +194,281 @@ func run() -> void:
 	for child in game.get_children():
 		if child is StaticBody2D:
 			solids += 1
-	check("load_level-leaves-no-stale-geometry",
-		solids == game.level.solids.size() + 2 + game.level.get("gates", []).size(),
-		{"bodies": solids, "expected": game.level.solids.size() + 2,
-		 "gates": game.level.get("gates", []).size()})
+	var want_bodies: int = (game.level.solids.size() + 2
+			+ game.level.get("gates", []).size()
+			+ (1 if is_instance_valid(game.seal_wall) else 0))
+	check("load_level-leaves-no-stale-geometry", solids == want_bodies,
+		{"bodies": solids, "expected": want_bodies,
+		 "gates": game.level.get("gates", []).size(),
+		 "arena_wall": is_instance_valid(game.seal_wall)})
 	check("load_level-returns-to-the-menu", game.state == Game.State.MENU,
 		{"state": game.state})
+
+	# --- the way out ---------------------------------------------------------
+	# What stands in the goal is a node of its own now — features/world/portal.gd,
+	# a lit stone over the finish — rather than a pennant drawn on the session's
+	# canvas, because it moves and that canvas is redrawn once per level. So it
+	# has to be built with the level and go with it: two of them after a swap is
+	# the last level's exit still hanging in this one.
+	var portals: Array = []
+	for child in game.get_children():
+		if child.get_script() == Portal:
+			portals.append(child)
+	check("one-way-out-per-level",
+		portals.size() == 1 and game.portal == portals[0],
+		{"found": portals.size()})
+	check("and-it-stands-in-the-goal",
+		game.portal.position == Portal.stand_at(game.level.finish),
+		{"at": game.portal.position,
+		 "want": Portal.stand_at(game.level.finish),
+		 "finish": game.level.finish})
+	# Added before the player, so he walks INTO the light rather than behind it.
+	check("with-the-player-in-front-of-it",
+		game.player.get_index() > game.portal.get_index(),
+		{"portal": game.portal.get_index(), "player": game.player.get_index()})
+
+	# The whole of it has to be in shot from its own foot line: it is the thing
+	# the level ends on and a player standing under it must be able to see it.
+	# Measured rather than asserted, because the room above his feet is a
+	# consequence of CAMERA_DEADZONE and CAMERA_RECENTRE easing the camera onto
+	# him, not a constant anybody wrote down.
+	await fresh("first_steps")
+	game.start_session()
+	await steps(2)
+	var foot: Vector2 = Portal.stand_at(game.level.finish)
+	# Beside the marker, not in it: standing in it finishes the level.
+	game.player.position = Vector2(foot.x - 60.0, foot.y - 4.0)
+	game.player.velocity = Vector2.ZERO
+	for _i in 40:
+		await physics_frame
+	await steps(2)
+	var crown: float = foot.y - Portal.DROP - Portal.STONE.y - Portal.BOB
+	var sky_line: float = game.camera.position.y - 270.0
+	check("the-whole-of-it-is-in-shot-from-its-own-foot",
+		game.state == Game.State.PLAYING and crown > sky_line,
+		{"marker_top": crown, "screen_top": sky_line, "state": game.state})
+
+	# --- the prompts ---------------------------------------------------------
+	# One level teaches. `hints` turns on the cue over a thing you can lift,
+	# throw or drink AND the level's own `coach` lines; every other level leaves
+	# it out and shows neither, because a game still naming keys on its third
+	# level has not taught them.
+	var teaching: Array = []
+	var dead_coaching: Array = []
+	for id in shipped_ids:
+		var data: Dictionary = Game.level_data(id)
+		if bool(data.get("hints", false)):
+			teaching.append(id)
+		elif not Array(data.get("coach", [])).is_empty():
+			dead_coaching.append(id)
+	check("first-steps-is-the-only-level-that-prompts",
+		teaching == ["first_steps"], {"teaching": teaching})
+	# `hints` gates the coach lines too, so a level carrying them without it has
+	# authored data that never appears — which looks like working content in the
+	# file and is not.
+	check("and-nobody-carries-coaching-that-can-never-show",
+		dead_coaching.is_empty(), {"levels": dead_coaching})
+
+	await fresh("first_steps")
+	game.start_session()
+	await steps(2)
+	# Beside the rock at 1524, which stands inside the bandit's coach span —
+	# the one place a lesson and an action cue are up together. The bandit
+	# himself is lifted out: a player in hurt-stun lifts nothing, and these
+	# checks are about prompts rather than about being punched.
+	clear_foes()
+	game.player.position = Vector2(1498.0, 644.0)
+	game.player.velocity = Vector2.ZERO
+	for _i in 40:
+		await physics_frame
+	await steps(2)
+	var rock: Node2D = game.carryable_in_reach()
+	check("there-is-a-rock-in-reach-to-cue", rock != null,
+		{"at": game.player.position})
+	# The claim the whole redesign rests on: the plate is centred on the THING,
+	# not on the screen. It used to be a line of text at a fixed x whatever it
+	# was about, so with two crates in reach it could not say which.
+	var over_rock: Rect2 = game.hud.cue_box(rock.global_position, "E", "LIFT",
+			game.hud.CUE_OVER_PROP)
+	var rock_at: Vector2 = game.to_hud(rock.global_position)
+	check("a-prompt-stands-over-the-thing-it-is-about",
+		absf(over_rock.get_center().x - rock_at.x) < 1.0
+		and over_rock.end.y < rock_at.y
+		and Rect2(0.0, 0.0, 640.0, 360.0).encloses(over_rock),
+		{"cue": over_rock, "rock": rock_at})
+	# And it is held inside the frame wherever the thing is. Measured against a
+	# point far off the left of the screen, which is what a prop behind him is.
+	var off: Rect2 = game.hud.cue_box(
+			game.player.position - Vector2(4000.0, 0.0), "E", "LIFT",
+			game.hud.CUE_OVER_PROP)
+	check("and-is-kept-in-frame-when-the-thing-is-not",
+		Rect2(0.0, 0.0, 640.0, 360.0).encloses(off), {"cue": off})
+
+	# It arrives rather than pops. The fade is what keeps a prompt from
+	# flashing on the frame you step into range, and a fade that never finished
+	# would be a prompt nobody ever saw — so both ends are checked.
+	var cold: float = game.hud._cue_fade("probe", "lift")
+	for _i in 20:
+		await physics_frame
+	var warm: float = game.hud._cue_fade("probe", "lift")
+	check("a-prompt-fades-in-and-gets-all-the-way-there",
+		cold < 0.2 and warm == 1.0, {"first_frame": cold, "settled": warm})
+
+	# Lifting the rock must not retire the line telling him J is a fist. The
+	# pick-up runs on the attack machinery, so it counted as a swing and did —
+	# the prompt that told him to pick the rock up took the next lesson away.
+	# See NOT_A_SWING in features/player/player.gd.
+	check("the-fist-lesson-is-still-owed", not game.hud._coached("strike"),
+		{"attacks": game.player.attacks_thrown})
+	var lifted: bool = game.pick_up()
+	for _i in 40:
+		await physics_frame
+	await steps(2)
+	check("lifting-a-rock-is-not-throwing-a-punch",
+		lifted and game.player.is_carrying()
+		and not game.hud._coached("strike"),
+		{"lifted": lifted, "carrying": game.player.is_carrying(),
+		 "attacks": game.player.attacks_thrown,
+		 "coached": game.hud._coached("strike")})
+	# Throwing it IS pressing J at something, so that one does retire it.
+	game.player.begin_throw()
+	for _i in 30:
+		await physics_frame
+	check("but-throwing-it-is", game.hud._coached("strike"),
+		{"attacks": game.player.attacks_thrown})
+
+	# Nothing is cued on any other level, with the same rock in reach.
+	await fresh("fractured_isles")
+	game.start_session()
+	await steps(2)
+	var isle_rock: Node2D = null
+	for prop in game.crates:
+		isle_rock = prop
+		break
+	game.player.position = Vector2(isle_rock.position.x - 26.0,
+			isle_rock.position.y - 4.0)
+	game.player.velocity = Vector2.ZERO
+	for _i in 40:
+		await physics_frame
+	await steps(2)
+	check("and-no-level-but-the-first-cues-anything",
+		game.carryable_in_reach() != null and not game.hud.teaches(),
+		{"in_reach": game.carryable_in_reach() != null,
+		 "teaches": game.hud.teaches()})
+
+	# --- the jump, at the first pit -----------------------------------------
+	# The first thing the game asks anyone to do. A gap does mime the jump, but
+	# it mimes it while you are standing on the lip of a fall, so the lesson
+	# runs from x240 to the edge and retires on the first jump he ever makes.
+	var lines: Array = Game.level_data("first_steps").get("coach", [])
+	var pit_x := 549.0
+	check("the-jump-is-taught-before-the-first-pit",
+		lines.size() == 3 and str(lines[0][3]) == "jump"
+		# After the spawn, so the level does not open with a plate on his head;
+		# up to the lip, which is a few px past where the pit starts because
+		# that is where he can still stand; and nothing on the far side.
+		and float(lines[0][0]) > float(Game.level_data("first_steps").spawn[0])
+		and float(lines[0][0]) < pit_x
+		and float(lines[0][1]) >= pit_x
+		and float(lines[0][1]) < 684.0,
+		{"line": lines[0] if not lines.is_empty() else [], "pit": pit_x})
+	await fresh("first_steps")
+	game.start_session()
+	await steps(2)
+	game.player.position = Vector2(440.0, 644.0)
+	game.player.velocity = Vector2.ZERO
+	for _i in 30:
+		await physics_frame
+	check("and-is-owed-until-he-makes-one",
+		not game.hud._coached("jump") and game.player.jumps == 0,
+		{"jumps": game.player.jumps})
+	game.player.test_control = true
+	game.player.test_jump_pressed = true
+	for _i in 6:
+		await physics_frame
+	game.player.test_jump_pressed = false
+	for _i in 40:
+		await physics_frame
+	check("then-never-again",
+		game.player.jumps > 0 and game.hud._coached("jump"),
+		{"jumps": game.player.jumps})
+
+	# --- the two bars name themselves ---------------------------------------
+	# Nothing explains the bars otherwise: the numbers beside them say how much
+	# of something without saying of what.
+	await fresh("first_steps")
+	game.start_session()
+	await steps(2)
+	check("no-bar-is-named-for-nothing", game.hud.bar_lesson() == "",
+		{"named": game.hud.bar_lesson()})
+	# Drinking names the bar that bottle pours into — the milk at 2028 is
+	# health, and the brew further on would be mana on the same rule.
+	clear_foes()
+	game.player.health = game.player.MAX_HEALTH - 40
+	game.player.position = Vector2(2008.0, 644.0)
+	game.player.velocity = Vector2.ZERO
+	for _i in 40:
+		await physics_frame
+	var took: bool = game.pick_up()
+	for _i in 40:
+		await physics_frame
+	var sipping: bool = game.drink()
+	for _i in 10:
+		await physics_frame
+	check("drinking-names-the-bar-it-is-filling",
+		took and sipping and game.player.is_drinking()
+		and game.hud.bar_lesson() == "health",
+		{"drinking": game.player.is_drinking(),
+		 "named": game.hud.bar_lesson()})
+	# Beside the bar and past its number, not over either — the bars are in
+	# the corner and there is nothing above them to hang a plate from.
+	var beside: Rect2 = game.hud.bar_cue_box(
+			game.hud.bar_rect("health"), "HEALTH")
+	var green: Rect2 = game.hud.bar_rect("health")
+	check("and-stands-clear-of-the-bar-and-its-number",
+		beside.position.x > green.end.x + 30.0
+		and absf(beside.get_center().y - green.get_center().y) < 1.0
+		and Rect2(0.0, 0.0, 640.0, 360.0).encloses(beside),
+		{"cue": beside, "bar": green})
+	check("and-the-two-bars-are-where-the-meters-draw-them",
+		game.hud.bar_rect("mana").position
+			== game.hud.bar_rect("health").position
+				+ Vector2(0.0, game.hud.BAR_STEP),
+		{"health": game.hud.bar_rect("health"),
+		 "mana": game.hud.bar_rect("mana")})
+
+	# The first blast names the other one, once.
+	await fresh("first_steps")
+	game.start_session()
+	await steps(2)
+	check("mana-is-not-named-before-any-is-spent",
+		game.hud.bar_lesson() == "" and game.player.blasts_thrown == 0,
+		{"named": game.hud.bar_lesson()})
+	game.player.test_control = true
+	game.player.test_blast_pressed = true
+	for _i in 12:
+		await physics_frame
+	game.player.test_blast_pressed = false
+	for _i in 12:
+		await physics_frame
+	check("the-first-blast-names-the-mana-bar",
+		game.player.blasts_thrown == 1 and game.hud.bar_lesson() == "mana",
+		{"blasts": game.player.blasts_thrown, "named": game.hud.bar_lesson()})
+	# And it goes, for good. BLAST_HOLD is 2.4s; 180 ticks is three.
+	for _i in 180:
+		await physics_frame
+	var spent: String = game.hud.bar_lesson()
+	game.player.test_blast_pressed = true
+	for _i in 12:
+		await physics_frame
+	game.player.test_blast_pressed = false
+	for _i in 12:
+		await physics_frame
+	check("and-says-it-once-however-many-more-he-throws",
+		spent == "" and game.hud.bar_lesson() == ""
+		and game.player.blasts_thrown > 1,
+		{"after_hold": spent, "now": game.hud.bar_lesson(),
+		 "blasts": game.player.blasts_thrown})
 
 	# --- chaining -----------------------------------------------------------
 	# The shipped course is one level long, so there is nothing in it to chain
@@ -192,24 +477,31 @@ func run() -> void:
 	# rather than sit untested until the day somebody adds that line. Both ids
 	# are real level files; only their membership of the course is pretend.
 	var shipped: Array = order.duplicate()
-	Game._catalogue = ["first_steps", "the_spire"]
+	Game._catalogue = ["first_steps", "the_climb"]
 
 	# Named rather than left to the default: the default is the fixture, and the
 	# fixture is deliberately not a row on any course, pretend or otherwise. Both
 	# ids are real level files; only the two-level chain between them is a stand-in
 	# for the real course.
 	await fresh("first_steps")
-	check("next-after-the-first", game.next_level_id() == "the_spire",
+	check("next-after-the-first", game.next_level_id() == "the_climb",
 		{"next": game.next_level_id()})
 	game.start_session()
 	await steps(2)
 	var advanced: bool = game.advance_level()
 	await steps(2)
 	check("finishing-loads-the-next",
-		advanced and game.level_id == "the_spire" and game.state == Game.State.PLAYING,
+		advanced and game.level_id == "the_climb" and game.state == Game.State.PLAYING,
 		{"advanced": advanced, "level_id": game.level_id, "state": game.state})
+	# A second, not the fifth of one this used to allow. The point of the check
+	# is that the clock and the death count belong to the level rather than to
+	# the session, and any small number proves that; the old bound was really
+	# measuring how fast the next level builds. steps() waits on PROCESS frames
+	# and each one covers up to eight physics ticks, so a heavier level to load
+	# means more of them inside the same two steps — and The Climb, at 48 solids
+	# and 19 rock sources, was enough to put 13 ticks where 12 used to fit.
 	check("a-fresh-level-starts-on-zero",
-		game.deaths == 0 and game.elapsed < 0.2,
+		game.deaths == 0 and game.elapsed < 1.0,
 		{"deaths": game.deaths, "elapsed": game.elapsed})
 
 	# --- the menu -----------------------------------------------------------
@@ -223,7 +515,7 @@ func run() -> void:
 	game.confirm()
 	await steps(2)
 	check("menu-starts-what-is-highlighted",
-		game.level_id == "the_spire" and game.state == Game.State.PLAYING,
+		game.level_id == "the_climb" and game.state == Game.State.PLAYING,
 		{"level_id": game.level_id, "state": game.state})
 	# Wraps rather than stopping: a dead key at each end of the list would be a
 	# worse first impression than one that loops. Driven through the session's
@@ -779,6 +1071,160 @@ func run() -> void:
 		{"boss": game.boss() != null, "track": game.current_track(),
 		 "shut_at": game.gate_shut_at()})
 
+	# --- the arena shuts behind you -----------------------------------------
+	# A boss fight is the one place walking back is blocked. Ordinary gates only
+	# ever stop you going on, because a wall behind you in a fight takes away
+	# the room you need — but the dragon is fenced into its arena, so a player
+	# who walked west out of it stood somewhere it could not follow and the
+	# fight simply stopped happening. See boss_arena in the level file.
+	var walled: Array = []
+	var bossed: Array = []
+	for id in shipped_ids:
+		var data: Dictionary = Game.level_data(id)
+		if data.has("boss_arena"):
+			walled.append(id)
+		for entry in data.get("enemies", []):
+			var kind := str(entry[2]) if entry.size() > 2 else "bandit"
+			if bool(Enemy.PROFILES.get(kind, {}).get("boss", false)):
+				if not bossed.has(id):
+					bossed.append(id)
+	walled.sort()
+	bossed.sort()
+	check("every-level-with-a-boss-says-where-its-arena-starts",
+		not bossed.is_empty() and walled == bossed,
+		{"sealed": walled, "with_a_boss": bossed})
+
+	await fresh("fractured_isles")
+	game.start_session()
+	await steps(2)
+	var arena_x: float = game.arena_line()
+	var arena_boss: Node2D = null
+	for foe in game.enemies:
+		if foe.is_boss():
+			arena_boss = foe
+	# Inside its own section and behind every boss, or the wall would either
+	# do nothing or shut the fight out of its own arena.
+	var arena_box: Vector2 = game.section_bounds(game.section_of(arena_boss.home.x))
+	check("and-the-line-is-inside-the-boss-section-and-behind-it",
+		arena_x > arena_box.x and arena_x < arena_box.y and arena_boss.home.x > arena_x,
+		{"line": arena_x, "section": arena_box, "boss": arena_boss.home.x})
+	check("the-wall-is-built-and-open-before-the-fight",
+		is_instance_valid(game.seal_wall) and not game.sealed
+		and game.seal_wall.collision_layer == 0 and game.seal_at == arena_x,
+		{"sealed": game.sealed, "at": game.seal_at})
+	# Both of them are shut into the SAME room, which is the other half of it:
+	# fenced to the section, the dragon could back out over the chasm the
+	# player is now walled off from and off the side of the screen.
+	check("and-the-dragon-is-fenced-to-the-same-room",
+		arena_boss.fly_bounds == game.arena_of(arena_boss)
+		and arena_boss.fly_bounds.x == arena_x,
+		{"fence": arena_boss.fly_bounds, "arena": game.arena_of(arena_boss)})
+
+	await clear_foes_but_boss()
+	game.player.position = Vector2(arena_x + 48.0, 600.0)
+	game.player.velocity = Vector2.ZERO
+	for _i in 40:
+		await physics_frame
+	game._wake_boss()
+	await steps(2)
+	check("it-shuts-once-the-fight-is-on-and-he-is-inside",
+		game.sealed and game.seal_wall.collision_layer == 1
+		and arena_boss.engaged,
+		{"sealed": game.sealed, "engaged": arena_boss.engaged,
+		 "at": game.player.position.x})
+	# Four seconds of holding left, which is 1280 px of intent against a wall
+	# 48 away. Stopping at his own half-width past it is the wall working.
+	game.player.test_control = true
+	game.player.test_axis = -1.0
+	var arena_west := INF
+	for _i in 240:
+		await physics_frame
+		if game.state != Game.State.PLAYING:
+			break
+		arena_west = minf(arena_west, game.player.position.x)
+	game.player.test_axis = 0.0
+	check("and-he-cannot-walk-back-out-of-it",
+		arena_west > arena_x and arena_west < arena_x + 24.0 and game.state == Game.State.PLAYING,
+		{"furthest_west": arena_west, "wall": arena_x, "state": game.state})
+	# The camera stops against it the way it stops against a gate, so he can
+	# see he has run out of screen rather than out of floor.
+	check("and-the-camera-stops-against-the-wall",
+		absf((game.camera.position.x - 480.0)
+				- (arena_x - game.GATE_INSET)) < 1.0,
+		{"screen_left": game.camera.position.x - 480.0,
+		 "want": arena_x - game.GATE_INSET})
+	# And it opens again when the body is gone — the flag is past the gate at
+	# 7800 and therefore outside the arena, so it has to.
+	arena_boss.take_hit(arena_boss.health, game.player.global_position)
+	for _i in 900:
+		await physics_frame
+		if game.boss() == null:
+			break
+	await steps(4)
+	check("and-opens-again-when-the-fight-is-over",
+		not game.sealed and game.seal_wall.collision_layer == 0
+		and float(game.level.finish[0]) > arena_x,
+		{"sealed": game.sealed, "flag": game.level.finish[0]})
+
+	# --- and the Roost, which fights two of them -----------------------------
+	# Its line is 816, the lip of the middle deck and the first ground past the
+	# only gap in the level. NOT 1512, the lip of the deck the two bosses stand
+	# on — which is where deriving the line from the deck would have put it,
+	# and which leaves the west floating stone at 1188 outside its own fight.
+	# Those two stones are the only way to reach the flying boss.
+	await fresh("dragons_roost")
+	game.start_session()
+	await steps(2)
+	var roost_line: float = game.arena_line()
+	var roost_wing: Node2D = null
+	var lord: Node2D = null
+	for foe in game.enemies:
+		if foe.is_flyer():
+			roost_wing = foe
+		elif foe.is_boss():
+			lord = foe
+	check("the-roost-seals-behind-both-of-its-bosses",
+		roost_line == 816.0 and is_instance_valid(game.seal_wall)
+		and roost_wing.home.x > roost_line and lord.home.x > roost_line,
+		{"line": roost_line, "flyer": roost_wing.home.x,
+		 "lord": lord.home.x})
+	var perches: Array = []
+	for entry in game.level.solids:
+		if entry.size() > 4 and str(entry[4]) == "island_large":
+			perches.append(float(entry[0]))
+	perches.sort()
+	check("and-keeps-both-perches-inside-the-room",
+		perches.size() == 2 and perches[0] > roost_line
+		and perches[0] < 1512.0,
+		{"perches": perches, "line": roost_line})
+	check("and-fences-its-flyer-to-the-same-room",
+		roost_wing.fly_bounds == game.arena_of(roost_wing)
+		and roost_wing.fly_bounds.x == roost_line,
+		{"fence": roost_wing.fly_bounds})
+
+	# Sealed the same way, and it holds against the same push.
+	await clear_foes_but_boss()
+	game.player.position = Vector2(roost_line + 48.0, 600.0)
+	game.player.velocity = Vector2.ZERO
+	for _i in 40:
+		await physics_frame
+	game._wake_boss()
+	await steps(2)
+	game.player.test_control = true
+	game.player.test_axis = -1.0
+	var roost_west := INF
+	for _i in 240:
+		await physics_frame
+		if game.state != Game.State.PLAYING:
+			break
+		roost_west = minf(roost_west, game.player.position.x)
+	game.player.test_axis = 0.0
+	check("and-he-cannot-walk-back-across-the-gap",
+		game.sealed and roost_west > roost_line
+		and roost_west < roost_line + 24.0,
+		{"furthest_west": roost_west, "wall": roost_line,
+		 "sealed": game.sealed})
+
 	# --- beaten over the water -----------------------------------------------
 	# The way the ending used to be lost. A flyer holds a standoff of 340 to
 	# 470 and backs away from a player who crowds it, so whenever the player
@@ -805,6 +1251,12 @@ func run() -> void:
 	sea.deck_y = 660.0
 	sea.mark_y = 660.0
 	sea.air_left = 30.0
+	# Its fence is the arena now — the deck, from 6912 — so in play it cannot
+	# BE over the water on this level any more, and the next check is the one
+	# that says so. This one is about the death glide, which is general flyer
+	# behaviour and still has to work wherever a flyer does end up out there,
+	# so the fence is taken off for the length of it.
+	sea.fly_bounds = Vector2(-INF, INF)
 	sea.position = Vector2(6700.0, 504.0)
 	game.player.position = Vector2(6950.0, 660.0)
 	game.player.velocity = Vector2.ZERO
@@ -1058,6 +1510,63 @@ func run() -> void:
 		music.get_playback_position() >= was and was > 0.0,
 		{"position": music.get_playback_position(), "was": was})
 
+	# --- the boss track is mixed forward ------------------------------------
+	# Two different things are called music here. The coast loop is a bed; the
+	# battle track plays over a fight that is already loud with roars, fire and
+	# blasts, and at the bed's fader it was reported inaudible and measured 3 dB
+	# under a loop that is itself well back. See TRIM in music.gd and
+	# tests/diag_music_levels.gd for the measurement.
+	check("the-battle-track-is-louder-than-the-bed",
+		Music._level_db("decisive_battle") > Music._level_db("magic_cliffs")
+		and Music._level_db("magic_cliffs") == Music.LEVEL_DB,
+		{"battle": Music._level_db("decisive_battle"),
+		 "bed": Music._level_db("magic_cliffs")})
+	# Loud, but not into the ceiling: the track's own peak is -2.0 dBFS, so the
+	# trim has to leave at least that much headroom under 0.
+	check("and-still-has-headroom-over-its-own-peak",
+		Music._level_db("decisive_battle") <= -2.0,
+		{"fader": Music._level_db("decisive_battle")})
+	# The trim rides UNDER both of the things that are allowed to take the
+	# music away: the player's mute, and a story card talking over it. A boss
+	# track that ignored either would be the loudest bug in the game.
+	Music.duck(self, true)
+	var ducked_battle: float = Music._level_db("decisive_battle")
+	Music.duck(self, false)
+	check("the-duck-still-gets-under-it",
+		ducked_battle == Music._level_db("decisive_battle") + Music.DUCK_DB,
+		{"ducked": ducked_battle,
+		 "open": Music._level_db("decisive_battle")})
+	Music.silence(self, true)
+	var muted_battle: float = Music._level_db("decisive_battle")
+	Music.silence(self, false)
+	check("and-mute-beats-it-outright",
+		muted_battle == Music.SILENT_DB, {"muted": muted_battle})
+	# Cued live, the node has to be wearing the trim — the volume is set per
+	# track in cue() now, not once when the node is built.
+	Music.cue(self, "decisive_battle")
+	await steps(2)
+	check("cueing-it-puts-the-trim-on-the-node",
+		music.track == "decisive_battle"
+		and absf(music.volume_db - Music._level_db("decisive_battle")) < 0.01,
+		{"volume": music.volume_db,
+		 "want": Music._level_db("decisive_battle")})
+	# And going back to the bed takes it off again.
+	Music.cue(self, "magic_cliffs")
+	await steps(2)
+	check("and-going-back-to-the-bed-takes-it-off",
+		absf(music.volume_db - Music.LEVEL_DB) < 0.01,
+		{"volume": music.volume_db})
+	# Both levels with a boss name the same track, so one trim covers the game.
+	var fights: Array = []
+	for id in shipped_ids:
+		var named := str(Game.level_data(id).get("boss_music", ""))
+		if named != "" and not fights.has(named):
+			fights.append(named)
+	check("every-boss-track-is-one-the-mixer-knows",
+		not fights.is_empty()
+		and Array(fights).all(func(n): return Music.TRIM.has(n)),
+		{"boss_tracks": fights, "trimmed": Music.TRIM.keys()})
+
 	# A level with no music of its own stops it rather than carrying the wrong
 	# track into a greybox slice.
 	game.load_level("greybox")
@@ -1087,20 +1596,23 @@ func run() -> void:
 	for child in game.get_children():
 		if child is StaticBody2D:
 			bodies += 1
-	# The two end walls, plus one wall per section gate. Spelled out rather than
-	# loosened to >=: the point of the check is that a themed level builds no
-	# geometry a greybox one would not, and a wall nobody asked for is exactly
-	# what it is here to catch.
-	var expected: int = game.level.solids.size() + 2 + game.level.get("gates", []).size()
+	# The two end walls, one per section gate, and one behind the boss arena on
+	# a level that has a boss. Spelled out rather than loosened to >=: the point
+	# of the check is that a themed level builds no geometry a greybox one would
+	# not, and a wall nobody asked for is exactly what it is here to catch.
+	var expected: int = (game.level.solids.size() + 2
+			+ game.level.get("gates", []).size()
+			+ (1 if is_instance_valid(game.seal_wall) else 0))
 	check("tagged-solids-are-still-solid", bodies == expected,
 		{"bodies": bodies, "expected": expected,
-		 "solids": game.level.solids.size(), "gates": game.gates.size()})
+		 "solids": game.level.solids.size(), "gates": game.gates.size(),
+		 "arena_wall": is_instance_valid(game.seal_wall)})
 
 	# --- a climbing level ---------------------------------------------------
-	# The Spire is the only one, and the two rules it turns on are rules no
+	# The Climb is the only one, and the two rules it turns on are rules no
 	# other level has: the view may not come back down, and the fatal line
 	# rides with it instead of sitting at fall_y.
-	await fresh("the_spire")
+	await fresh("the_climb")
 	game.start_session()
 	await steps(2)
 	check("a-climb-says-so", game.climbing and not game.level.get("gates", []),
@@ -1122,23 +1634,31 @@ func run() -> void:
 	await steps(2)
 	var lowest: float = game.camera.position.y
 	var came_down := false
-	# The middle of every other ledge up the tower. Both coordinates matter: the
+	# The middle of every fourth ledge up the mountain, READ OUT OF THE LEVEL
+	# rather than written down here — it is 48 ledges and nearly 4000 px of
+	# climb, and it has been relaid once already. Both coordinates matter: the
 	# mark the view and the fatal line are measured from only moves when he is
 	# STANDING, so dropping him at the spawn x and a ledge's y puts him in open
 	# air over the sea and proves nothing.
-	for pad in [Vector2(468, 572), Vector2(780, 420), Vector2(468, 268),
-				Vector2(438, 116), Vector2(768, -36), Vector2(444, -188),
-				Vector2(414, -340), Vector2(720, -492)]:
+	var pads: Array[Vector2] = []
+	var rungs: Array = game.level.solids.duplicate()
+	rungs.sort_custom(func(a, b): return float(a[1]) > float(b[1]))
+	for i in rungs.size():
+		if i > 0 and i % 4 == 0:
+			pads.append(Vector2(float(rungs[i][0]) + float(rungs[i][2]) / 2.0,
+								float(rungs[i][1])))
+	for pad in pads:
 		game.player.position = pad - Vector2(0, 4)
 		game.player.velocity = Vector2.ZERO
 		for _i in 12:
 			await physics_frame
 		came_down = came_down or game.camera.position.y > lowest + 0.5
 		lowest = minf(lowest, game.camera.position.y)
-	check("the-view-climbs-with-him", lowest < -300.0 and not came_down,
-		{"view": lowest, "came_down": came_down})
-	# Standing on a ledge 1140 px up, the fatal line is a screen below HIM and
-	# nowhere near the sea the level nominally ends at.
+	check("the-view-climbs-with-him",
+		lowest < -2000.0 and not came_down and pads.size() > 8,
+		{"view": lowest, "came_down": came_down, "rungs_stood_on": pads.size()})
+	# Standing near the summit, the fatal line is a screen below HIM and nowhere
+	# near the sea the level nominally ends at.
 	check("the-fatal-line-climbs-too",
 		game.fatal_y() < 0.0 and game.fatal_y() < float(game.level.fall_y),
 		{"fatal": game.fatal_y(), "fall_y": game.level.fall_y,
@@ -1160,12 +1680,27 @@ func run() -> void:
 
 	# --- the shafts ---------------------------------------------------------
 	# A source only lets go while he is below it and within about a screen, so
-	# standing on the shore wakes the one shaft that reaches down there.
+	# he has to be stood under one. Deliberately NOT the shore: the opening band
+	# of the mountain has no rock over it at all, which is the bottom of the
+	# difficulty curve and is why this check used to fail here.
+	var lowest_source: Array = game.level.rockfall[0]
+	for source in game.level.rockfall:
+		if float(source[1]) > float(lowest_source[1]):
+			lowest_source = source
+	var under := Vector2.ZERO
+	for entry in game.level.solids:
+		var top: float = float(entry[1])
+		if top > float(lowest_source[1]) and (under == Vector2.ZERO or top < under.y):
+			under = Vector2(float(entry[0]) + float(entry[2]) / 2.0, top)
+	game.player.position = under - Vector2(0, 4)
+	game.player.velocity = Vector2.ZERO
 	var dropped := 0
 	for _i in 300:
 		await physics_frame
 		dropped = maxi(dropped, game.stones.size())
-	check("the-shafts-drop-stones", dropped > 0, {"most_at-once": dropped})
+	check("the-shafts-drop-stones", dropped > 0,
+		{"most_at_once": dropped, "stood_at": under,
+		 "under_source": lowest_source})
 
 	# One in the face costs him health, and it is the session that spends it —
 	# the stone only reports the hit, exactly as an arrow does.

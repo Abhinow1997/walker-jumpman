@@ -23,6 +23,23 @@ const DIR := "res://audio/"
 ## Under the sound effects rather than over them. The loop is a background wash
 ## and it is the only thing playing continuously, so it sits well back.
 const LEVEL_DB := -12.0
+## Per-track trim, on top of LEVEL_DB. Two different things are called "music"
+## here and one fader cannot serve both.
+##
+## The coast loop is a bed. It is also mastered hot: at LEVEL_DB it comes out
+## of the bus at -20.5 dBFS average. The battle track is a quieter master —
+## -26.2 dBFS under exactly the same settings, measured by
+## tests/diag_music_levels.gd — and it is the one piece of music in this game
+## that is NOT a bed. It plays over a fight that is already loud with roars,
+## fire, blasts and hits, and at the same fader it disappeared underneath it:
+## six decibels down on a loop that is itself deliberately well back.
+##
+## +8 puts it at about -18 dBFS out, a shade forward of the coast loop, which
+## is where a boss theme belongs. Its own peak is -2.0 dBFS, so even at this
+## trim the loudest sample out of the bus is -6 and there is nothing to clip.
+## Keyed by track rather than by level: two levels play this one, and the
+## reason for the trim is a property of the recording.
+const TRIM := {"decisive_battle": 8.0}
 ## The name it is found by. Anything already called this under the root is it.
 const NODE := "Music"
 ## Silence. Godot treats anything at or below -80 dB as off.
@@ -99,14 +116,19 @@ static func cue(tree: SceneTree, name: String) -> void:
 		stream.loop_begin = 0
 		stream.loop_end = int(stream.get_length() * float(stream.mix_rate))
 	node.stream = stream
+	# Set per track, not once at creation: the trim above is part of the level
+	# this track plays at, and the mute and the duck have to survive the swap.
+	node.volume_db = _level_db(name)
 	node.play()
 
 
-## What the player hears: the mix level, ducked under a voice, or silence.
-static func _level_db() -> float:
+## What the player hears: this track's mix level, ducked under a voice, or
+## silence. The track matters — see TRIM.
+static func _level_db(name: String = "") -> float:
 	if muted:
 		return SILENT_DB
-	return LEVEL_DB + DUCK_DB if ducked else LEVEL_DB
+	var level: float = LEVEL_DB + float(TRIM.get(name, 0.0))
+	return level + DUCK_DB if ducked else level
 
 
 static func duck(tree: SceneTree, under: bool) -> void:
@@ -116,7 +138,7 @@ static func duck(tree: SceneTree, under: bool) -> void:
 	ducked = under
 	var node := _node(tree, false)
 	if node != null:
-		node.volume_db = _level_db()
+		node.volume_db = _level_db(node.track)
 
 
 static func silence(tree: SceneTree, value: bool) -> void:
@@ -125,7 +147,7 @@ static func silence(tree: SceneTree, value: bool) -> void:
 	muted = value
 	var node := _node(tree, false)
 	if node != null:
-		node.volume_db = _level_db()
+		node.volume_db = _level_db(node.track)
 
 
 static func toggle(tree: SceneTree) -> bool:

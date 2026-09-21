@@ -1,5 +1,5 @@
 extends SceneTree
-## Development tool: four views up The Spire, plus one of a stone in flight.
+## Development tool: four views up The Climb, plus one of a stone in flight.
 ##
 ## Not a test; makes no assertions. tests/test_levels.gd says whether the climb
 ## behaves and scripts/check_levels.py says whether it is possible. This says
@@ -7,7 +7,7 @@ extends SceneTree
 ## can answer — the level is drawn out of its own solids, so a ledge that reads
 ## as a painted background rock is a design fault nothing else would catch.
 ##
-##     <godot> --path godot --script tests/capture_spire.gd
+##     <godot> --path godot --script tests/capture_climb.gd
 ##
 ## Run without --headless; it needs a real renderer.
 const Game = preload("res://game/session.gd")
@@ -42,24 +42,24 @@ func run() -> void:
 	DirAccess.make_dir_recursive_absolute(output)
 	game = Game.new()
 	game.test_mode = true
-	game.level_id = "the_spire"
+	game.level_id = "the_climb"
 	root.add_child(game)
 	await steps(3)
 	game.start_session()
 	await steps(2)
 
-	await shot("spire-01-shore")
+	await shot("climb-01-shore")
 	await stand(Vector2(780, 420))
-	await shot("spire-02-first-flight")
+	await shot("climb-02-first-flight")
 	await stand(Vector2(468, 268))
-	await shot("spire-03-the-breather")
+	await shot("climb-03-the-breather")
 	await stand(Vector2(444, -188))
-	await shot("spire-04-high")
+	await shot("climb-04-high")
 	# Off to one side of the flag: standing on it finishes the level, and the
 	# picture that comes back is the course-complete panel rather than the top
 	# of the tower.
 	await stand(Vector2(196, -720))
-	await shot("spire-05-summit")
+	await shot("climb-05-summit")
 
 	# A stone on its way down the middle shaft, caught level with him. Dropped
 	# by hand rather than waited for so the picture is of a known height rather
@@ -75,6 +75,6 @@ func run() -> void:
 	game._drop_stone(Vector2(504, -520))
 	for _i in 18:
 		await physics_frame
-	await shot("spire-06-rockfall")
+	await shot("climb-06-rockfall")
 	print("stones in flight: %d" % game.stones.size())
 	quit()

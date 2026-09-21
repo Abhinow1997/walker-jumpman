@@ -32,7 +32,7 @@ func run() -> void:
 
 	# A three-level course, so the list has rows to lay out. The shipped order
 	# is one level long and would show a menu of one.
-	Game._catalogue = ["fractured_isles", "first_steps", "the_spire"]
+	Game._catalogue = ["fractured_isles", "first_steps", "the_climb"]
 	game = Game.new()
 	game.test_mode = true
 	game.level_id = "fractured_isles"

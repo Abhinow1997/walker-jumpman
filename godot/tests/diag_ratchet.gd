@@ -1,5 +1,5 @@
 extends SceneTree
-## Diagnostic: does The Spire actually climb? Not a test; makes no assertions.
+## Diagnostic: does The Climb actually climb? Not a test; makes no assertions.
 ##
 ## Walks a driven player up the whole tower one hop at a time, reporting what
 ## the ratcheting view and the moving fatal line are doing under him, then
@@ -9,7 +9,7 @@ extends SceneTree
 ##   * does the fatal line ever pass the ledge he is standing on (it must not)
 ##   * do the shafts drop stones where the level says they do
 ##
-##     <godot> --path godot --headless --script tests/diag_spire.gd
+##     <godot> --path godot --headless --script tests/diag_ratchet.gd
 ##
 ## The climb is driven by teleport rather than by keys. A run that has to JUMP
 ## eighteen 120 px gaps in a row fails on the first one and tells you nothing
@@ -38,13 +38,13 @@ func ledges() -> Array:
 func run() -> void:
 	game = Game.new()
 	game.test_mode = true
-	game.level_id = "the_spire"
+	game.level_id = "the_climb"
 	root.add_child(game)
 	await step()
 	game.start_session()
 	await step()
 
-	print("The Spire: climb=%s  width=%d  fall_y=%d  sources=%d"
+	print("The Climb: climb=%s  width=%d  fall_y=%d  sources=%d"
 			% [game.climbing, int(game.level.width), int(game.level.fall_y),
 			   game.level.get("rockfall", []).size()])
 	print("camera pins at x %.0f (a level this wide leaves it nothing to do)"
