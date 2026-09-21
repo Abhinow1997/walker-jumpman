@@ -438,6 +438,11 @@ const STORY_AUDIO_DIR := "res://audio/"
 ## Up and away. What is between them is the clip's business — see STORY_HOLD.
 const STORY_IN := 0.7
 const STORY_OUT := 0.6
+## How long one panel dissolves into the next WITHIN a single beat — two panels
+## over one clip, The Dragon's Roost. The new panel fades in over the old with
+## the dim held full, so the level never shows between them: only the first panel
+## fades up from the level and only the last fades back to it. See _begin_swap.
+const STORY_SWAP := 0.5
 ## How long a card with no clip holds, and the floor under one that has a clip
 ## too short to read the picture in.
 const STORY_HOLD := 2.6
@@ -462,7 +467,9 @@ const STORY_LINE_INK := Color(0.96, 0.97, 0.98)
 const STORY_LINE_EDGE := Color(0.0, 0.0, 0.0, 0.75)
 const STORY_LINE_SCRIM := Color(0.0, 0.0, 0.0, 0.44)
 
-enum Story { NONE, IN, HOLD, OUT }
+## Appended to, never reordered — SWAP is the panel-to-panel dissolve within one
+## beat, added after the three that existed. See _begin_swap.
+enum Story { NONE, IN, HOLD, OUT, SWAP }
 var story_phase: Story = Story.NONE
 var story_clock: float = 0.0
 ## The level's cards, parsed once in _build_world. Each is
@@ -474,6 +481,10 @@ var story_at: int = -1
 var story_layer: CanvasLayer
 var story_dim: ColorRect
 var story_art: TextureRect
+## The outgoing panel during a same-beat dissolve — held solid behind story_art
+## while the incoming panel fades in over it, so the level never shows through
+## between panels. Idle (transparent) at every other time. See _begin_swap.
+var story_art_prev: TextureRect
 var story_line: Label
 var story_voice: AudioStreamPlayer
 
@@ -494,16 +505,11 @@ func _make_story() -> void:
 	story_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	story_dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	story_layer.add_child(story_dim)
-	story_art = TextureRect.new()
-	story_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	story_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	story_art.stretch_mode = TextureRect.STRETCH_SCALE
-	# A reduction of a painted sheet rather than pixel art — see the note in
-	# scripts/extract_storyboard.py — so the same filter hud.gd gives the bars.
-	story_art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	story_art.position = Vector2.ZERO
-	story_art.size = VIEW_HALF * 2.0
-	story_art.modulate.a = 0.0
+	# Two panel layers: the outgoing one (added first, so it sits behind) holds
+	# solid during a same-beat dissolve while the incoming one fades in over it.
+	story_art_prev = _new_story_art()
+	story_layer.add_child(story_art_prev)
+	story_art = _new_story_art()
 	story_layer.add_child(story_art)
 	story_line = Label.new()
 	story_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -527,6 +533,21 @@ func _make_story() -> void:
 	story_voice = AudioStreamPlayer.new()
 	story_layer.add_child(story_voice)
 	add_child(story_layer)
+
+func _new_story_art() -> TextureRect:
+	## One full-frame panel layer. Two of these are stacked so a same-beat
+	## dissolve can hold the old panel solid behind the new one.
+	var art := TextureRect.new()
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_SCALE
+	# A reduction of a painted sheet rather than pixel art — see the note in
+	# scripts/extract_storyboard.py — so the same filter hud.gd gives the bars.
+	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	art.position = Vector2.ZERO
+	art.size = VIEW_HALF * 2.0
+	art.modulate.a = 0.0
+	return art
 
 func _load_story_cards() -> void:
 	## This level's cards, or none. Every level but the Isles takes the early
@@ -559,11 +580,18 @@ func _read_story_card(entry: Dictionary) -> Dictionary:
 		"at": float(entry.get("at", INF)),
 		"after": str(entry.get("after", "")),
 		"hold": float(entry.get("hold", STORY_HOLD)),
+		# A panel that continues the PREVIOUS card's audio rather than starting
+		# its own — how one clip is spread across two panels so the second comes
+		# in on the dialogue instead of after the whole thing. See The Dragon's
+		# Roost, and _begin_story / _begin_story_out, which leave the clip running.
+		"keep_audio": bool(entry.get("keep_audio", false)),
 		"seen": false,
 	}
-	# The clip decides. Less the fade it is already playing under, floored so a
-	# card whose clip is a two-second sting still holds long enough to read.
-	if voice != null:
+	# The clip decides the hold — less the fade it is already playing under,
+	# floored so a two-second sting still holds long enough to read — UNLESS the
+	# level pins one. A pinned hold is what lets a multi-panel beat cut from one
+	# panel to the next partway through a single clip, on the dialogue's own beat.
+	if voice != null and not entry.has("hold"):
 		card["hold"] = maxf(STORY_HOLD, voice.get_length() - STORY_IN)
 	return card
 
@@ -587,6 +615,10 @@ func story_alpha() -> float:
 		Story.IN:
 			return clampf(story_clock / STORY_IN, 0.0, 1.0)
 		Story.HOLD:
+			return 1.0
+		Story.SWAP:
+			# Full: the dim stays up through a panel-to-panel dissolve, only the
+			# picture crossfades. See _show_story.
 			return 1.0
 		Story.OUT:
 			return clampf(1.0 - story_clock / STORY_OUT, 0.0, 1.0)
@@ -702,13 +734,48 @@ func _advance_story(delta: float) -> bool:
 				story_clock = 0.0
 		Story.HOLD:
 			if story_clock >= float(story_cards[story_at]["hold"]):
-				_begin_story_out()
+				# A same-beat successor is dissolved to directly, with the level
+				# kept covered; only a card with nothing continuing it fades back
+				# out to the world. See _begin_swap and _begin_story_out.
+				if _successor_keeps_audio():
+					_begin_swap()
+				else:
+					_begin_story_out()
+		Story.SWAP:
+			if story_clock >= STORY_SWAP:
+				story_phase = Story.HOLD
+				story_clock = 0.0
 		Story.OUT:
 			if story_clock >= STORY_OUT:
 				_end_story()
 				return false  # the level gets the rest of this tick back
 	_show_story()
 	return true
+
+func _begin_swap() -> void:
+	## Cut from this panel to the next of the SAME beat without letting the level
+	## show between them: the incoming panel fades in over the outgoing one, which
+	## is held solid behind it, and the dim stays full and the world stays frozen.
+	## Only the first panel of a beat fades up from the level and only the last
+	## fades back to it. The clip is left running (keep_audio) so the dialogue
+	## carries across the cut. Falls back to a plain fade-out if there is no next.
+	var nxt := story_at + 1
+	if nxt >= story_cards.size():
+		_begin_story_out()
+		return
+	var card: Dictionary = story_cards[nxt]
+	card["seen"] = true
+	# The old panel is held solid underneath while the new one dissolves in.
+	story_art_prev.texture = story_art.texture
+	story_art_prev.modulate.a = 1.0
+	story_art.texture = card["tex"]
+	story_at = nxt
+	story_phase = Story.SWAP
+	story_clock = 0.0
+	_set_story_line(str(card["line"]))
+	if not bool(card.get("keep_audio", false)):
+		_play_story_clip(card["voice"])
+	_show_story()
 
 func _begin_story(index: int) -> void:
 	var card: Dictionary = story_cards[index]
@@ -730,7 +797,10 @@ func _begin_story(index: int) -> void:
 	story_layer.visible = true
 	# Under, not off: see Music.DUCK_DB.
 	Music.duck(get_tree(), true)
-	_play_story_clip(card["voice"])
+	# A panel that keeps the previous card's audio does not restart it — the clip
+	# runs on under the crossfade, so the dialogue never stutters between panels.
+	if not bool(card.get("keep_audio", false)):
+		_play_story_clip(card["voice"])
 	_show_story()
 
 func _begin_story_out() -> void:
@@ -745,10 +815,26 @@ func _begin_story_out() -> void:
 	# up dissolves from there instead of snapping to full first.
 	story_clock = (1.0 - was) * STORY_OUT
 	# Whatever the card arrived on stops here whether it had finished or not,
-	# which is what makes a skip a skip, and the roar takes its place.
-	_play_story_clip(story_cards[story_at]["tail"] if story_at >= 0 else null)
+	# which is what makes a skip a skip, and the roar takes its place — UNLESS the
+	# next panel is keeping this clip going (a multi-panel beat over one dialogue),
+	# in which case it is left running to carry across the crossfade.
+	var tail: AudioStream = story_cards[story_at]["tail"] if story_at >= 0 else null
+	if tail != null:
+		_play_story_clip(tail)
+	elif not _successor_keeps_audio():
+		_play_story_clip(null)
 	_freeze_world(false)
 	_wake_boss()
+
+func _successor_keeps_audio() -> bool:
+	## Is the card that will follow this one part of the same audio beat — a panel
+	## that continues this card's clip rather than starting its own? Checked at a
+	## card's dissolve so its clip is left running instead of cut. The successor is
+	## the next in the list, which is the order _story_due plays cards at one cue.
+	if story_at < 0 or story_at + 1 >= story_cards.size():
+		return false
+	var next: Dictionary = story_cards[story_at + 1]
+	return not bool(next["seen"]) and bool(next.get("keep_audio", false))
 
 func _end_story() -> void:
 	story_phase = Story.NONE
@@ -762,6 +848,7 @@ func _end_story() -> void:
 		story_layer.visible = false
 		story_dim.color.a = 0.0
 		story_art.modulate.a = 0.0
+		story_art_prev.modulate.a = 0.0
 	if is_instance_valid(player) and state == State.PLAYING:
 		player.enabled = true
 		# Whatever was held down to skip the card must not also be a jump the
@@ -817,8 +904,15 @@ func _set_story_line(line: String) -> void:
 func _show_story() -> void:
 	var lit := story_alpha()
 	story_dim.color.a = lit * STORY_DIM
-	story_art.modulate.a = lit
 	story_line.modulate.a = lit
+	if story_phase == Story.SWAP:
+		# Panel-to-panel dissolve within one beat: the new panel fades in over the
+		# old, which is held solid behind it, so the level never shows between them.
+		story_art.modulate.a = clampf(story_clock / STORY_SWAP, 0.0, 1.0)
+		story_art_prev.modulate.a = 1.0
+	else:
+		story_art.modulate.a = lit
+		story_art_prev.modulate.a = 0.0
 
 func _freeze_world(frozen: bool) -> void:
 	## Everything in the level that moves under its own steam, stopped where it
@@ -836,11 +930,17 @@ func _wake_boss() -> bool:
 	## otherwise stand on its perch until the player had walked the rest of the
 	## way in. A no-op for the card at the end of the fight, which has no live
 	## boss left to wake.
+	##
+	## ALL of them, not the first: The Dragon's Roost fights two bosses at once,
+	## and a cutscene that woke only one would leave the other asleep on the deck
+	## until its own aggro caught up. Every boss the card hands the level to wakes
+	## together.
+	var woke := false
 	for foe in enemies:
 		if is_instance_valid(foe) and foe.is_boss() and foe.alive():
 			foe.engaged = true
-			return true
-	return false
+			woke = true
+	return woke
 
 func _add_bottle(bottle: Node2D, entry: Array) -> void:
 	## One bottle of either kind, placed and registered. The kind is already

@@ -869,6 +869,15 @@ func run() -> void:
 	game.load_level("dragons_roost")
 	game.start_session()
 	game.player.test_control = true
+	# Drop the walk-in cutscene: it would wake the bosses the first time the
+	# player is placed past its cue at x900, and these checks drive `engaged` by
+	# hand. The cutscene has its own coverage in tests/test_levels.gd.
+	game.story_cards.clear()
+	# And the battle track: current_track() would switch to it the moment a boss
+	# is engaged and load a 21 MB WAV in the middle of this long phase simulation.
+	# This block is about the flyer's mechanics, not its music — its own coverage
+	# is in test_levels. Kept on the level's own loop so nothing loads mid-run.
+	game.level["boss_music"] = ""
 	await steps(3)
 	var roost_deck := 648.0
 	# The roost now holds two bosses side by side — the flying dragon and the
@@ -997,16 +1006,41 @@ func run() -> void:
 	# decoding is that the dragon uses it: after `air_time` it lands, fights on
 	# its feet for `ground_time` with a different attack and a different walk,
 	# and takes off again. Driven here for one full turn of that.
+	#
+	# Put at the TOP of the air phase first. Joining the cycle wherever the
+	# block above happened to leave it means possibly joining a ground phase
+	# with a second left in it, and a dragon that lands 300 px from the player
+	# needs longer than that to walk in and swing — the loop then breaks on the
+	# take-off having seen no ground attack at all, which says nothing about
+	# whether it has one.
+	wyrm.aloft = true
+	wyrm.grounded = false
+	wyrm.shift = -1.0
+	wyrm.deck_y = roost_deck
+	wyrm.mark_y = roost_deck
+	wyrm.air_left = float(wyrm.prof.get("air_time", 9.0))
+	wyrm.position.y = roost_deck - float(wyrm.prof.get("cruise", 156.0))
+	await physics_frame
 	var saw_ground := false
 	var saw_air_again := false
 	var ground_attack := ""
 	var air_attack := ""
 	var landed_at := -1
-	for i in range(2400):
+	# And WAIT for a clean air phase before judging anything. Forcing the
+	# fields above is not enough on its own: the block before this one leaves
+	# the dragon wherever its own 420 steps ended, which can be one tick from
+	# the deck with a landing already committed, and the loop then clocked a
+	# ground phase it had arrived at the end of and broke out of it having
+	# seen no swing. Nothing is recorded until it is properly up.
+	var settled := false
+	for i in range(3600):
 		await physics_frame
 		game.player.position.x = wyrm.home.x - 300.0
 		game.player.position.y = roost_deck
 		game.player.health = game.player.MAX_HEALTH
+		if not settled:
+			settled = wyrm.aloft and wyrm.shift < 0.0 					and wyrm.air_left > float(wyrm.prof.get("air_time", 9.0)) * 0.5
+			continue
 		if wyrm.state == wyrm.State.PUNCH:
 			if wyrm.aloft:
 				if air_attack == "":
@@ -1023,6 +1057,7 @@ func run() -> void:
 	check("it-comes-down-and-fights-on-its-feet",
 		saw_ground and ground_attack != "" and ground_attack != air_attack,
 		{"landed_after_s": landed_at / 60.0, "in_the_air": air_attack,
+		 "settled": settled, "saw_air_again": saw_air_again,
 		 "on-its-feet": ground_attack})
 	check("and-then-takes-off-again",
 		saw_air_again,
@@ -1074,7 +1109,11 @@ func run() -> void:
 	# A blow opens a gap between the two tracks, and the gap closes. Same
 	# number at two speeds — that gap IS the damage, and it is the only reason
 	# the plate is drawn with a second bar.
-	var _plate_hit: bool = wyrm.take_hit(90, game.player.global_position)
+	# A quarter of the bar. It was a flat 90, which was 37% of the old 240 and
+	# is 6% of the health a boss has now — the gap between the two tracks is a
+	# fraction of the plate, so what opens a readable one is a fraction too.
+	var _plate_hit: bool = wyrm.take_hit(wyrm.max_health / 4,
+			game.player.global_position)
 	for i in range(9):
 		await physics_frame
 		game.player.health = game.player.MAX_HEALTH
@@ -1183,6 +1222,187 @@ func run() -> void:
 	game.player.position = Vector2(wyrm.home.x - 400.0, roost_deck)
 	await steps(2)
 
+	# --- it is a boss now ----------------------------------------------------
+	# Six things were wrong with this fight and every one of them is a number
+	# or a missing branch. tests/diag_dragonfight.gd measures the lot and is
+	# the before-and-after; these are the parts that can be asserted.
+
+	# TWENTY-FIVE HITS. The hardest single blow the player owns is the jumped
+	# kick, and the bar has to survive twenty-five of them. Read off the
+	# moveset rather than typed here: retune the kick and this moves with it.
+	var hardest := 0
+	for key in ["punch_a", "punch_b", "kick", "charge"]:
+		for kframe in range(12):
+			for hit in Moveset.hits(key, kframe):
+				hardest = maxi(hardest, int(hit["damage"]))
+	check("it-takes-twenty-five-of-the-players-best-to-put-down",
+		hardest > 0 and wyrm.max_health >= 25 * hardest,
+		{"health": wyrm.max_health, "hardest_blow": hardest,
+		 "hits": float(wyrm.max_health) / float(maxi(hardest, 1))})
+
+	# IT HITS THROUGH YOU. Struck mid-swing from behind it keeps its facing,
+	# its swing and its ground: the counter is footwork, not trading. Same
+	# rule the Dragon Lord has and for the same reason.
+	wyrm.reset()
+	wyrm.target = game.player
+	wyrm.engaged = true
+	await steps(2)
+	game.player.position = Vector2(wyrm.position.x - 70.0, roost_deck)
+	wyrm.facing = -1.0
+	wyrm._start_punch()
+	await physics_frame
+	var swing_facing: float = wyrm.facing
+	var swing_state: int = wyrm.state
+	var _behind: bool = wyrm.take_hit(40, Vector2(wyrm.position.x + 300.0, roost_deck))
+	await physics_frame
+	check("nothing-staggers-it-or-turns-it-out-of-a-swing",
+		bool(Enemy.PROFILES["dragon"].get("unflinching", false))
+		and wyrm.facing == swing_facing and wyrm.state == swing_state
+		and wyrm.stagger <= 0.0 and is_zero_approx(wyrm.velocity.x)
+		and wyrm.hurt_flash > 0.0,
+		{"facing": wyrm.facing, "was": swing_facing, "state": wyrm.state,
+		 "stagger": wyrm.stagger, "shoved": wyrm.velocity.x,
+		 "flash": wyrm.hurt_flash})
+
+	# THE BREATH REACHES FURTHER THAN IT IS DRAWN, by a number in the profile
+	# rather than by editing the manifest — that file says how long the flame
+	# is painted, which is a fact about the sheet. And it is CHOSEN from much
+	# further out than that: the band is 121..240 and a flyer holds a standoff
+	# of 340 to 470, so for as long as the band was the only test the breath
+	# was never once thrown.
+	var drawn: Array = wyrm.move_data("fire_air").get("range", [])
+	check("the-breath-reaches-past-the-flame-and-is-picked-from-further-still",
+		wyrm.reach_bonus("fire_air") > 0.0
+		and wyrm.band_top("fire_air") == float(drawn[1]) + wyrm.reach_bonus("fire_air")
+		and wyrm.reach_bonus("claw") == 0.0
+		and float(Enemy.PROFILES["dragon"].get("fire_from", 0.0))
+			> wyrm.band_top("fire_air") + Enemy.STANDOFF_NEAR * 0.5,
+		{"drawn_to": drawn[1], "reaches": wyrm.band_top("fire_air"),
+		 "decides_from": Enemy.PROFILES["dragon"].get("fire_from", 0.0),
+		 "standoff_near": Enemy.STANDOFF_NEAR,
+		 "claw_bonus": wyrm.reach_bonus("claw")})
+	# In the air, off cooldown, and well outside the flame: it lines one up
+	# anyway and closes, which is the branch that was missing.
+	wyrm.reset()
+	wyrm.target = game.player
+	wyrm.engaged = true
+	wyrm.aloft = true
+	wyrm.grounded = false
+	wyrm.deck_y = roost_deck
+	wyrm.mark_y = roost_deck
+	wyrm.air_left = 60.0
+	wyrm.position = Vector2(wyrm.home.x, roost_deck - 156.0)
+	game.player.position = Vector2(wyrm.home.x - 400.0, roost_deck)
+	game.player.velocity = Vector2.ZERO
+	wyrm.cooldown = 0.0
+	wyrm.special_ready = 0.0
+	await physics_frame
+	var lining: bool = wyrm._lining_up(400.0)
+	var breathed := false
+	for i in range(240):
+		await physics_frame
+		game.player.position = Vector2(wyrm.home.x - 400.0, roost_deck)
+		game.player.health = game.player.MAX_HEALTH
+		if wyrm.move == "fire_air" and wyrm.state == wyrm.State.PUNCH:
+			breathed = true
+			break
+	check("and-it-closes-from-out-there-and-breathes",
+		lining and breathed
+		and absf(wyrm.position.x - game.player.position.x) <= wyrm.band_top("fire_air") + 8.0,
+		{"lined_up_at_400": lining, "breathed": breathed,
+		 "threw_it_from": absf(wyrm.position.x - game.player.position.x)})
+
+	# AND THE BREATH PUTS HIM DOWN. Every blow flings; the fire flings hardest,
+	# and a flung blow is a knockdown rather than a flinch — LF2's falling
+	# frames, and no control until he is up. See DOWN_TIME in player.gd.
+	wyrm.move = "claw"
+	var claw_fling: float = wyrm.fling_for()
+	wyrm.move = "fire_air"
+	var fire_fling: float = wyrm.fling_for()
+	check("its-blows-throw-him-and-the-breath-throws-hardest",
+		claw_fling > 0.0 and fire_fling > claw_fling * 1.5,
+		{"claw": claw_fling, "breath": fire_fling})
+	game.player.position = Vector2(wyrm.home.x - 60.0, roost_deck)
+	game.player.velocity = Vector2.ZERO
+	game.player.health = game.player.MAX_HEALTH
+	var _flung: bool = game.player.take_damage(20, Vector2(wyrm.home.x, roost_deck),
+			fire_fling)
+	await physics_frame
+	check("a-flung-blow-knocks-him-off-his-feet",
+		game.player.is_downed() and game.player.is_hurt()
+		and game.player.velocity.y < 0.0
+		and signf(game.player.velocity.x) < 0.0,
+		{"downed": game.player.is_downed(), "up": game.player.velocity.y,
+		 "away": game.player.velocity.x})
+	var down_for := 0
+	while game.player.is_downed() and down_for < 240:
+		await physics_frame
+		down_for += 1
+	check("and-he-is-down-for-longer-than-a-flinch",
+		down_for / 60.0 > game.player.HURT_STUN * 2.0
+		and absf(down_for / 60.0 - game.player.DOWN_TIME) < 0.1,
+		{"down_for": down_for / 60.0, "flinch": game.player.HURT_STUN,
+		 "want": game.player.DOWN_TIME})
+
+	# SPAMMING THE BLAST DOES NOT HOLD IT OFF. Each one it reads stacks; the
+	# stack sends it higher, and past SPAM_ANGRY a further blast buys no more
+	# evasion — it rides them out and comes down instead. Without that last
+	# rule a shot every 0.3 s refreshed the dodge for ever and the dragon
+	# climbed out of its own fight.
+	wyrm.reset()
+	wyrm.target = game.player
+	wyrm.engaged = true
+	wyrm.aloft = true
+	wyrm.grounded = false
+	wyrm.deck_y = roost_deck
+	wyrm.mark_y = roost_deck
+	wyrm.air_left = 60.0
+	wyrm.position = Vector2(wyrm.home.x, roost_deck - 156.0)
+	game.player.position = Vector2(wyrm.home.x - 400.0, roost_deck)
+	await physics_frame
+	check("the-stack-starts-empty", is_zero_approx(wyrm.spam), {"spam": wyrm.spam})
+	for i in range(int(Enemy.SPAM_MAX) + 2):
+		wyrm.warn_of_blast(game.player.global_position, 1.0, 560.0)
+	check("a-stream-of-blasts-stacks-and-stops-buying-evasion",
+		wyrm.spam >= Enemy.SPAM_ANGRY and wyrm.spam <= Enemy.SPAM_MAX
+		and wyrm.dodge <= 0.0 and wyrm.swoop_ready <= 0.0,
+		{"spam": wyrm.spam, "cap": Enemy.SPAM_MAX, "dodge": wyrm.dodge,
+		 "swoop_ready": wyrm.swoop_ready})
+	# And one on its own still buys the climb it always did — thrown at a
+	# height it could actually be hit at. Cruising 156 up it is above the line
+	# the blast flies along and there is nothing to dodge, which is why the
+	# stack above is counted before that test and the dodge after it.
+	wyrm.spam = 0.0
+	wyrm.dodge = 0.0
+	wyrm.braced = 0.0
+	wyrm.position.y = roost_deck - 20.0
+	await physics_frame
+	wyrm.warn_of_blast(Vector2(wyrm.position.x - 400.0, wyrm.position.y),
+			1.0, 560.0)
+	check("but-a-single-one-is-still-dodged",
+		wyrm.dodge > 0.0 and wyrm.spam < Enemy.SPAM_ANGRY,
+		{"dodge": wyrm.dodge, "spam": wyrm.spam})
+	# The stack forgets a player who stops.
+	var quiet: float = wyrm.spam
+	await steps(60)
+	check("and-the-stack-forgets-a-player-who-stops",
+		wyrm.spam < quiet,
+		{"was": quiet, "now": wyrm.spam})
+
+	# Back where the fly-away below expects it.
+	wyrm.reset()
+	wyrm.target = game.player
+	wyrm.engaged = true
+	wyrm.aloft = true
+	wyrm.grounded = false
+	wyrm.deck_y = roost_deck
+	wyrm.position = Vector2(wyrm.home.x, roost_deck - float(wyrm.prof.get("cruise", 156.0)))
+	wyrm.air_left = 30.0
+	wyrm.mark_y = roost_deck
+	game.player.position = Vector2(wyrm.home.x - 400.0, roost_deck)
+	game.player.health = game.player.MAX_HEALTH
+	await steps(2)
+
 	# And the ending the whole level exists for. Beaten, it does not fall over
 	# — there is no collapse in six frames of wing-flap and none is roost_wanted. It
 	# turns away, climbs, and is gone, and the flag opens while you watch it go.
@@ -1237,6 +1457,12 @@ func run() -> void:
 	game.load_level("dragons_roost")
 	game.start_session()
 	game.player.test_control = true
+	# Same as the flyer block above: drop the walk-in cutscene so placing the
+	# player does not wake the bosses out from under the manual `engaged` control,
+	# and the battle track so no 21 MB WAV loads mid-run. Both have their own
+	# coverage in test_levels.
+	game.story_cards.clear()
+	game.level["boss_music"] = ""
 	await steps(3)
 	var arena_deck := 648.0
 	var lord: Area2D = null

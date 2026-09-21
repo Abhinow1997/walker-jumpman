@@ -86,18 +86,27 @@ PANELS = [
 #     them; 96 already has the wingtips touching the frame. Taken off the
 #     bottom instead, which is grass and the back of the character's head — he
 #     is watching it go and does not need to be more than a silhouette.
+# The two Dragon Lord panels are the exception: they are drawn ~1.79 (a touch
+# WIDER than 16:9) rather than 4:3, so there is no tall band to take. write_card
+# trims their WIDTH instead, centred, and the `top` below is unused for them —
+# both characters sit dead centre of the frame, so there is nothing to choose.
 CARDS = [
     ("dragon-fight-start.jpg", "dragon_fight_start.png", 192),
     ("dragon-fight-end.jpg", "dragon_fight_end.png", 0),
+    ("dragon-lord-fight-start.jpg", "dragon_lord_fight_start.png", 0),
+    ("dragon-lord-fight-start-2.jpg", "dragon_lord_fight_start_2.png", 0),
 ]
 
 # source file -> written name in godot/audio/. Named for what plays them:
-# a level's cutscene entry names a clip the same way it names a panel.
+# a level's cutscene entry names a clip the same way it names a panel. The
+# Dragon Lord source is spelled "dargon" — a typo in the delivered file, fixed
+# on the way in.
 AUDIO = [
     ("merged_audio_1789861876055.mp3", "storyboard_scene_1.mp3"),
     ("dragon fight start scene.mp3", "dragon_fight_start.mp3"),
     ("dragon-fight-endscene.mp3", "dragon_fight_end.mp3"),
     ("dragon-voice-angry-growl.mp3", "dragon_roar.mp3"),
+    ("dargon-lord-fight.mp3", "dragon_lord_fight.mp3"),
 ]
 
 # How far from its target shape a source may be before this stops. A panel
@@ -134,24 +143,38 @@ def write_panel(source_name, out_name):
 
 
 def write_card(source_name, out_name, top):
-    """One in-level card: a 16:9 band taken from `top`, then resized."""
+    """One in-level card, cropped to 16:9 then resized.
+
+    A source TALLER than 16:9 (the 4:3 dragon cards) gives a horizontal band
+    taken from row `top` — see CARDS for why each sits where it does. A source
+    already WIDER than 16:9 (the Dragon Lord panels, ~1.79) is trimmed to width
+    instead, centred, and `top` is unused: there is no vertical choice to make.
+    Either way the result is exactly 16:9 and resized 1:1 with no stretch.
+    """
     img = open_source(source_name)
-    band = int(round(img.width / WIDE))
-    if band > img.height:
-        raise SystemExit(
-            "%s is %dx%d and a 16:9 band of it would be %d tall, which is "
-            "taller than the source. It cannot be shown full-screen without "
-            "upscaling." % (source_name, img.width, img.height, band))
-    if not 0 <= top <= img.height - band:
-        raise SystemExit(
-            "%s: a band of %d from row %d runs off a %d-tall source. The crop "
-            "has to sit inside it — see CARDS."
-            % (source_name, band, top, img.height))
-    cut = img.crop((0, top, img.width, top + band))
+    aspect = img.width / img.height
+    if aspect > WIDE:
+        keep = int(round(img.height * WIDE))
+        left = (img.width - keep) // 2
+        cut = img.crop((left, 0, left + keep, img.height))
+        how = "wide %d@%d" % (keep, left)
+    else:
+        band = int(round(img.width / WIDE))
+        if band > img.height:
+            raise SystemExit(
+                "%s is %dx%d and a 16:9 band of it would be %d tall, which is "
+                "taller than the source. It cannot be shown full-screen without "
+                "upscaling." % (source_name, img.width, img.height, band))
+        if not 0 <= top <= img.height - band:
+            raise SystemExit(
+                "%s: a band of %d from row %d runs off a %d-tall source. The "
+                "crop has to sit inside it — see CARDS."
+                % (source_name, band, top, img.height))
+        cut = img.crop((0, top, img.width, top + band))
+        how = "band %d@%d" % (band, top)
     cut.resize(CANVAS, Image.LANCZOS).save(os.path.join(OUT, out_name))
-    print("%-26s %4dx%-4d  band %4d@%-3d -> %dx%d  %s"
-          % (source_name, img.width, img.height, band, top,
-             CANVAS[0], CANVAS[1], out_name))
+    print("%-30s %4dx%-4d  %-13s -> %dx%d  %s"
+          % (source_name, img.width, img.height, how, CANVAS[0], CANVAS[1], out_name))
 
 
 def copy_audio(source_name, out_name):

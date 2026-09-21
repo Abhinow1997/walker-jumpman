@@ -549,6 +549,16 @@ Get inside its reaction — 168 px cold, 76 braced — and the blast lands, but 
 while it is down at the bottom of a swoop, because cruising it is above the line
 the blast flies along in the first place.
 
+**And then it stops climbing.** Every blast it reads stacks, the stack decays,
+and while it is up the dragon goes higher with each one — but past two it
+refuses to buy any more evasion: it rides the rest out and comes down on you
+without waiting out its swoop cooldown. On its feet, where it has no answer at
+all, the same stack cuts the ground phase short and puts it back in the air.
+This is not decoration on the trade above, it is what makes the trade a trade:
+a shot every 0.3 s used to refresh the dodge for ever, and the measured result
+was a dragon 124 px over its own cruise for ten seconds that threw nothing.
+`tests/diag_dragonfight.gd` is that measurement.
+
 ### The flyer
 
 The dragon is a fifth style, and the only enemy that is really two: it fights
@@ -595,9 +605,20 @@ and one more attack that is not a pass at all: it drops to your level at range
 and **hoses fire along the deck**. The counter to that one is to get *inside*
 the band, which is the same counter the Dragon Lord's breath has.
 
-On its feet it walks in at 150 — outrunnable, like everything else in the cast
+The breath reaches **240**, which is 60 px further than the flame is drawn —
+the only box in the game that is not exactly its own picture, and it is a
+profile number (`reach_bonus`) rather than an edit to the generated manifest,
+because the manifest's job is to say how long the flame is painted. It is
+*chosen* from 440, which is a different number again and the one that was
+missing: the band is 121–240 and a flyer holds a standoff of 340–470, so for as
+long as the band was the only test the breath was drawn, decoded off a
+watermarked gif, shipped — and thrown **zero times in thirty seconds** of
+fighting. From 440 it now drops to your level and closes, which is also the one
+stretch of the air phase where it is low, straight and worth hitting.
+
+On its feet it walks in at 165 — outrunnable, like everything else in the cast
 — **claws** at 86 and breathes the standing version of the same fire from 125
-to 180. That phase is the fight's breathing space and its danger both: it is
+to 240. That phase is the fight's breathing space and its danger both: it is
 the only time the dragon is reliably in reach, and the only time it can corner
 you against a wall.
 
@@ -613,6 +634,26 @@ screen, up to 284 px past the edge. `session.gd` now hands every flyer the
 bounds of the gated section it was placed in, and `_integrate` holds it there.
 Cornered, it runs out of room and has to fight you in the corner. The fence is
 dropped on death, or the fly-away could not leave the level.
+
+**It hits through you, and its blows put you down.** Nothing staggers it,
+nothing turns a swing it has committed to and nothing visibly shoves it — the
+same `unflinching` rule the Dragon Lord has, for the same reason: a boss you
+can interrupt by mashing punch is a boss you beat by standing in front of it.
+The red flash still fires on every blow so the hits read. And every blow it
+lands flings you, with the **breath flinging hardest**: a flung blow is not a
+flinch but a knockdown, LF2's falling frames and no control until you are up
+again — see `DOWN_TIME` in [player.gd](godot/features/player/player.gd). Being
+caught by the fire costs the damage, the throw and a second on the floor while
+the thing that threw you comes back round.
+
+**It takes 1500 to put down**, which is twenty-five clean hits of the hardest
+blow you own — the jumped kick at 60 — thirty-three blasts, or seventy-five
+punches. It was 240: four kicks, and the fight ended before either phase had
+run once. The health, the hit counts and what the dragon actually threw in
+thirty seconds are all printed by
+[diag_dragonfight.gd](godot/tests/diag_dragonfight.gd), which is the
+before-and-after for any change to these numbers. The before was 3 swoops, 0
+breaths and 2 blows landed; the after is 4 swoops, 3 breaths, 6 claws and 12.
 
 Beaten, it goes **down** first: dropped out of the air if that is where it was,
 and folding forward on the deck in the collapse the pack draws. Then it **stays

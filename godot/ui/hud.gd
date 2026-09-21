@@ -289,13 +289,23 @@ const BUTTON_AT := Rect2(235, 290, 170, 40)
 ## is centred on the screen rather than the one button.
 const PAUSED_BUTTON_AT := Rect2(150, 290, 170, 40)
 const MUSIC_AT := Rect2(330, 290, 160, 40)
-## Borrowed off the kit's own START plate. The kit's buttons are not used — see
-## the note in extract_panels.py — but its green is.
+## The kit's own plates, with their baked words lifted off — see
+## extract_panels.py. `btn_go` is its green START, which is what the confirm
+## button is; `btn_plain` is its grey, which is everything else you can press.
+const BUTTON_GO := "btn_go"
+const BUTTON_PLAIN := "btn_plain"
+## The face and lip the drawn rectangle used before the plates existed, kept
+## for a checkout that has not imported the art yet. Sampled off the kit's
+## green so the fallback is at least the right colour.
 const BUTTON_FACE := Color("498c69")
 const BUTTON_LIP := Color("6fb98a")
 ## The toggle while the music is off, so the state reads without the label.
 const BUTTON_OFF := Color("57606b")
 const BUTTON_OFF_LIP := Color("7d8894")
+## The label on a plate: the kit writes its own in near-white with a dark
+## outline, and this is that, drawn rather than baked.
+const BUTTON_INK := Color(0.97, 0.96, 0.93)
+const BUTTON_EDGE := Color(0.09, 0.11, 0.15, 0.85)
 
 ## Only the fallback shape, for a checkout that has not imported the art yet.
 const PANEL_W := 340.0
@@ -305,6 +315,10 @@ const ROW_H := 22.0
 ## name -> {tex, size, interior, text_box}. Empty if the art is missing, which
 ## puts every panel back on the plain rectangle it used to be.
 var panels := {}
+## name -> {tex, size, cap}. The kit's button plates; `cap` is the rounded end,
+## which _button_plate may not stretch. Empty falls back to the drawn
+## rectangle, the same way the panels do.
+var buttons := {}
 
 func _load_panels() -> void:
 	var text := FileAccess.get_file_as_string(PANELS)
@@ -312,8 +326,8 @@ func _load_panels() -> void:
 		push_warning("hud: %s is missing. Run scripts/extract_panels.py." % PANELS)
 		return
 	var data: Dictionary = JSON.parse_string(text)
-	for name in data:
-		var spec: Dictionary = data[name]
+	for name in data.get("panels", {}):
+		var spec: Dictionary = data["panels"][name]
 		var path: String = PANEL_ART + str(spec.file)
 		if not ResourceLoader.exists(path):
 			push_warning("hud: panel art not imported yet; falling back to plain panels")
@@ -324,6 +338,17 @@ func _load_panels() -> void:
 			"size": Vector2(float(spec.size[0]), float(spec.size[1])) * PANEL_SCALE,
 			"interior": spec.interior,
 			"text_box": spec.text_box,
+		}
+	for name in data.get("buttons", {}):
+		var spec: Dictionary = data["buttons"][name]
+		var path: String = PANEL_ART + str(spec.file)
+		if not ResourceLoader.exists(path):
+			buttons.clear()
+			return
+		buttons[name] = {
+			"tex": load(path),
+			"size": Vector2(float(spec.size[0]), float(spec.size[1])),
+			"cap": float(spec.cap),
 		}
 
 func _panel_name() -> String:
@@ -606,13 +631,60 @@ func _draw() -> void:
 		_message_panel()
 	# Drawn rather than taken from the kit, whose plates all have their word baked
 	# in — these say several different things. Their colours are the kit's.
-	_plate(button_rect(), _button_label(), BUTTON_FACE, BUTTON_LIP)
+	_button_plate(button_rect(), BUTTON_GO, _button_label())
+	if game.state == game.State.MENU:
+		# Under the button rather than on the card. It used to be the last line
+		# inside the card and it collided with the brief above it — the brief
+		# is three lines now and the card is not tall enough for both.
+		_centred_over_level("W/S or the arrows to choose.",
+				button_rect().end.y + 14.0, 11, Color(0.83, 0.86, 0.90, 0.85))
 	var music := music_rect()
 	if music.size.x > 0.0:
-		var off: bool = Music.muted
-		_plate(music, music_label(),
-				BUTTON_OFF if off else BUTTON_FACE,
-				BUTTON_OFF_LIP if off else BUTTON_LIP)
+		# Always the grey plate, never the green one. Green is the kit's
+		# confirm colour and there is one confirm on screen; two green plates
+		# side by side read as two equal choices, which is the opposite of
+		# what a primary and a toggle are. The label already carries the state
+		# — it says what pressing it will DO.
+		_button_plate(music, BUTTON_PLAIN, music_label())
+
+func _button_plate(box: Rect2, name: String, label: String) -> void:
+	## A button, wearing one of the kit's plates. THREE SLICES: the rounded end
+	## at each side at its drawn width, and everything between them stretched
+	## to fill. A plate scaled whole would pull its corners out of round, and
+	## these are 118 wide against buttons that are 160 to 170.
+	##
+	## Height is not stretched — the plates are 41 in design units and the
+	## boxes are 40, which is inside a pixel and not worth a slice.
+	var spec: Dictionary = buttons.get(name, {})
+	if spec.is_empty():
+		# No art imported: the rectangle this used to be.
+		_plate(box, label, BUTTON_FACE if name == BUTTON_GO else BUTTON_OFF,
+				BUTTON_LIP if name == BUTTON_GO else BUTTON_OFF_LIP)
+		return
+	var tex: Texture2D = spec.tex
+	var src: Vector2 = spec.size
+	var cap: float = spec.cap
+	var end: float = minf(cap * PANEL_SCALE, box.size.x * 0.45)
+	draw_texture_rect_region(tex, Rect2(box.position, Vector2(end, box.size.y)),
+			Rect2(0.0, 0.0, cap, src.y))
+	draw_texture_rect_region(tex,
+			Rect2(box.position + Vector2(end, 0.0),
+				  Vector2(box.size.x - end * 2.0, box.size.y)),
+			Rect2(cap, 0.0, src.x - cap * 2.0, src.y))
+	draw_texture_rect_region(tex,
+			Rect2(box.position + Vector2(box.size.x - end, 0.0),
+				  Vector2(end, box.size.y)),
+			Rect2(src.x - cap, 0.0, cap, src.y))
+	# The word, drawn rather than baked — which is the whole reason the plates
+	# could be used at all. Outlined like the kit's own lettering, because a
+	# flat label on a shaded face loses its thin strokes.
+	var font := ThemeDB.fallback_font
+	var at := Vector2(box.get_center().x
+			- font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x / 2.0,
+			box.position.y + box.size.y * 0.63)
+	draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 5,
+			BUTTON_EDGE)
+	draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, BUTTON_INK)
 
 func _plate(box: Rect2, label: String, face: Color, lip: Color) -> void:
 	## A button. Its label is centred on the BOX rather than on the screen, which
@@ -643,23 +715,42 @@ func _level_select() -> void:
 	var card := _face("text_box")
 	var order: Array = game.listing()
 	# On the parchment, above the card. The panel's own headstone already carries
-	# the game's name, so this only has to say what the list is for.
-	centered("Choose a level.", inner.position.y + 17.0, 18)
+	# the game's name, so this only has to say what the list is for. Shadowed,
+	# because the parchment is a painted texture rather than a flat fill and
+	# flat ink on it reads as washed out.
+	var font := ThemeDB.fallback_font
+	var head := "Choose a level."
+	var head_w := font.get_string_size(head, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+	var head_at := Vector2((640.0 - head_w) / 2.0, inner.position.y + 17.0)
+	draw_string(font, head_at + Vector2(1.0, 1.0), head, HORIZONTAL_ALIGNMENT_LEFT,
+			-1, 18, Color(0.35, 0.20, 0.11, 0.45))
+	draw_string(font, head_at, head, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, INK)
 	for i in order.size():
 		var row := _row_rect(i)
 		var picked: bool = i == game.menu_index
 		if picked:
-			# A burnt-in mark on the parchment. The old green block belonged to the
-			# white card it used to sit on.
-			draw_rect(row, Color(0.24, 0.13, 0.08, 0.50))
-		text_at("%d.  %s" % [i + 1, game.level_title(order[i])],
-				Vector2(row.position.x + 10, row.position.y + row.size.y - 6.0), 14,
+			# A burnt-in mark on the parchment with a lit top edge, which is
+			# how every raised thing on the kit's own frames is drawn. The old
+			# flat block belonged to the white card it used to sit on.
+			draw_rect(row, Color(0.24, 0.13, 0.08, 0.52))
+			draw_rect(Rect2(row.position, Vector2(row.size.x, 1.0)),
+					Color(0.85, 0.66, 0.42, 0.55))
+			draw_rect(Rect2(row.position + Vector2(0.0, row.size.y - 1.0),
+					Vector2(row.size.x, 1.0)), Color(0.12, 0.06, 0.03, 0.40))
+		var baseline := Vector2(row.position.x + 10.0,
+				row.position.y + row.size.y - 6.0)
+		# The number in the parchment's own brown rather than the body ink, so
+		# the eye runs down the titles and not down the digits.
+		text_at("%d." % (i + 1), baseline, 14,
+				Color("ffeeca") if picked else Color(0.42, 0.26, 0.15, 0.85))
+		text_at(game.level_title(order[i]), baseline + Vector2(22.0, 0.0), 14,
 				Color("ffeeca") if picked else INK)
 	# What the highlighted level is, on the card below the list — which is what
-	# that card is drawn for.
+	# that card is drawn for. THREE lines, not two: the briefs are whole
+	# sentences and two of them cut First Steps off at "one thing you have not".
 	var chosen: String = order[clampi(game.menu_index, 0, order.size() - 1)]
-	wrapped(str(game.level_data(chosen).get("brief", "")), card, card.position.y + 18.0, 12)
-	centered("W/S or the arrows to choose.", card.end.y - 10.0, 12)
+	wrapped(str(game.level_data(chosen).get("brief", "")), card,
+			card.position.y + 16.0, 12, 3)
 
 func _message_panel() -> void:
 	var title := str(game.level.get("tagline", ""))

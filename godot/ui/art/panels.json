@@ -1,40 +1,68 @@
 {
- "panel_menu": {
-  "file": "panel_menu.png",
-  "interior": [
-   0.1184,
-   0.2787,
-   0.8847,
-   0.8665
-  ],
-  "size": [
-   636,
-   553
-  ],
-  "text_box": [
-   0.162,
-   0.5986,
-   0.8357,
-   0.8065
-  ]
+ "buttons": {
+  "btn_go": {
+   "cap": 13,
+   "file": "btn_go.png",
+   "size": [
+    236,
+    83
+   ]
+  },
+  "btn_plain": {
+   "cap": 13,
+   "file": "btn_plain.png",
+   "size": [
+    236,
+    83
+   ]
+  },
+  "btn_stop": {
+   "cap": 12,
+   "file": "btn_stop.png",
+   "size": [
+    236,
+    83
+   ]
+  }
  },
- "panel_popup": {
-  "file": "panel_popup.png",
-  "interior": [
-   0.106,
-   0.2174,
-   0.8979,
-   0.8623
-  ],
-  "size": [
-   680,
-   362
-  ],
-  "text_box": [
-   0.106,
-   0.2174,
-   0.8979,
-   0.8623
-  ]
+ "panels": {
+  "panel_menu": {
+   "file": "panel_menu.png",
+   "interior": [
+    0.1184,
+    0.2787,
+    0.8847,
+    0.8665
+   ],
+   "size": [
+    636,
+    553
+   ],
+   "text_box": [
+    0.162,
+    0.5986,
+    0.8357,
+    0.8065
+   ]
+  },
+  "panel_popup": {
+   "file": "panel_popup.png",
+   "interior": [
+    0.106,
+    0.2174,
+    0.8979,
+    0.8623
+   ],
+   "size": [
+    680,
+    362
+   ],
+   "text_box": [
+    0.106,
+    0.2174,
+    0.8979,
+    0.8623
+   ]
+  }
  }
 }

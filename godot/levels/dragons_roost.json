@@ -387,19 +387,7 @@
    "dragon_lord"
   ]
  ],
- "signs": [
-  [
-   252,
-   512,
-   "07 / THE ROOST",
-   "Nothing has walked out this far in a long time."
-  ],
-  [
-   1284,
-   512,
-   "IT SEES YOU"
-  ]
- ],
+ "signs": [],
  "ground": {
   "lean": 0.15,
   "break_step": 52,
@@ -410,6 +398,8 @@
   "lean_min_width": 408
  },
  "music": "magic_cliffs",
+ "boss_music": "decisive_battle",
+ "boss_music_note": "The battle loop that takes over the moment the fight starts and holds until both bosses are beaten, then hands back to the level's own magic_cliffs loop for the aftermath. The same track The Fractured Isles' dragon fights to - xDeviruchi's Decisive Battle - because this is the same coast's last stand and there is one battle theme on it. session.gd asks current_track() every tick (see it, and boss() ), so dying back to the spawn brings the quiet loop back with the player rather than leaving him to walk to battle music, and the walk-in cutscene keeps it ducked until the dialogue is done - the fight track comes in as the picture hands the level back, not under it.",
  "tagline": "Something still lives out here.",
  "brief": "One ledge, one dragon, and nowhere on it he cannot reach you.",
  "scope": "The last level on the course, and the whole of it is the final boss fight. There is no platforming here worth the name - a hop in, an arena, a flag - because the level IS the fight and anything else would be in the way of it.",
@@ -431,6 +421,23 @@
   ]
  ],
  "bottles_note": "Milk and brew, three bars of five each, stood side by side on the approach rather than inside the arena. Everything the fight needs is picked up before the fight: once the gate shuts there is no topping up.",
- "signs_note": "Two, and neither names a key - the same rule the rest of the course keeps. Both sit at y 512, which is where First Steps paints its own: high enough to read against the sky, low enough to clear the two HUD bars. At 442 the second one was drawn straight through the mana bar.",
- "decor_note": "[x, y, piece] with the piece's bottom edge at y; a fourth value tilts it. The two rock_mass entries hang from the sky, and both are deliberately OUTSIDE the arena - one over the approach, one over the flag. A hanging mass over the fight would sit in exactly the air the dragon cruises in (492 world), and the boss would spend the whole fight drawn in front of a rock. Art only, never collision."
+ "signs_note": "Deliberately none. The two it used to carry - the 07 / THE ROOST title and the IT SEES YOU warning - are gone: by the final level there is nothing left to introduce, and the two-panel cutscene as you walk in says everything the signs did and more. Nothing on this level is a hint any more; the fight speaks for itself.",
+ "decor_note": "[x, y, piece] with the piece's bottom edge at y; a fourth value tilts it. The two rock_mass entries hang from the sky, and both are deliberately OUTSIDE the arena - one over the approach, one over the flag. A hanging mass over the fight would sit in exactly the air the dragon cruises in (492 world), and the boss would spend the whole fight drawn in front of a rock. Art only, never collision.",
+ "cutscene": [
+  {
+   "panel": "dragon_lord_fight_start",
+   "audio": "dragon_lord_fight",
+   "at": 900,
+   "hold": 5.8,
+   "skip": false
+  },
+  {
+   "panel": "dragon_lord_fight_start_2",
+   "at": 900,
+   "keep_audio": true,
+   "hold": 11.0,
+   "skip": false
+  }
+ ],
+ "cutscene_note": "Two panels as he walks in, the same machinery The Fractured Isles uses (see cutscene_note there and _advance_story in game/session.gd). `panel` names a file in ui/art/storyboard and `audio` a file in audio/, both without extension, all written by scripts/extract_storyboard.py from the raw art in Assests/Storyboard. Both are 16:9 already (~1.79) rather than the isles cards' 4:3, so the extractor trims their width instead of their height.\n\nTHE SEQUENCE plays at x 900 - 84 px past the arena mouth at 816 and short of either boss's aggro (the Lord's 460 reaches to 1160, the dragon's 560 to 1240), so the picture is what starts the fight rather than the walk into it, exactly as on the isles. Both cards carry the same `at`, so the second follows the first: dragon_lord_fight_start is the Lord kneeling with the drake, then dragon_lord_fight_start_2 is the pair of them turning on you.\n\nONE CLIP, SPREAD ACROSS BOTH. dragon_lord_fight is 21.3 s of dialogue with its content ending at 18 and pauses at about 7 s and 11.6 s. If the first panel simply held for the whole clip the second would not arrive until 21 s in - which is what it did. So the clip is pinned across the two panels instead: the first panel holds an explicit 5.8 s and the second keeps the SAME clip running (\"keep_audio\": true) rather than restarting it, so the cut from panel one to panel two lands on the ~7 s pause, on the dialogue's own beat, and the second panel carries the rest of it. `keep_audio` and an explicit `hold` are the two fields that make that work - see _read_story_card, _begin_story and _begin_story_out in session.gd. Move the 5.8 to move where the second panel comes in.\n\nON THE WAY OUT the cutscene wakes BOTH bosses together - see _wake_boss in session.gd, which was one-boss until this level and now engages every boss the card hands the level to. Neither card can be skipped (\"skip\": false), like the isles'; they play once per visit, not per attempt, so a retry drops you straight back into the fight."
 }

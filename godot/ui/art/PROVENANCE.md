@@ -251,11 +251,11 @@ git history if the old bar is ever wanted back.
 
 ## The overlay panels
 
-`panel_menu.png`, `panel_popup.png` — cut from
-`Assests/Storyboard/game_panels.jpg` by `scripts/extract_panels.py`, which also
-measures where the writing goes inside each one and publishes it in
-`panels.json` as fractions of the art. Re-crop a panel and its text moves with
-it; nothing in hud.gd repeats those numbers.
+`panel_menu.png`, `panel_popup.png`, `btn_go.png`, `btn_plain.png`,
+`btn_stop.png` — cut from `Assests/Storyboard/game_panels.jpg` by
+`scripts/extract_panels.py`, which also measures where the writing goes inside
+each panel and publishes it in `panels.json` as fractions of the art. Re-crop
+a panel and its text moves with it; nothing in hud.gd repeats those numbers.
 
 The source is one page of UI elements on a dark slate grid. The page is removed
 by flood filling from the border rather than by a plain colour key: parts of the
@@ -264,12 +264,58 @@ in them. Only background actually connected to the outside goes, and the tight
 tolerance leaves jpeg speckle behind, which a minimum-island pass then clears
 (311 specks on the big panel).
 
-The kit's buttons are deliberately **not** used. Every plate has its word baked
-in — START, QUIT, OPTIONS — and the confirm button under these panels says four
-different things depending on what is on screen. hud.gd draws that button and
-borrows only the kit's green.
+### The buttons, with their words lifted off
+
+The kit's buttons used to be skipped. Every plate has a word baked into it —
+START, QUIT, OPTIONS — and the confirm button under these panels says four
+different things depending on what is on screen ("ENTER / RESUME", "ENTER /
+NEXT LEVEL"), so hud.gd drew a flat rectangle in the kit's green instead. That
+was the wrong trade: the painted bevel, the rounded frame and the shaded face
+are most of what makes this read as a game, and the word is the easy part to
+replace.
+
+So the word is **erased and the plate kept**. It is found rather than measured
+— the letters are near-white against a face that is not, so the light pixels
+well inside the frame are the word, and their box grown by the letters'
+outline is what gets painted over. Each row of that box is refilled from the
+same row just OUTSIDE it, which keeps the top-to-bottom shading; a flat fill
+flattens the bevel, and sampling a fixed distance in from the edge lands on
+the frame and fills the plate with its own outline. Both were tried.
+
+Three of the five are taken: `btn_go` is the green START, which is what the
+confirm button is; `btn_plain` is the grey, which is every secondary press;
+`btn_stop` is the red QUIT and is not used yet — it is here because a
+give-up button is one line away and the alternative is coming back to the
+sheet for it. Green is never used twice on one screen: two green plates side
+by side read as two equal choices, which is the opposite of a primary and a
+toggle.
+
+Each is written at the kit's own 236 x 83 so nothing is resampled, with a
+**cap** in the manifest — the width of the rounded end. hud.gd draws one in
+three slices, the two caps at their drawn width and everything between them
+stretched, so a 118-wide plate fills a 170-wide button without pulling its
+corners out of round.
+
+### The caret
+
+Both cards are drawn as filled-in text fields, with a black caret sitting
+where the first letter would go. The game writes its own text over the top, so
+on screen it read as a stray mark at the start of every brief. `lift_cursor`
+takes it off the same way the words come off the buttons: inside the card, in
+the corner it is always in, anything much darker than the card is it. 125
+pixels on the menu panel; the pop-up has none.
 
 Also on the page and unused: the inventory grid, the quest and item slots, the
-mini-map frame, the ITEMS panel (the same frame as the pop-up with a dark face)
-and the round wooden icons. There is nothing in the game that shows any of them
-yet.
+mini-map frame, the ITEMS panel (the same frame as the pop-up with a dark face),
+the round wooden icons, and the blue COIN plate. There is nothing in the game
+that shows any of them yet.
+
+**There is no font in any pack here**, and there is none in the project. Every
+string the game draws — the menu, the briefs, the button labels, the HUD
+numbers, the storyboard captions — is Godot's `ThemeDB.fallback_font`, which is
+a plain sans and not the blocky pixel face the kit letters its own plates with.
+Nothing in `Assests/` ships a `.ttf`, `.otf` or `.fnt`; the LF2 rips, the Magic
+Cliffs pack, TinyQuesters and the UI kit were all checked. Matching the kit's
+lettering needs a font added to the project, and until one is there the most
+that can be done is what the labels do now: an outline under the ink, so the
+type at least sits on the art instead of floating over it.

@@ -252,6 +252,28 @@ func run() -> void:
 		and game.next_level_id() == "",
 		{"level_id": game.level_id, "state": game.state})
 	game.open_menu()
+	# --- the menu wears the kit's own plates ---------------------------------
+	# Its buttons used to be flat rectangles in the kit's green, because every
+	# plate on the sheet has a word baked into it and the confirm button says
+	# four different things. scripts/extract_panels.py lifts the word off and
+	# keeps the plate, and hud.gd draws it in three slices so the rounded ends
+	# never stretch. See the buttons section of ui/art/PROVENANCE.md.
+	var plates: Dictionary = game.hud.buttons
+	check("the-buttons-wear-the-kits-plates",
+		plates.size() >= 2 and plates.has("btn_go") and plates.has("btn_plain")
+		and plates["btn_go"]["tex"] != null
+		and float(plates["btn_go"]["cap"]) > 0.0,
+		{"plates": plates.keys(),
+		 "cap": plates["btn_go"]["cap"] if plates.has("btn_go") else -1.0})
+	# The caps have to be small enough to leave something to stretch: the
+	# plate is 118 wide in design units against buttons of 160 and 170, and a
+	# cap of more than half of it would leave no middle at all.
+	var button: Rect2 = game.hud.button_rect()
+	check("and-there-is-a-middle-left-to-stretch",
+		float(plates["btn_go"]["cap"]) * 0.5 * 2.0 < button.size.x
+		and button.size.x > float(plates["btn_go"]["size"].x) * 0.5,
+		{"cap": plates["btn_go"]["cap"], "button": button.size,
+		 "plate": plates["btn_go"]["size"]})
 	check("the-list-highlights-the-level-you-are-in",
 		Game.listing()[game.menu_index] == "proving_ground",
 		{"menu_index": game.menu_index, "listing": Game.listing()})
@@ -785,8 +807,110 @@ func run() -> void:
 		{"running": game.story_running(),
 		 "seen": game.story_cards[0]["seen"], "engaged": quick.engaged})
 
-	# A level with no cards is untouched by any of it, which is every other one.
+	# --- The Dragon's Roost: two start panels, and BOTH bosses wake ----------
+	# The final level opens its fight the same way the isles does, but with TWO
+	# start panels back to back and two bosses to wake. The panel machinery is the
+	# isles' and is tested above; what is new is the pair of cards and that the
+	# cutscene wakes every boss, not just the first.
 	await fresh("dragons_roost")
+	game.start_session()
+	await steps(2)
+	var roost_lord: Area2D = null
+	var roost_flyer: Area2D = null
+	for foe in game.enemies:
+		if foe.kind == "dragon_lord":
+			roost_lord = foe
+		elif foe.kind == "dragon":
+			roost_flyer = foe
+	check("the-roost-holds-two-dragon-lord-panels",
+		game.story_cards.size() == 2
+		and str(game.level.cutscene[0].panel) == "dragon_lord_fight_start"
+		and str(game.level.cutscene[1].panel) == "dragon_lord_fight_start_2"
+		and str(game.level.cutscene[0].audio) == "dragon_lord_fight"
+		and game.story_cards[0]["tex"] != null and game.story_cards[1]["tex"] != null,
+		{"cards": game.story_cards.size(),
+		 "panels": [str(game.level.cutscene[0].panel), str(game.level.cutscene[1].panel)],
+		 "audio": str(game.level.cutscene[0].get("audio", ""))})
+	# The one dialogue clip is spread across both panels: the first holds an
+	# explicit slice rather than the whole 21 s, and the second keeps that clip
+	# running instead of restarting, so the cut lands on the dialogue's own beat.
+	check("the-dialogue-is-pinned-across-both-panels",
+		bool(game.story_cards[1]["keep_audio"])
+		and not bool(game.story_cards[0]["keep_audio"])
+		and game.story_cards[0]["voice"] != null
+		and float(game.story_cards[0]["voice"].get_length()) > 18.0
+		and float(game.story_cards[0]["hold"]) < 10.0,
+		{"card0_hold": game.story_cards[0]["hold"],
+		 "card1_keeps_audio": game.story_cards[1]["keep_audio"],
+		 "clip_len": snappedf(game.story_cards[0]["voice"].get_length(), 0.1)})
+	# And the fight has its own battle track, cued the moment it starts and gone
+	# again once both bosses are down.
+	check("the-roost-fight-has-its-own-music",
+		str(game.level.get("boss_music", "")) == "decisive_battle"
+		and str(game.level.get("music", "")) == "magic_cliffs",
+		{"boss_music": str(game.level.get("boss_music", "")),
+		 "music": str(game.level.get("music", ""))})
+	# Walk over the cue. test_mode (set by fresh) collapses each card to its effect
+	# — see _begin_story — so this drives the wake without sitting through the
+	# panels, and the effect under test is that BOTH bosses come awake.
+	game.player.position = Vector2(float(game.level.cutscene[0].at) - 40.0, 648.0)
+	game.player.velocity = Vector2.ZERO
+	game.player.test_control = true
+	game.player.test_axis = 1.0
+	for i in range(120):
+		await steps(1)
+		# Both panels collapse frame-by-frame in test_mode; wait until the second
+		# has been reached so this checks the whole sequence, not just the first.
+		if bool(game.story_cards[1]["seen"]):
+			break
+	check("the-roost-cutscene-wakes-both-bosses",
+		roost_lord.engaged and roost_flyer.engaged
+		and bool(game.story_cards[0]["seen"]) and bool(game.story_cards[1]["seen"]),
+		{"lord": roost_lord.engaged, "dragon": roost_flyer.engaged,
+		 "seen": [game.story_cards[0]["seen"], game.story_cards[1]["seen"]]})
+
+	# The two panels are ONE beat: the second dissolves in over the first with the
+	# level kept covered and the world frozen the whole time, rather than dropping
+	# back to gameplay between them. Run with test_mode OFF so the pictures play.
+	await fresh("dragons_roost")
+	game.test_mode = false
+	game.start_session()
+	game.player.position = Vector2(float(game.level.cutscene[0].at) - 40.0, 648.0)
+	game.player.velocity = Vector2.ZERO
+	game.player.test_control = true
+	game.player.test_axis = 1.0
+	var xfade_first := false
+	for i in range(120):
+		await steps(1)
+		if game.story_running() and game.story_art.texture == game.story_cards[0]["tex"]:
+			xfade_first = true
+			break
+	game.player.test_axis = 0.0
+	var xfade_swap := false
+	var xfade_covered := true
+	var xfade_frozen := true
+	var xfade_second := false
+	for i in range(1500):
+		await steps(1)
+		if game.story_phase == Game.Story.SWAP:
+			xfade_swap = true
+			# The level must stay covered and the player frozen through the cut.
+			if game.story_dim.color.a < Game.STORY_DIM * 0.9:
+				xfade_covered = false
+			if game.player.enabled:
+				xfade_frozen = false
+		if game.story_art.texture == game.story_cards[1]["tex"] \
+				and game.story_phase == Game.Story.HOLD \
+				and game.story_art.modulate.a > 0.99:
+			xfade_second = true
+			break
+	check("the-panels-cross-without-dropping-to-gameplay",
+		xfade_first and xfade_swap and xfade_covered and xfade_frozen and xfade_second,
+		{"panel1": xfade_first, "saw_swap": xfade_swap, "level_covered": xfade_covered,
+		 "player_frozen": xfade_frozen, "panel2_full": xfade_second})
+
+	# A level with no cards is untouched by any of it, which is most of them.
+	await fresh("first_steps")
 	game.start_session()
 	await steps(4)
 	check("a-level-with-no-card-never-freezes",
