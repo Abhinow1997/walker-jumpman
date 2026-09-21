@@ -9,7 +9,7 @@ extends SceneTree
 ## in the way. This runs it on the real course.
 ##
 ##     <godot> --path godot --headless --script tests/diag_gaps.gd
-##     <godot> --path godot --headless --script tests/diag_gaps.gd -- proving_ground
+##     <godot> --path godot --headless --script tests/diag_gaps.gd -- the_spire
 ##
 ## The enemy chases a bare Node2D rather than the player: it has a position to
 ## walk toward and nothing else, so nobody takes damage, nobody dies, and a

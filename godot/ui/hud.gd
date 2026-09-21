@@ -285,10 +285,23 @@ const PANEL_SCALE := 0.5
 ## overlay sits in the same place whichever of the two is showing.
 const PANEL_BOTTOM := 282.0
 const BUTTON_AT := Rect2(235, 290, 170, 40)
-## Paused, the confirm button shares its row with the music toggle, so the PAIR
-## is centred on the screen rather than the one button.
-const PAUSED_BUTTON_AT := Rect2(150, 290, 170, 40)
-const MUSIC_AT := Rect2(330, 290, 160, 40)
+## --- the pause row ----------------------------------------------------------
+##
+## PAUSED is the one screen with more than one thing to do, and it used to say
+## so in prose: two of its four actions were a line of text inside the card
+## reading "R: restart attempt    M: main menu", which is a keyboard-only
+## instruction sitting next to two buttons you can click. Now all four are
+## plates in one row — resume, restart, main menu, music — so the screen shows
+## what it offers instead of describing half of it.
+##
+## Four at 140 with 10 between them is 590 of the 640, which is as wide as the
+## row can be and still look placed rather than jammed against the edges. The
+## longest label, "ENTER / RESUME", is about 100 at 14 px, so every one of them
+## has room without abbreviating the key away.
+const PAUSE_SLOT := Vector2(140.0, 40.0)
+const PAUSE_GAP := 10.0
+const PAUSE_ROW_Y := 290.0
+const PAUSE_SLOTS := 4
 ## The kit's own plates, with their baked words lifted off — see
 ## extract_panels.py. `btn_go` is its green START, which is what the confirm
 ## button is; `btn_plain` is its grey, which is everything else you can press.
@@ -306,6 +319,11 @@ const BUTTON_OFF_LIP := Color("7d8894")
 ## outline, and this is that, drawn rather than baked.
 const BUTTON_INK := Color(0.97, 0.96, 0.93)
 const BUTTON_EDGE := Color(0.09, 0.11, 0.15, 0.85)
+## The label's size, how small it may be shrunk to fit its plate, and how much
+## of the plate the two rounded ends and their bevels take.
+const BUTTON_TEXT := 14
+const BUTTON_TEXT_MIN := 10
+const BUTTON_MARGIN := 30.0
 
 ## Only the fallback shape, for a checkout that has not imported the art yet.
 const PANEL_W := 340.0
@@ -376,17 +394,37 @@ func _face(key: String) -> Rect2:
 				 (float(f[2]) - float(f[0])) * r.size.x,
 				 (float(f[3]) - float(f[1])) * r.size.y)
 
+func pause_slot(i: int) -> Rect2:
+	## One place in the pause row, left to right. Empty off the pause screen,
+	## which is what stops a click landing on a button that is not drawn — the
+	## same guard music_rect() has always had.
+	if not is_instance_valid(game) or game.state != game.State.PAUSED:
+		return Rect2()
+	if i < 0 or i >= PAUSE_SLOTS:
+		return Rect2()
+	var span := PAUSE_SLOTS * PAUSE_SLOT.x + (PAUSE_SLOTS - 1) * PAUSE_GAP
+	var left := (640.0 - span) / 2.0
+	return Rect2(left + i * (PAUSE_SLOT.x + PAUSE_GAP), PAUSE_ROW_Y,
+			PAUSE_SLOT.x, PAUSE_SLOT.y)
+
 func button_rect() -> Rect2:
 	if is_instance_valid(game) and game.state == game.State.PAUSED:
-		return PAUSED_BUTTON_AT
+		return pause_slot(0)
 	return BUTTON_AT
+
+## Restart the attempt and go back to the main menu. Both are keys that have
+## always worked; these are the same two as things you can click. Empty off the
+## pause screen.
+func restart_rect() -> Rect2:
+	return pause_slot(1)
+
+func menu_rect() -> Rect2:
+	return pause_slot(2)
 
 ## The music toggle. Empty off the pause screen, which is the only place it is
 ## offered — and which is what stops a click landing on one that is not drawn.
 func music_rect() -> Rect2:
-	if not is_instance_valid(game) or game.state != game.State.PAUSED:
-		return Rect2()
-	return MUSIC_AT
+	return pause_slot(3)
 
 func music_label() -> String:
 	## What pressing it will DO, not what the music is doing now.
@@ -609,8 +647,17 @@ func _draw() -> void:
 		_drink_prompt()
 		return
 	if game.state == game.State.DYING:
-		_centred_over_level(game.death_reason, 155, 21, Color("a23e36"))
-		_centred_over_level("Back at the start in a moment.", 180, 13)
+		# A defeat screen rather than a one-line hint: the banner reads the same
+		# every time, the cause line under it says what finished this attempt (see
+		# death_reason in session.gd), and the last line is the retry already under
+		# way. The banner carries a heavier ring than the play-HUD default so it
+		# holds up as a headline over the level.
+		draw_string_outline(ThemeDB.fallback_font, Vector2(0, 152), "MISSION FAILED",
+			HORIZONTAL_ALIGNMENT_CENTER, 640, 30, 7, Color(0.04, 0.05, 0.08, 0.85))
+		draw_string(ThemeDB.fallback_font, Vector2(0, 152), "MISSION FAILED",
+			HORIZONTAL_ALIGNMENT_CENTER, 640, 30, Color("d2483c"))
+		_centred_over_level(game.death_reason, 182, 15)
+		_centred_over_level("Back at the start in a moment.", 206, 12)
 		return
 	# Edge to edge. It used to stop short of the two cream strips, which hid the
 	# seam; with nothing bracketing the screen any more, a dimmed middle and two
@@ -631,23 +678,50 @@ func _draw() -> void:
 		_message_panel()
 	# Drawn rather than taken from the kit, whose plates all have their word baked
 	# in — these say several different things. Their colours are the kit's.
-	_button_plate(button_rect(), BUTTON_GO, _button_label())
+	if game.state == game.State.PAUSED:
+		# All four of the row at once, at ONE size — see label_size. Grey but
+		# the first: one green confirm and three secondaries is the hierarchy,
+		# and the kit letters its own OPTIONS plate in that same grey.
+		var row := [_button_label(), "R  /  RESTART", "M  /  MAIN MENU",
+				music_label()]
+		var row_size := label_size(row, PAUSE_SLOT.x)
+		_button_plate(button_rect(), BUTTON_GO, str(row[0]), row_size)
+		_button_plate(restart_rect(), BUTTON_PLAIN, str(row[1]), row_size)
+		_button_plate(menu_rect(), BUTTON_PLAIN, str(row[2]), row_size)
+		_button_plate(music_rect(), BUTTON_PLAIN, str(row[3]), row_size)
+	else:
+		_button_plate(button_rect(), BUTTON_GO, _button_label())
 	if game.state == game.State.MENU:
 		# Under the button rather than on the card. It used to be the last line
 		# inside the card and it collided with the brief above it — the brief
 		# is three lines now and the card is not tall enough for both.
 		_centred_over_level("W/S or the arrows to choose.",
 				button_rect().end.y + 14.0, 11, Color(0.83, 0.86, 0.90, 0.85))
-	var music := music_rect()
-	if music.size.x > 0.0:
-		# Always the grey plate, never the green one. Green is the kit's
-		# confirm colour and there is one confirm on screen; two green plates
-		# side by side read as two equal choices, which is the opposite of
-		# what a primary and a toggle are. The label already carries the state
-		# — it says what pressing it will DO.
-		_button_plate(music, BUTTON_PLAIN, music_label())
 
-func _button_plate(box: Rect2, name: String, label: String) -> void:
+func label_size(labels: Array, width: float) -> int:
+	## The largest size at which EVERY one of these labels fits a plate that
+	## wide. One size for the whole row rather than one per button: four plates
+	## side by side with the long label a point smaller than the short ones
+	## reads as a mistake, and a row is only as legible as its worst fit.
+	##
+	## The margin is the two rounded ends and their bevels: a label measured
+	## against the plate's full width runs into them at both ends, which is
+	## what "ENTER / RESUME" did when the pause row went from two buttons at
+	## 170 to four at 140.
+	var font := ThemeDB.fallback_font
+	var room := width - BUTTON_MARGIN
+	var size := BUTTON_TEXT
+	while size > BUTTON_TEXT_MIN:
+		var worst := 0.0
+		for label in labels:
+			worst = maxf(worst, font.get_string_size(
+					str(label), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x)
+		if worst <= room:
+			break
+		size -= 1
+	return size
+
+func _button_plate(box: Rect2, name: String, label: String, size: int = 0) -> void:
 	## A button, wearing one of the kit's plates. THREE SLICES: the rounded end
 	## at each side at its drawn width, and everything between them stretched
 	## to fill. A plate scaled whole would pull its corners out of round, and
@@ -679,12 +753,14 @@ func _button_plate(box: Rect2, name: String, label: String) -> void:
 	# could be used at all. Outlined like the kit's own lettering, because a
 	# flat label on a shaded face loses its thin strokes.
 	var font := ThemeDB.fallback_font
+	if size <= 0:
+		size = label_size([label], box.size.x)
 	var at := Vector2(box.get_center().x
-			- font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x / 2.0,
+			- font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x / 2.0,
 			box.position.y + box.size.y * 0.63)
-	draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 5,
+	draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, size, 5,
 			BUTTON_EDGE)
-	draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, BUTTON_INK)
+	draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, size, BUTTON_INK)
 
 func _plate(box: Rect2, label: String, face: Color, lip: Color) -> void:
 	## A button. Its label is centred on the BOX rather than on the screen, which
@@ -753,18 +829,37 @@ func _level_select() -> void:
 			card.position.y + 16.0, 12, 3)
 
 func _message_panel() -> void:
+	## The pause screen and the results screen, which share the pop-up.
+	##
+	## PAUSED says where you are and how the attempt is going, and nothing
+	## else. It used to carry "One jump. No double jump. Unlimited retries."
+	## along the bottom — a rule sheet, on the screen you open when you already
+	## know the rules and want to do something — and a line of prose telling
+	## you about two keys that are now buttons under it. Both are gone.
 	var title := str(game.level.get("tagline", ""))
 	var detail := str(game.level.get("brief", ""))
-	var foot := "One jump. No double jump. Unlimited retries."
+	var foot := ""
 	if game.state == game.State.PAUSED:
 		title = "Take a breath."
-		detail = "R: restart attempt    M: main menu"
+		detail = game.level_title(game.level_id)
+		foot = "%s on the clock   /   %s" % [_clock(game.elapsed), _tries(game.deaths)]
 	elif game.state == game.State.COMPLETE:
 		title = "Course complete."
-		detail = "%.1f seconds   /   %d retries" % [game.last_finish_time, game.deaths]
-		if game.next_level_id() != "":
-			foot = "Next: %s" % game.level_title(game.next_level_id())
+		detail = "%s   /   %s" % [_clock(game.last_finish_time), _tries(game.deaths)]
+		foot = ("Next: %s" % game.level_title(game.next_level_id())
+				if game.next_level_id() != ""
+				else "The end of the course. ENTER plays it again.")
 	var card := _face("text_box")
 	centered(title, card.position.y + 30.0, 22)
-	wrapped(detail, card, card.position.y + 52.0, 12)
-	wrapped(foot, card, card.end.y - 22.0, 12)
+	wrapped(detail, card, card.position.y + 54.0, 13)
+	wrapped(foot, card, card.end.y - 24.0, 12, 2, Color(0.35, 0.40, 0.47))
+
+func _clock(seconds: float) -> String:
+	## Minutes and seconds. A bare "137.4 seconds" is a number to work out
+	## rather than a time to read, and an attempt at the Isles is minutes long.
+	var whole := int(maxf(seconds, 0.0))
+	return "%d:%02d" % [whole / 60, whole % 60]
+
+func _tries(deaths: int) -> String:
+	return "no retries" if deaths == 0 else "%d retr%s" % [deaths,
+			"y" if deaths == 1 else "ies"]

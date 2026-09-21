@@ -69,8 +69,12 @@ func run() -> void:
 		and order[1] == "fractured_isles",
 		{"order": order})
 	var rows: Array = Game.listing()
-	check("the-list-offers-more-than-the-course",
-		rows.size() > order.size() and rows.has("proving_ground"),
+	# also_listed is empty now — Proving Ground was the only level off the course
+	# and it has been removed — so the list is EXACTLY the course. The mechanism
+	# that appends off-course extras is still live (see listing()); it just has
+	# nothing to append.
+	check("the-list-is-exactly-the-course",
+		rows == Array(order),
 		{"listing": rows, "order": order})
 	check("the-course-comes-first-in-the-list",
 		rows.slice(0, order.size()) == Array(order),
@@ -80,14 +84,18 @@ func run() -> void:
 		not rows.has("greybox") and not order.has("greybox"),
 		{"listing": rows})
 	# The real chain rather than the stand-in one further down: the course is
-	# three levels long now, so reaching the flag on each really does load the
+	# four levels long now, so reaching the flag on each really does load the
 	# next, and that is the thing a new journey is.
 	await fresh("first_steps")
 	check("first-steps-leads-into-the-isles",
 		game.next_level_id() == "fractured_isles",
 		{"next": game.next_level_id(), "order": Game.catalogue()})
 	await fresh("fractured_isles")
-	check("the-isles-lead-to-the-roost",
+	check("the-isles-lead-up-the-spire",
+		game.next_level_id() == "the_spire",
+		{"next": game.next_level_id(), "order": Game.catalogue()})
+	await fresh("the_spire")
+	check("and-the-spire-leads-to-the-roost",
 		game.next_level_id() == "dragons_roost",
 		{"next": game.next_level_id(), "order": Game.catalogue()})
 	# And the Roost is the end of it. Nothing follows the final boss, so
@@ -96,8 +104,15 @@ func run() -> void:
 	check("the-roost-is-the-end-of-the-course",
 		game.next_level_id() == "" and order.back() == "dragons_roost",
 		{"next": game.next_level_id(), "last": order.back()})
-	await fresh("proving_ground")
-	check("a-listed-level-off-the-course-leads-nowhere",
+	# The Spire is on the course and not also in the list beside it: `order`
+	# then `also_listed` minus what is already in it, so nothing appears twice.
+	check("the-spire-is-on-the-course-once",
+		order.count("the_spire") == 1 and Game.listing().count("the_spire") == 1,
+		{"order": order, "listing": Game.listing()})
+	# A level not on the course chains to nothing. The greybox fixture is the only
+	# shipped level off the course now, so it stands in for the rule.
+	await fresh("greybox")
+	check("a-level-off-the-course-leads-nowhere",
 		game.next_level_id() == "",
 		{"next": game.next_level_id()})
 	var shipped_ids: Array = all_levels()
@@ -134,11 +149,11 @@ func run() -> void:
 		{"level_id": game.level_id, "title": str(game.level.get("title", ""))})
 
 	# --- booting straight into a level --------------------------------------
-	await fresh("proving_ground")
+	await fresh("first_steps")
 	game.start_session()
 	await steps(2)
 	check("boots-into-a-named-level",
-		str(game.level.title) == "Proving Ground" and game.state == Game.State.PLAYING,
+		str(game.level.title) == "First Steps" and game.state == Game.State.PLAYING,
 		{"title": str(game.level.get("title", "")), "state": game.state})
 	check("spawns-on-that-level's-ground", game.player.is_on_floor(),
 		{"position": str(game.player.position)})
@@ -149,13 +164,13 @@ func run() -> void:
 	await steps(2)
 	var before: float = float(game.level.width)
 	var crates_before: int = game.crates.size()
-	game.load_level("proving_ground")
+	game.load_level("the_spire")
 	await steps(2)
 	check("load_level-rebuilds-the-world",
-		float(game.level.width) == 1280.0 and before == 1920.0,
+		float(game.level.width) == 960.0 and before == 1920.0,
 		{"width_before": before, "width_after": float(game.level.width)})
 	check("load_level-rebuilds-the-props",
-		game.crates.size() == 1 and crates_before == 3,
+		game.crates.size() == 4 and crates_before == 3,
 		{"crates_before": crates_before, "crates_after": game.crates.size()})
 	# The old level's solids must be gone, not merely invisible: a leftover
 	# StaticBody2D from a 1920-wide level would be solid air in a 1280-wide one.
@@ -177,19 +192,21 @@ func run() -> void:
 	# rather than sit untested until the day somebody adds that line. Both ids
 	# are real level files; only their membership of the course is pretend.
 	var shipped: Array = order.duplicate()
-	Game._catalogue = ["first_steps", "proving_ground"]
+	Game._catalogue = ["first_steps", "the_spire"]
 
 	# Named rather than left to the default: the default is the fixture, and the
-	# fixture is deliberately not a row on any course, pretend or otherwise.
+	# fixture is deliberately not a row on any course, pretend or otherwise. Both
+	# ids are real level files; only the two-level chain between them is a stand-in
+	# for the real course.
 	await fresh("first_steps")
-	check("next-after-the-first", game.next_level_id() == "proving_ground",
+	check("next-after-the-first", game.next_level_id() == "the_spire",
 		{"next": game.next_level_id()})
 	game.start_session()
 	await steps(2)
 	var advanced: bool = game.advance_level()
 	await steps(2)
 	check("finishing-loads-the-next",
-		advanced and game.level_id == "proving_ground" and game.state == Game.State.PLAYING,
+		advanced and game.level_id == "the_spire" and game.state == Game.State.PLAYING,
 		{"advanced": advanced, "level_id": game.level_id, "state": game.state})
 	check("a-fresh-level-starts-on-zero",
 		game.deaths == 0 and game.elapsed < 0.2,
@@ -206,7 +223,7 @@ func run() -> void:
 	game.confirm()
 	await steps(2)
 	check("menu-starts-what-is-highlighted",
-		game.level_id == "proving_ground" and game.state == Game.State.PLAYING,
+		game.level_id == "the_spire" and game.state == Game.State.PLAYING,
 		{"level_id": game.level_id, "state": game.state})
 	# Wraps rather than stopping: a dead key at each end of the list would be a
 	# worse first impression than one that loops. Driven through the session's
@@ -239,16 +256,16 @@ func run() -> void:
 	check("the-last-level-cannot-advance", not game.advance_level(),
 		{"level_id": game.level_id})
 
-	# --- an off-course level -------------------------------------------------
-	# Proving Ground is shipped, offered by the list, and on the way to nowhere.
-	# So it loads, it plays, the list highlights the row you are actually
-	# standing in — which it could not do while the list was only the course —
-	# and reaching its flag chains to nothing.
-	await fresh("proving_ground")
+	# --- picking a level from the list ---------------------------------------
+	# Loading a level, playing it, and opening the menu highlights the row you are
+	# actually standing in. Shown on the last course level, which chains to nothing
+	# once it is beaten — the same "leads nowhere" an off-course level used to show
+	# here before Proving Ground was removed.
+	await fresh("dragons_roost")
 	game.start_session()
 	await steps(2)
-	check("an-off-course-level-still-plays",
-		game.level_id == "proving_ground" and game.state == Game.State.PLAYING
+	check("a-picked-level-plays-and-leads-nowhere",
+		game.level_id == "dragons_roost" and game.state == Game.State.PLAYING
 		and game.next_level_id() == "",
 		{"level_id": game.level_id, "state": game.state})
 	game.open_menu()
@@ -274,15 +291,93 @@ func run() -> void:
 		and button.size.x > float(plates["btn_go"]["size"].x) * 0.5,
 		{"cap": plates["btn_go"]["cap"], "button": button.size,
 		 "plate": plates["btn_go"]["size"]})
+	# --- the pause screen is a menu ------------------------------------------
+	# It used to be two buttons and a line of prose: "R: restart attempt    M:
+	# main menu", which is a keyboard-only instruction sitting next to two
+	# things you can click, under a rule sheet reading "One jump. No double
+	# jump. Unlimited retries." on the one screen you open when you already
+	# know the rules. All four actions are plates in one row now.
+	game.confirm()
+	await steps(4)
+	game.set_paused(true)
+	await steps(2)
+	var slots: Array[Rect2] = []
+	for i in range(4):
+		slots.append(game.hud.pause_slot(i))
+	var laid_out := true
+	for i in range(4):
+		if slots[i].size.x <= 0.0 or slots[i].position.x < 0.0 \
+				or slots[i].end.x > 640.0 or slots[i].end.y > 360.0:
+			laid_out = false
+		if i > 0 and slots[i].position.x < slots[i - 1].end.x:
+			laid_out = false          # they must not overlap, or a click is a lottery
+	check("the-pause-screen-lays-four-plates-in-a-row",
+		game.state == Game.State.PAUSED and laid_out
+		and slots[0] == game.hud.button_rect()
+		and slots[1] == game.hud.restart_rect()
+		and slots[2] == game.hud.menu_rect()
+		and slots[3] == game.hud.music_rect(),
+		{"slots": slots, "state": game.state})
+	# One size for the whole row, and it has to actually fit: the long label
+	# ran off both ends of its plate when the row went from two at 170 to four
+	# at 140.
+	var labels: Array = ["ENTER  /  RESUME", "R  /  RESTART", "M  /  MAIN MENU",
+			"N  /  MUSIC OFF"]
+	var fitted: int = game.hud.label_size(labels, slots[0].size.x)
+	var widest := 0.0
+	for label in labels:
+		widest = maxf(widest, ThemeDB.fallback_font.get_string_size(
+				str(label), HORIZONTAL_ALIGNMENT_LEFT, -1, fitted).x)
+	check("and-one-label-size-that-fits-every-one-of-them",
+		fitted >= game.hud.BUTTON_TEXT_MIN and widest <= slots[0].size.x,
+		{"size": fitted, "widest_label": widest, "plate": slots[0].size.x})
+
+	# The two that used to be prose are clicks now. What can go wrong with a
+	# click is that two rects claim the same point — the session tests them in
+	# one chain and the first match wins, so an overlap makes a click a
+	# lottery. Each centre has to belong to exactly one of them.
+	#
+	# (The click itself is not driven here: the session reads the pointer off
+	# hud.get_local_mouse_position() rather than off the event, and a headless
+	# run has no pointer to warp. The chain in _unhandled_input is three lines
+	# and the same shape the music toggle has had all along.)
+	var claims := 0
+	var stray := false
+	for i in range(4):
+		var centre: Vector2 = slots[i].get_center()
+		var hits := 0
+		for j in range(4):
+			if slots[j].has_point(centre):
+				hits += 1
+		if hits != 1:
+			stray = true
+		if game.hud.row_at(centre) >= 0:
+			stray = true          # the level list must not claim them either
+		claims += hits
+	check("every-plate-in-the-row-owns-its-own-clicks",
+		claims == 4 and not stray, {"claims": claims, "overlapping": stray})
+
+	# And off the pause screen none of them is anywhere, which is what stops a
+	# click landing on a button that is not drawn.
+	game.open_menu()
+	await steps(2)
+	check("the-row-is-nowhere-when-the-game-is-not-paused",
+		game.state != Game.State.PAUSED
+		and game.hud.restart_rect().size.x == 0.0
+		and game.hud.menu_rect().size.x == 0.0
+		and game.hud.music_rect().size.x == 0.0,
+		{"state": game.state, "restart": game.hud.restart_rect(),
+		 "menu": game.hud.menu_rect()})
+
 	check("the-list-highlights-the-level-you-are-in",
-		Game.listing()[game.menu_index] == "proving_ground",
+		Game.listing()[game.menu_index] == "dragons_roost",
 		{"menu_index": game.menu_index, "listing": Game.listing()})
-	# And picking one from the list plays it, course or not.
-	game.menu_index = Game.listing().find("proving_ground")
+	# And picking a row from the list plays it.
+	game.menu_index = Game.listing().find("dragons_roost")
 	game.confirm()
 	await steps(6)
-	check("the-list-can-start-an-off-course-level",
-		game.level_id == "proving_ground",
+	check("the-list-can-start-the-picked-level",
+		game.level_id == "dragons_roost",
 		{"level_id": game.level_id, "state": game.state})
 
 	# --- sections hold the player until the fight is over --------------------

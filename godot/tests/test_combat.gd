@@ -63,6 +63,10 @@ func spawn_foe(kind: String, at: Vector2, on_roster: bool = false) -> Area2D:
 	foe.position = at
 	foe.fall_limit = float(game.level.fall_y)
 	foe.struck_player.connect(game._on_player_struck)
+	# The session wires both signals when it spawns a level's enemies; mirror that
+	# here so a spawned archer's arrows actually reach the player. Harmless for the
+	# kinds that never loose one — only the hunter emits it.
+	foe.fired_arrow.connect(game._on_arrow_fired)
 	if on_roster:
 		game.enemies.append(foe)
 	game.add_child(foe)
@@ -1013,6 +1017,15 @@ func run() -> void:
 	# needs longer than that to walk in and swing — the loop then breaks on the
 	# take-off having seen no ground attack at all, which says nothing about
 	# whether it has one.
+	# A clean slate before forcing the air phase. reset() clears the swoop, shift
+	# and phase clocks and the state the block above left the dragon in — without
+	# it, a landing already committed a tick earlier reads as "grounded" on the
+	# very first recorded frame and the loop clocks a ground phase it never saw
+	# fly (the intermittent landed_after_s ~0.03 failure). reset() also drops
+	# `engaged` and stands it back on its perch, so re-arm and re-lift it here.
+	wyrm.reset()
+	wyrm.target = game.player
+	wyrm.engaged = true
 	wyrm.aloft = true
 	wyrm.grounded = false
 	wyrm.shift = -1.0
@@ -2556,7 +2569,9 @@ func run() -> void:
 	await steps(4)
 	check("an-empty-bar-kills", game.state == Game.State.DYING and game.player.health == 0,
 		{"state": game.state, "health": game.player.health})
-	check("death-names-the-bandits", game.death_reason.to_lower().contains("bandit"),
+	# The cause line is generic now, not "the bandits": the same defeat screen has
+	# to read right whoever emptied the bar, the roost's dragon included.
+	check("an-empty-bar-says-you-were-beaten", game.death_reason.to_lower().contains("beaten"),
 		{"reason": game.death_reason})
 
 	# --- the bandit takes what the player throws ------------------------------
@@ -2854,12 +2869,12 @@ func run() -> void:
 		{"state": chg.state, "vx": chg.velocity.x, "walk": chg.speed})
 
 	# --- two more kinds: Mark and Hunter, spawned from level entries ----------
-	# proving_ground carries [1000, 640, "mark"] and [430, 640, "hunter"]. This
+	# First Steps carries a mark and a hunter among its enemy entries. This
 	# exercises the whole path the roster adds — the session reads the kind off
 	# each entry, the enemy loads its own art folder, and everything the bandit
 	# does works on them unchanged.
 	await fresh()
-	game.load_level("proving_ground")
+	game.load_level("first_steps")
 	game.start_session()
 	game.player.test_control = true
 	await steps(3)
@@ -2870,10 +2885,27 @@ func run() -> void:
 			mk = foe
 		elif foe.kind == "hunter":
 			hn = foe
-	check("proving-ground-spawns-mark-and-hunter",
-		mk != null and hn != null and game.enemies.size() == 2,
-		{"count": game.enemies.size(),
-		 "first_kind": game.enemies[0].kind if game.enemies.size() > 0 else "<none>"})
+	check("mark-and-hunter-spawn-from-level-entries",
+		mk != null and hn != null,
+		{"count": game.enemies.size(), "mark": mk != null, "hunter": hn != null})
+
+	# Everything below fights the two of them one at a time, and needs the thing
+	# proving_ground used to give: a long flat patch with clear floor between the
+	# combatants and no spikes in it. proving_ground is gone, so lay one over the
+	# greybox fixture — a plain solid across its gaps, its spikes cleared — and
+	# spawn a fresh mark and hunter onto it. on_roster so fight_one's "park
+	# everyone else" loop reaches whichever of the two is not fighting.
+	await fresh()
+	game.start_session()
+	game.player.test_control = true
+	for hz in game.hazard_areas:
+		hz.queue_free()
+	game.hazard_areas.clear()
+	game._add_solid(Rect2(-200, 640, 2400, 240))
+	await steps(2)
+	mk = await spawn_foe("mark", Vector2(1050, 640), true)
+	hn = await spawn_foe("hunter", Vector2(1120, 640), true)
+	await steps(2)
 	# Named animations rather than a count: the count moved the day he learned to
 	# jump, and a manifest that has grown a frame is not a manifest that is wrong.
 	check("mark-loads-his-own-manifest",

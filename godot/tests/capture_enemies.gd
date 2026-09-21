@@ -1,6 +1,6 @@
 extends SceneTree
 ## Development tool: renders each non-bandit enemy kind inside the real game, on
-## proving_ground where they are spawned from level entries. Not a test; makes no
+## first_steps where they are spawned from level entries. Not a test; makes no
 ## assertions. Run without --headless; it needs a real renderer.
 ##
 ## The point is in-engine proof: that the folder each extract_<kind>.py wrote
@@ -8,10 +8,10 @@ extends SceneTree
 ## preview of the source sheet. Saves cropped shots to evidence/<kind>/.
 const Game = preload("res://game/session.gd")
 
-# One clear patch of proving_ground: east of the spikes (800..848), west of the
-# flag (1192). Each kind is captured here in turn with every other enemy banished
-# off screen, so nothing but the enemy in hand is ever in frame.
-const SPOT := Vector2(1050, 640)
+# One clear patch of the first_steps coast, near the opening ledge. Each kind is
+# captured here in turn with every other enemy banished off screen, so nothing
+# but the enemy in hand is ever in frame.
+const SPOT := Vector2(600, 648)
 
 var game: Node2D
 var output: String
@@ -178,10 +178,10 @@ func capture(kind: String, foe: Area2D) -> void:
 	foe.visible = true
 	foe.target = null
 	var throw_from: float = maxf(680.0, stand.x - (foe.guard_reaction * 560.0 + 120.0))
-	# Clear the lane. proving_ground keeps a brew at x700, which is under the
-	# muzzle from here — a blast thrown at Mark from far enough back for him to
-	# read it smashed the bottle on frame one and never left. Props are parked
-	# rather than broken so the earlier crate and bottle shots are untouched.
+	# Clear the lane. Any crate or bottle between the player and the enemy is under
+	# the muzzle from here — a blast thrown from far enough back for Mark to read
+	# it smashes the prop on frame one and never leaves. Props are parked rather
+	# than broken so the earlier crate and bottle shots are untouched.
 	for prop in game.crates + game.bottles:
 		if is_instance_valid(prop) and prop.position.x > throw_from - 60.0 \
 				and prop.position.x < stand.x:
@@ -254,7 +254,7 @@ func capture(kind: String, foe: Area2D) -> void:
 func run() -> void:
 	game = Game.new()
 	game.test_mode = true
-	game.level_id = "proving_ground"
+	game.level_id = "first_steps"
 	root.add_child(game)
 	game.start_session()
 	game.player.test_control = true

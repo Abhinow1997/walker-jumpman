@@ -8,7 +8,7 @@ Clone with `git clone https://github.com/nikbearbrown/walker-jumpman.git`, then 
 
 Double-click [walker-jumpman.command](walker-jumpman.command) to play. The game opens on the title screen: **NEW JOURNEY** plays the opening and then starts the course in First Steps, carries on into The Fractured Isles and ends at The Dragon's Roost, **PRACTICE** drops straight into First Steps, and **LOAD GAME** opens the in-game level list — every level that ships, course or not (**W/S or up/down** to choose, **Enter** to start). In play, **A/D or left/right** to move, **Space** to jump, **J** to attack or throw, **K** to blast, **E** to lift or drink, **R** to retry, **Escape/P** to pause and **M** for the menu. Reach the flag. Retries are unlimited, and finishing a level goes straight to the next one.
 
-The title screen, the opening's title card and all three course levels share the Magic Cliffs loop — the pack ships one track — so starting a new journey carries the music straight on rather than restarting it. First Steps names the same track, so PRACTICE carries it on too; the greybox fixture and Proving Ground are silent. Music lives in [music.gd](godot/game/music.gd), the one node in the project that outlives a scene.
+The title screen, the opening's title card and all three course levels share the Magic Cliffs loop — the pack ships one track — so starting a new journey carries the music straight on rather than restarting it. First Steps names the same track, so PRACTICE carries it on too; the greybox fixture is silent. Music lives in [music.gd](godot/game/music.gd), the one node in the project that outlives a scene.
 
 The stage is cut into sections and you do not walk past a fight. While enemies are still standing in your section the camera stops dead, an invisible wall stands on the line, and you can see you have run out of screen rather than out of floor; put them down and both let go — the wall at once, the camera over about half a second, panning forward rather than cutting, with a chevron at the edge to say so. That pan is the only smoothing on the camera's horizontal: a fight backed into a gate ends with you pressed against the wall, which is the furthest the framing ever has to travel, and it used to travel it in one frame while you were still mid-swing. Walking back is never blocked. The Fractured Isles is four sections, the last being the Archway platform, which is the dragon's fight — it has no gate, so the flag ends it, and that means the boss can be run past.
 
@@ -229,9 +229,10 @@ course first — so every level that ships can be picked, and only the course
 chains. Nothing has to appear twice: the list is `order` followed by whatever is
 in `also_listed` that is not already in it.
 
-The course opens on First Steps, carries on into The Fractured Isles and ends at
-The Dragon's Roost. Learning the game is the first stretch of it rather than a
-detour beside it, and the last is one arena and one flying boss.
+The course opens on First Steps, carries on into The Fractured Isles, climbs
+The Spire and ends at The Dragon's Roost. Learning the game is the first
+stretch of it rather than a detour beside it; The Spire is one hard short test
+of the jump before the end; and the last is one arena and one flying boss.
 
 Six levels ship, all validated by `scripts/check_levels.py`:
 
@@ -245,24 +246,26 @@ Six levels ship, all validated by `scripts/check_levels.py`:
   used to stand there blocked the way with his body, and the dragon that
   replaced him cruises 156 overhead and blocks nothing, so the level could be
   finished by running underneath it.
-* **The Dragon's Roost** is the final boss fight and nothing else: a hop in, a
-  flat arena with two floating stones to take height from, and the dragon again,
-  this time with nothing else in the level and a gate that will not open until it
-  is beaten. It ends the course, so finishing it replays it.
 * **The Spire** is the climb, and the only level that goes up. Eighteen jumps
   from the shore to a summit 1368 px above it, on floating land masses from the
-  same pack, with rocks coming down three shafts at it. It is a challenge level
-  rather than a chapter, so it is listed but off the course. Two rules belong to
-  it alone and both come from `"climb": true` — the view ratchets, rising as he
+  same pack, with rocks coming down three shafts at it. **It is the third level
+  of the course**, between the Isles and the Roost — it was a listed
+  challenge level off the course first, and the argument for that is recorded
+  in `index.json` because it is still true of the level: a climb with no floor
+  under it, fatal on any fall, and the only level with no way back. What it
+  buys is the one purely mechanical test between the last ordinary level and
+  a boss fight that is largely about where you stand. Two rules belong to it
+  alone and both come from `"climb": true` — the view ratchets, rising as he
   lands higher and never coming back down, and the fatal line rides with it a
   screen below the highest ledge he has stood on instead of sitting at `fall_y`.
   **Falling off the bottom of the screen is what kills him**, which is also what
   makes the long falls quick: a miss near the summit used to be four seconds of
   watching him drop past scenery he had already beaten. A fall shorter than that
   is survivable and costs progress instead, which is most of the texture of it.
-* **Proving Ground** is the greybox prototyping slice: somewhere to try a
-  mechanic without dressing a level around it. Listed, so you can pick it; not on
-  the course, so it chains to nothing.
+* **The Dragon's Roost** is the final boss fight and nothing else: a hop in, a
+  flat arena with two floating stones to take height from, and the dragon again,
+  this time with nothing else in the level and a gate that will not open until it
+  is beaten. It ends the course, so finishing it replays it.
 * **Greybox** is the test fixture and nothing else. It is in neither list and is
   flagged `"listed": false` as well, so it can never be offered as something to
   play. Every suite boots it, because
@@ -333,8 +336,8 @@ the next level all read from the file.
 ### Themes
 
 A level with no `theme` is drawn procedurally by `session.gd`, the original
-greybox: flat rectangles, drawn hills, a flag. Proving Ground and the test
-fixture are these.
+greybox: flat rectangles, drawn hills, a flag. The test fixture is the only one
+of these left.
 
 A level with one is drawn by [scenery.gd](godot/features/world/scenery.gd) from
 the same data. **Terrain is not authored** — the cliffs, grass and caps are

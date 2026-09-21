@@ -296,6 +296,14 @@ three slices, the two caps at their drawn width and everything between them
 stretched, so a 118-wide plate fills a 170-wide button without pulling its
 corners out of round.
 
+The label is drawn on top, and its SIZE is worked out per row rather than
+fixed: `label_size` takes every label that will share a row and returns the
+largest point size at which the longest of them clears the two rounded ends.
+The pause screen is why — it went from two plates at 170 to four at 140 and
+"ENTER / RESUME" ran off both ends of its own. One size for the whole row,
+not one per button: four plates with the long label a point smaller than the
+short ones reads as a mistake.
+
 ### The caret
 
 Both cards are drawn as filled-in text fields, with a black caret sitting

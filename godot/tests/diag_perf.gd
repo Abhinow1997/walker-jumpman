@@ -1,5 +1,5 @@
 extends SceneTree
-## Throwaway diagnostic: run proving_ground with the archer firing and watch for a
+## Throwaway diagnostic: run first_steps with the archer firing and watch for a
 ## node leak (arrows piling up) or a slow physics step. Delete after use.
 const Game = preload("res://game/session.gd")
 
@@ -22,7 +22,7 @@ func descendants(n: Node) -> int:
 func run() -> void:
 	game = Game.new()
 	game.test_mode = true
-	game.level_id = "proving_ground"
+	game.level_id = "first_steps"
 	root.add_child(game)
 	game.start_session()
 	game.player.test_control = true

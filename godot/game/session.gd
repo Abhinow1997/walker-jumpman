@@ -1076,15 +1076,19 @@ static func catalogue() -> Array:
 
 ## EVERY LEVEL THE MENU OFFERS: the course, then anything the index also lists,
 ## then nothing else. A level can be picked from LOAD GAME without being part of
-## the journey, which is the difference between "playable" and "on the course" —
-## Proving Ground is playable and is not on the way to anywhere.
+## the journey — the difference between "playable" and "on the course" — though
+## `also_listed` is empty now, so the list is exactly the course. The mechanism
+## stays: an id added to also_listed shows up here without being chained into.
 ##
 ## Derived from catalogue() rather than read separately, so a test that stands a
 ## pretend course up in _catalogue gets a menu that matches it.
 static func listing() -> Array:
+	# catalogue() reads the index (both lists together) on the first call, so
+	# _also_listed is already loaded by the time we append it. It is empty now
+	# that nothing ships off the course; the loop then adds nothing and the list
+	# is exactly the course. (This used to re-read the index whenever _also_listed
+	# was empty — a lazy-load guard that mis-fired once empty was a real state.)
 	var out: Array = catalogue().duplicate()
-	if _also_listed.is_empty():
-		_read_index()
 	for id in _also_listed:
 		if not out.has(id) and not _hidden(id):
 			out.append(id)
@@ -1630,13 +1634,16 @@ func _physics_process(delta: float) -> void:
 			climb_mark = minf(climb_mark, player.position.y)
 		_tick_rockfall(delta)
 		var fatal := player.position.y > fatal_y()
-		death_reason = "Missed the landing" if fatal else "Watch the spikes"
+		# The cause line under the MISSION FAILED banner — see the DYING branch in
+		# ui/hud.gd. Kept generic rather than naming a foe: the same line has to
+		# read right whether a bandit, a hunter or a dragon finished him.
+		death_reason = "You missed the landing" if fatal else "The spikes got you"
 		# An empty bar is fatal on the same terms as a pit: the session decides,
 		# the player only spends the health. Checked before the hazards so the
 		# reason names what actually finished him.
 		if not fatal and player.health <= 0:
 			fatal = true
-			death_reason = "Beaten by the bandits"
+			death_reason = "You were beaten"
 		for hazard in hazard_areas:
 			fatal = fatal or hazard.overlaps_body(player)
 		if contact_settle_ticks > 0:
@@ -1731,9 +1738,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			menu_index = row
 			confirm()
 		elif hud.music_rect().has_point(at):
-			# Ahead of the confirm button: the two share a row while paused, and a
-			# click that missed this one used to fall through and resume the game.
+			# Ahead of the confirm button: the four share a row while paused, and
+			# a click that missed one used to fall through and resume the game.
 			Music.toggle(get_tree())
+		elif hud.restart_rect().has_point(at):
+			restart_attempt()
+		elif hud.menu_rect().has_point(at):
+			open_menu()
 		elif hud.button_rect().has_point(at):
 			confirm()
 
