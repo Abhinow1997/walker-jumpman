@@ -18,9 +18,11 @@ const Game = preload("res://game/session.gd")
 const SHOTS := [
 	["first_steps", 150.0],
 	["fractured_isles", 150.0],
-	# 70 and not 150: the summit platform starts at x168 and the marker is at
-	# 252, so a full stride back is off the edge of the tower.
-	["the_climb", 70.0],
+	# 90 and not 150: the summit is 216 wide with the marker in the middle of
+	# it, so there are 108 px behind him and a full stride back walks off a
+	# 3856 px drop. Re-measure this if the mountain is ever relaid - the summit
+	# is placed by a search now, not by hand, so both numbers can move.
+	["the_climb", 90.0],
 	["dragons_roost", 150.0],
 	["greybox", 150.0],
 ]

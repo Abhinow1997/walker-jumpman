@@ -1497,6 +1497,68 @@ func run() -> void:
 		{"main": game.boss_main().kind if game.boss_main() != null else "<none>",
 		 "second": game.boss_second().kind if game.boss_second() != null else "<none>"})
 
+	# And each track KEEPS its boss for the length of the fight. Beating one of
+	# the two does not re-deal them: the bar of whoever went down empties and
+	# stays empty, and the one still fighting goes on draining where it was.
+	#
+	# They used to be worked out every frame from whoever was still standing, so
+	# the moment either of them fell the plate came back as ONE full green bar —
+	# the survivor's health, moved onto the green and shadowed in red — which
+	# reads as a fight starting rather than as one half won, and the bar you had
+	# been watching drain was gone.
+	#
+	# The bodies are put out of sight by hand rather than by waiting the deaths
+	# out: the flyer's is DOWN_TIME and then a flight out of the level, and it is
+	# the body being GONE rather than the killing blow that used to free a track.
+	var roost_hud = game.hud
+	var _flyer_down: bool = flyer.take_hit(flyer.health, game.player.global_position)
+	flyer.visible = false
+	for i in range(60):
+		await physics_frame
+		game.player.health = game.player.MAX_HEALTH
+	check("and-beating-one-empties-that-bar-and-only-that-bar",
+		game.boss_main() == lord and game.boss_second() == flyer
+		and float(roost_hud.boss_shown["magma"]) < 0.02
+		and float(roost_hud.boss_shown["health"]) > 0.98,
+		{"main": game.boss_main().kind if game.boss_main() != null else "<none>",
+		 "second": game.boss_second().kind if game.boss_second() != null else "<none>",
+		 "green": roost_hud.boss_shown["health"],
+		 "magma": roost_hud.boss_shown["magma"]})
+
+	# The other way round, which is the one that gave it away: the Lord holds the
+	# green, and when HE goes down the flying dragon must not inherit it.
+	flyer.reset()
+	flyer.target = game.player
+	flyer.engaged = true
+	var _lord_down: bool = lord.take_hit(lord.health, game.player.global_position)
+	lord.visible = false
+	for i in range(60):
+		await physics_frame
+		game.player.health = game.player.MAX_HEALTH
+	check("and-the-survivor-does-not-move-onto-the-other-track",
+		game.boss_main() == lord and game.boss_second() == flyer
+		and float(roost_hud.boss_shown["health"]) < 0.02
+		and float(roost_hud.boss_shown["magma"]) > 0.98,
+		{"main": game.boss_main().kind if game.boss_main() != null else "<none>",
+		 "second": game.boss_second().kind if game.boss_second() != null else "<none>",
+		 "green": roost_hud.boss_shown["health"],
+		 "magma": roost_hud.boss_shown["magma"]})
+
+	# Both gone and the plate goes with them, tracks and all, so the next fight
+	# starts from full rather than inheriting these two empty bars.
+	var _flyer_again: bool = flyer.take_hit(flyer.health, game.player.global_position)
+	flyer.visible = false
+	await steps(2)
+	check("and-both-tracks-are-given-back-when-the-fight-is-over",
+		game.boss() == null and game.boss_main() == null
+		and game.boss_second() == null,
+		{"boss": game.boss() != null,
+		 "green_track": game.boss_main() != null,
+		 "magma_track": game.boss_second() != null})
+	flyer.reset()
+	flyer.target = game.player
+	flyer.engaged = true
+
 	# Hits THROUGH your blows. Jabbed over and over on his feet, he never
 	# staggers — the counter is footwork, not trading — but he still bleeds.
 	lord.reset()

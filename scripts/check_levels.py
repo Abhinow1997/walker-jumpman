@@ -163,6 +163,60 @@ def hop(tune, a, b):
     return (reach > 0.0 and gap <= reach), rise, gap, reach
 
 
+# His collision box, from features/player/player.gd. The origin is at his feet.
+BODY = (15.0, 42.0)
+
+
+def blocked(tune, solids, a, b, rise):
+    """Does anything hang in the way of the jump from ledge `a` to ledge `b`?
+
+    Walks his body along the arc and looks for a solid whose UNDERSIDE it would
+    strike. The reachability walk on its own only asks whether the far ledge is
+    inside the envelope, which says nothing about what is between them - and in
+    a column one screen wide, a good deal can be. The Climb's summit is a
+    216 x 132 cliff and two of the last ledges ran underneath it: every hop was
+    inside the envelope, every ledge reachable on paper, and in the engine he
+    cracked his head on the bottom of the summit and dropped into the sea.
+
+    Only the underside counts. Landing on something is what the jump is for, and
+    brushing past the side of a ledge is what the gap measurement already
+    covers.
+    """
+    u, g, v = tune["jump_velocity"], tune["gravity"], tune["speed"]
+    right = b[0] >= a[1]
+    from_x = a[1] if right else a[0]
+    step = v / 60.0 * (1.0 if right else -1.0)
+    lo, hi = min(a[0], b[0]) - 40.0, max(a[1], b[1]) + 40.0
+    rects = []
+    for entry in solids:
+        x0, y0 = float(entry[0]), float(entry[1])
+        x1, y1 = x0 + float(entry[2]), y0 + float(entry[3])
+        if x1 <= lo or x0 >= hi:
+            continue
+        # The two ledges of the hop itself are not obstacles.
+        if abs(y0 - a[2]) < 0.5 and x0 >= a[0] - 0.5 and x1 <= a[1] + 0.5:
+            continue
+        if abs(y0 - b[2]) < 0.5 and x0 >= b[0] - 0.5 and x1 <= b[1] + 0.5:
+            continue
+        rects.append((x0, x1, y0, y1))
+    for i in range(int(2.0 * u / g * 60.0) + 2):
+        t = i / 60.0
+        h = u * t - g * t * t / 2.0
+        feet = a[2] - h
+        if h < 0.0 and feet > a[2] + 4.0:
+            break                       # already below the ledge he left
+        x = from_x + step * i
+        head = feet - BODY[1]
+        for x0, x1, y0, y1 in rects:
+            if x + BODY[0] / 2.0 <= x0 or x - BODY[0] / 2.0 >= x1:
+                continue
+            if head < y1 and feet > y0 and feet > y1 - 2.0:
+                return (x, feet, y0)    # his head is under its underside
+        if h >= rise and i > 2 and b[0] - 4.0 <= x <= b[1] + 4.0:
+            return None                 # down on the far ledge, nothing hit
+    return None
+
+
 def climb(level, tune, errors, warnings, notes):
     """A tower rather than a course, so the question is not whether any gap is
     too wide to run at - it is whether every ledge can be reached from one
@@ -193,6 +247,13 @@ def climb(level, tune, errors, warnings, notes):
                 warnings.append("the ledge at y %g sits directly over the one "
                                 "at y %g with no step aside: he would jump "
                                 "into its underside" % (there[2], here[2]))
+                continue
+            hit = blocked(tune, level["solids"], here, there, rise)
+            if hit is not None:
+                errors.append("the hop from y %g to y %g passes under the "
+                              "solid whose top is at y %g: his head meets it "
+                              "around (%.0f, %.0f)"
+                              % (here[2], there[2], hit[2], hit[0], hit[1]))
                 continue
             worst = max(worst, 100.0 * gap / reach)
             if gap > reach * TIGHT:

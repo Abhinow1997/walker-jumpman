@@ -143,11 +143,16 @@ const BAR_SETTLED := 0.0005
 ## stone frame and two tracks, cut from the asset sheet by
 ## scripts/extract_boss_bar.py.
 ##
-## The plate carries two bars and both are the SAME number. The green one is
-## the boss's health now; the magma one under it is that health a moment ago,
-## draining to catch up. The band of red between them is what you just took
-## off, which is the one thing a single bar cannot show you and the reason the
-## art is drawn with two.
+## On a level that fights ONE boss the plate carries two bars and both are the
+## SAME number. The green one is its health now; the magma one under it is
+## that health a moment ago, draining to catch up. The band of red between
+## them is what you just took off, which is the one thing a single bar cannot
+## show you and the reason the art is drawn with two.
+##
+## The Dragon's Roost fights TWO, and there the two bars are one boss each —
+## green the Dragon Lord, magma the flying dragon — and each keeps its own for
+## the whole fight, so beating one empties its bar and leaves the other where
+## it was. See boss_track in game/session.gd.
 const BOSS_BARS := "res://ui/art/boss_bar.json"
 ## Drawn at the same half scale as the player's, and for the same reason: the
 ## art is extracted at the size it lands on screen.
@@ -218,12 +223,15 @@ func _process(delta: float) -> void:
 	# And the boss plate, on its own two rates. Reset between fights, so the
 	# next boss does not inherit the last one's empty bar.
 	#
-	# Two tracks, and what they mean depends on how many bosses are up. With ONE
-	# they are the same number at two speeds — green now, magma a beat behind, and
-	# the band between them is the damage just dealt. With TWO — The Dragon's
-	# Roost — they are two DIFFERENT bosses: green is the Dragon Lord on the main
-	# track, magma the dragon on the red, each tracking its own live health. See
-	# boss_main/boss_second in game/session.gd.
+	# Two tracks, and what they mean depends on how many bosses the FIGHT has.
+	# With ONE they are the same number at two speeds — green now, magma a beat
+	# behind, and the band between them is the damage just dealt. With TWO — The
+	# Dragon's Roost — they are two DIFFERENT bosses: green is the Dragon Lord on
+	# the main track, magma the dragon on the red, each tracking its own live
+	# health for as long as the fight lasts. Beat one and its bar empties and
+	# stays empty; the other goes on draining where it was, because the session
+	# hands out the tracks once and does not take them back until both are gone.
+	# See boss_track/boss_main/boss_second in game/session.gd.
 	var main: Node2D = game.boss_main() if is_instance_valid(game) else null
 	if main == null:
 		if boss_shown["health"] >= 0.0:
@@ -592,7 +600,9 @@ func _boss_plate() -> void:
 	## no boss is fighting, which is every level but the last two.
 	##
 	## Magma under green, so the band of red that opens between them after a
-	## hit is the damage: they are the same number at two speeds.
+	## hit is the damage: they are the same number at two speeds. Where two
+	## bosses fight at once they are instead one bar each, and an empty track is
+	## a boss already beaten rather than a bar waiting to fill.
 	##
 	## Each fill is a STRIP the size of its own track, not a whole lit plate,
 	## which is what keeps one from painting over the other — see the note in

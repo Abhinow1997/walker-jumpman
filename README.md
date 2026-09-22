@@ -22,6 +22,8 @@ Two bars sit in the top corner. Health is the green one and **you start on all o
 
 **A boss gets its own plate**, across the bottom of the screen, for as long as it is fighting you — nothing before it notices you and nothing after its body is gone. It carries two bars showing one number at two speeds: green is the boss's health now, and the magma bar under it is that health a moment ago, draining to catch up. The band of red between them is the blow you just landed. Cut from the asset sheet by `scripts/extract_boss_bar.py`; which enemies get one is a `boss` flag in their profile, not a name the HUD knows.
 
+**Two bosses, two indicators.** The Dragon’s Roost is the only level that fights more than one, and there the same two bars stop being one number at two speeds and become one boss each: green the Dragon Lord, magma the flying dragon, both of them live. Each keeps its own track for the whole fight. Beating one empties that bar and leaves it empty rather than handing the track to the survivor — which used to put a single full green bar back on the plate and make a fight half won read as one starting over. Shot both ways round by `tests/capture_two_bars.gd`.
+
 Neither bar snaps. Both slide to their new level over about a third of a second, while the number beside them changes at once — so a hit or a blast is something you watch land, and the slow refill is visible as movement rather than a figure that is quietly different next time you look.
 
 ![The actual First Steps game, captured during a scripted jump](evidence/screens/03-jump.png)
@@ -247,7 +249,7 @@ The Climb and ends at The Dragon's Roost. Learning the game is the first
 stretch of it rather than a detour beside it; The Climb is one hard short test
 of the jump before the end; and the last is one arena and one flying boss.
 
-Six levels ship, all validated by `scripts/check_levels.py`:
+Five levels ship, all validated by `scripts/check_levels.py`:
 
 * **First Steps** is the practice course and the first level of the journey.
   Same cliffs, sea and cast as The Fractured Isles, cut into five short stretches
@@ -259,9 +261,29 @@ Six levels ship, all validated by `scripts/check_levels.py`:
   used to stand there blocked the way with his body, and the dragon that
   replaced him cruises 156 overhead and blocks nothing, so the level could be
   finished by running underneath it.
-* **The Climb** is the climb, and the only level that goes up. Eighteen jumps
-  from the shore to a summit 1368 px above it, on floating land masses from the
-  same pack, with rocks coming down three shafts at it. **It is the third level
+* **The Climb** is the mountain, and the only level that goes up. Forty-seven
+  jumps from the shore to a summit 3856 px above it — a little over seven
+  screens stacked end to end — on floating land masses from the same pack, with
+  rocks coming down on thirty-one of those jumps. It climbs in **seven bands**,
+  each ending on a shelf wide enough to stand still on, and both the steps and
+  the ledges change as it goes: 68 px rises onto 72 px islands at the bottom, 92
+  px rises onto 36 px rocks at the top. The art changes with them and carries
+  the treeline on its own — `island_large` is grassed, `island_wide` and
+  `rock_float` are bare stone — so the greenery, the plants and finally the sea
+  itself drop away underneath him without one line of decor saying they should.
+  **Hunters hold it**, five of the eight, one to a shelf. They are the only
+  enemy that can do anything about someone below them and out of arm's reach,
+  which here is almost everyone almost all of the time: an archer aims at where
+  the player actually is, so he shoots down the mountain, while a bandit on a
+  shelf 400 px overhead is scenery until you arrive. What an archer can *reach*
+  is narrower than it sounds and worth knowing before placing one — the arrow
+  leaves 34 px above his feet, so a steep shot buries itself in the ledge he is
+  standing on, and what he really covers is his own height and one ledge below
+  it, which is the approach to his shelf. `diag_ratchet.gd` sweeps that and
+  prints the map. Nothing stands on a **switchback ledge**: three bows were
+  tried there and a corner is the one place he lands running one way and has to
+  leave going the other, so a stun costs him the only run-up he gets.
+  **It is the third level
   of the course**, between the Isles and the Roost — it was a listed
   challenge level off the course first, and the argument for that is recorded
   in `index.json` because it is still true of the level: a climb with no floor

@@ -124,4 +124,45 @@ func run() -> void:
 		print("  %-8s started (%.0f, %.0f) now (%.0f, %.0f) alive=%s"
 				% [foe.kind, home[i].x, home[i].y, foe.position.x,
 				   foe.position.y, foe.alive()])
+
+	# --- the archers actually shoot -----------------------------------------
+	# Four of the seven are hunters, and they are the only enemy on this
+	# mountain that can reach him at all: he is below them and out of arm's
+	# reach for almost the whole level. Worth measuring rather than assuming,
+	# because an archer who never fires is a decoration. He is parked a band
+	# under each one, which is where a climber meets it.
+	# Where can an archer actually REACH from a shelf? Not straight down: the
+	# arrow leaves 34 above his feet, so a steep shot crosses the top of the
+	# very ledge he is stood on and buries itself in it within a few pixels.
+	# The shot has to be shallow enough to clear his own lip, which makes the
+	# threatening position a diagonal one - and a switchback climb spends most
+	# of its time diagonally below something. This sweeps the offsets to say
+	# which of them actually cost health.
+	print("")
+	print("what an archer can reach, held at each offset for eight seconds:")
+	var archer = null
+	for foe in game.enemies:
+		if foe.kind == "hunter":
+			archer = foe
+			break
+	if archer == null:
+		quit()
+		return
+	print("  (hunter at %.0f, %.0f)" % [archer.position.x, archer.position.y])
+	for below in [0.0, 80.0, 160.0, 240.0, 320.0]:
+		var row := "  %4.0f below: " % below
+		for across in [60.0, 140.0, 220.0, 300.0, 380.0]:
+			game.restart_attempt()
+			await step()
+			var spot: Vector2 = archer.position + Vector2(-across, below)
+			game.player.position = spot
+			game.player.velocity = Vector2.ZERO
+			var before: int = game.player.health
+			for _i in 480:
+				# Pinned: this is a question about the archer, not about him.
+				game.player.position = spot
+				game.player.velocity = Vector2.ZERO
+				await physics_frame
+			row += "%4.0f across -%-3d  " % [across, before - game.player.health]
+		print(row)
 	quit()

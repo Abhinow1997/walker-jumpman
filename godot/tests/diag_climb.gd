@@ -101,7 +101,11 @@ func drive() -> void:
 		stalled = 0
 		return
 	if at + 1 >= chain.size():
-		player.test_axis = 0.0
+		# On the summit. Walk to the flag, or the run ends standing next to it
+		# with the level still officially unfinished.
+		var flag: float = float(game.level.finish[0]) + float(game.level.finish[2]) / 2.0
+		var off: float = flag - player.position.x
+		player.test_axis = signf(off) if absf(off) > 6.0 else 0.0
 		return
 	var here: Array = chain[at]
 	var next: Array = chain[at + 1]

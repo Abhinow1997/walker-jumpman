@@ -139,6 +139,8 @@ func _clear_world() -> void:
 	seal_wall = null
 	seal_at = INF
 	sealed = false
+	boss_track[0] = null
+	boss_track[1] = null
 	hud = null
 	drinking_bottle = null
 
@@ -301,8 +303,8 @@ const GATE_INSET := 48.0
 ## dragon into, so the two of them end up shut in exactly the same room.
 ##
 ## A boss arena is the level's `boss_arena`: the x its fight is sealed behind.
-## Optional, and only The Fractured Isles names one — 6912, the lip of the
-## dragon's deck. Its SECTION opens at 6110, out in the middle of the chasm,
+## Optional, and both of the levels with a boss name one. The Fractured Isles
+## says 6912, the lip of the dragon's deck. Its SECTION opens at 6110, out in the middle of the chasm,
 ## which would leave the four stepping stones inside the fight (the ledges he
 ## crossed to get there) and stand the wall in mid-air over the water.
 ##
@@ -758,34 +760,76 @@ func boss() -> Node2D:
 			return foe
 	return null
 
+## Which boss is on each of the plate's two tracks — [green, magma] — for as
+## long as the fight lasts. A track KEEPS the boss it was handed, dead or
+## alive: a beaten boss's bar drains to empty and STAYS empty until the whole
+## fight is over.
+##
+## Sticky rather than worked out each frame from whoever is still standing,
+## which is what it was and which was wrong on The Dragon's Roost. Both tracks
+## used to answer "who is fighting me now", so the moment one of its two
+## bosses went down the survivor slid onto the green and the red went back to
+## shadowing it: the plate answered a death by showing one full green bar,
+## which reads as a fight STARTING rather than as one half won, and the bar
+## you had been watching drain was simply gone. Two bosses, two indicators,
+## and neither moves off its own track.
+var boss_track: Array[Node2D] = [null, null]
+
 func boss_main() -> Node2D:
 	## The boss on the plate's main (green) track. When two are fighting — The
 	## Dragon's Roost — this is the one on its feet, the Dragon Lord you close
 	## with; the flyer takes the second track. With a single boss it is simply
-	## that boss. Prefers a grounded boss so the green bar is always the Lord's
-	## when both are up, whatever order the level lists them in.
-	var flyer: Node2D = null
-	for foe in enemies:
-		if is_instance_valid(foe) and foe.is_boss() and foe.engaged and foe.visible:
-			if foe.is_flyer():
-				flyer = foe
-			else:
-				return foe
-	return flyer
+	## that boss. Non-null exactly while a fight is on, which is what the plate
+	## is drawn on.
+	_sync_boss_track()
+	return boss_track[0]
 
 func boss_second() -> Node2D:
-	## The boss on the plate's second (magma/red) track, or null when only one is
-	## fighting. It is whichever engaged boss is not on the main track — the
-	## flyer, when a ground boss holds the green. A single-boss level never has
-	## one, and the red track goes back to lagging the main bar (the damage band).
-	var main := boss_main()
-	if main == null:
-		return null
-	for foe in enemies:
-		if is_instance_valid(foe) and foe.is_boss() and foe.engaged and foe.visible \
-				and foe != main:
-			return foe
-	return null
+	## The boss on the plate's second (magma/red) track, or null on a level that
+	## fights one. With one, the red track goes back to lagging the green, which
+	## is the damage band; with two it is the second boss's own live health, and
+	## it stays his after he falls.
+	_sync_boss_track()
+	return boss_track[1]
+
+func _sync_boss_track() -> void:
+	## Hands a track to each boss as it engages, and takes both back when the
+	## fight is over.
+	##
+	## Cleared on boss() going null — nothing engaged still on screen — which is
+	## the same line the plate and the battle track are drawn on, so the next
+	## fight cannot inherit the last one's empty bar. Nothing else takes a track
+	## away from a boss: that is the whole point of it.
+	if boss() == null:
+		boss_track[0] = null
+		boss_track[1] = null
+		return
+	# Grounded before flyers, so two waking on the same frame — which is what
+	# the standoff card does — take the tracks in that order and the green is
+	# the Dragon Lord's however the level happens to list its enemies.
+	#
+	# `visible` as well as `engaged`, which is boss()'s own test for being in a
+	# fight: a boss beaten and cleared BEFORE this fight started is not in it and
+	# must not hold a track through it. Keeping one once it has been handed over
+	# is a different question, and the answer to that one is yes.
+	for flying in [false, true]:
+		for foe in enemies:
+			if is_instance_valid(foe) and foe.is_boss() and foe.engaged \
+					and foe.visible and foe.is_flyer() == flying:
+				_take_track(foe)
+
+func _take_track(foe: Node2D) -> void:
+	## Puts a boss on the first free track, and does nothing whatever if it is
+	## already on one — which is what keeps a bar with its boss. A third boss
+	## would get no track at all; the plate is drawn with two and no level
+	## fights three.
+	for slot in boss_track:
+		if slot == foe:
+			return
+	for i in boss_track.size():
+		if boss_track[i] == null:
+			boss_track[i] = foe
+			return
 
 func _boss_fallen() -> bool:
 	## Down, and done being down. See fallen() and DOWN_TIME in enemy.gd — for
