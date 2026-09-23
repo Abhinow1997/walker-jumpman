@@ -138,6 +138,19 @@ func _play(key: String) -> void:
 	playing = wanted
 	sprite.play(wanted)
 
+## Which frame of the four-frame burn is showing. LF2 draws it in two halves
+## — 203-204 is the body tumbling inside the flame and 205-206 is the same body
+## burning where it landed — so the half is picked off his FEET and only the
+## frame within it off the clock. Picking the lot off the clock put him on the
+## deck while he was still in the air on the short throws.
+const BURN_LANDED := 2
+
+func _burn_frame(clock: float, grounded: bool) -> int:
+	var frame := Moveset.frame_at("burn", clock)
+	if grounded:
+		return maxi(frame, BURN_LANDED)
+	return mini(frame, BURN_LANDED - 1)
+
 func _show_frame(key: String, frame: int) -> void:
 	## Attacks are stepped by the player, not by the AnimatedSprite2D's own
 	## clock, so that the frame on screen is exactly the frame whose hitbox is
@@ -228,9 +241,22 @@ func advance(delta: float) -> void:
 		# frames — see DOWN_TIME in player.gd. Checked before `hurt` because a
 		# knockdown outlives the stun and the tumble is the picture that
 		# matters, not the flinch that started it.
-		_show_frame("death", Moveset.frame_at("death", body.down_clock()))
+		#
+		# Unless a dragon breathed on him, in which case the pack draws the
+		# whole thing again on fire and that is the picture instead.
+		if body.is_burning():
+			_show_frame("burn", _burn_frame(body.down_clock(), grounded))
+		else:
+			_show_frame("death", Moveset.frame_at("death", body.down_clock()))
 	elif body.is_hurt():
-		_show_frame("hurt", Moveset.frame_at("hurt", body.hurt_clock))
+		if body.is_burning():
+			# Alight but still on his feet — no fire in the cast throws that
+			# blow today, every one of them flings. Drawn anyway, and drawn
+			# with the airborne half, because a burn that only exists inside a
+			# knockdown is a burn that breaks the day somebody tunes one out.
+			_show_frame("burn", _burn_frame(body.hurt_clock, false))
+		else:
+			_show_frame("hurt", Moveset.frame_at("hurt", body.hurt_clock))
 	elif body.attack != "":
 		_show_frame(body.attack, body.attack_frame)
 	elif body.is_carrying() and body.carry_heavy and grounded:

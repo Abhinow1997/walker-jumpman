@@ -130,11 +130,17 @@ They are data, like everything else a level is:
 `panel` names a file in `ui/art/storyboard/` and the two audio keys name files
 in `audio/`, all without their extensions, all written by
 [extract_storyboard.py](scripts/extract_storyboard.py). `caption` is the line
-printed under the picture — one line, held for the whole card, in the same
-column and on the same scrim the opening's subtitles use, because both are laid
+printed under the picture — one line of dialogue, held for the whole card and
+wrapped if it needs two rows, in the same column and on the same scrim the opening's subtitles use, because both are laid
 out in the same 960x540 space and two people's ideas about subtitles in one
-game would show. Only the standoff has one: the second card is the dragon
-leaving and there is nobody left to say anything about it.
+game would show. On the isles only the standoff has one: the second card is
+the dragon leaving and there is nobody left to say anything about it. The
+Dragon’s Roost captions **both** of its start panels — the Dragon Lord over the
+hurt drake, then the pair of them turning on you — because one clip of dialogue
+is spread across the two of them, so each panel gets the half of it that plays
+under it. The delivery direction that came with that script is dropped for the
+same reason the opening drops `[whispers]`: it is an instruction to the voice,
+not a word anybody says.
 [check_levels.py](scripts/check_levels.py) fails a card whose art or clip was
 never extracted, and one whose line falls over a pit, because every one of
 those is silent in play.
@@ -195,6 +201,19 @@ and the level's own quiet loop is the bed for all three — a battle track under
 the picture of it leaving would undo the picture. The boss plate deliberately
 outlasts the track: it stays up, empty, until the body is gone, which is what
 it is for.
+
+With the killing blow of the **last** boss, that is. The Dragon's Roost fights
+two, and the rule used to be “is the first boss the level lists still alive” —
+which on that level is the dragon. Beating the dragon therefore dropped the
+music to the coast loop with the Dragon Lord still swinging, and put it back
+four and a half seconds later when the dragon's body finally flew out of the
+level: a hole in the middle of the last fight in the game, either way round.
+`boss_fighting()` asks for any boss that is engaged, on screen and still on its
+feet. [diag_boss_track.gd](godot/tests/diag_boss_track.gd) walks both levels
+through both deaths in both orders and prints the loop at each beat;
+[diag_battle_music.gd](godot/tests/diag_battle_music.gd) does the same against
+a real audio driver, and reads −4.0 dB of *Decisive Battle* from the moment
+the cards hand the level back until the second boss goes down.
 
 **The standoff card is what starts the fight**, not the dragon's own aggro. The
 line is at 6960 and the dragon perches at 7650 with 560 of aggro, so it is 130
@@ -298,9 +317,14 @@ Five levels ship, all validated by `scripts/check_levels.py`:
   watching him drop past scenery he had already beaten. A fall shorter than that
   is survivable and costs progress instead, which is most of the texture of it.
 * **The Dragon's Roost** is the final boss fight and nothing else: a hop in, a
-  flat arena with two floating stones to take height from, and the dragon again,
-  this time with nothing else in the level and a gate that will not open until it
-  is beaten. It ends the course, so finishing it replays it.
+  flat arena with two floating stones to take height from, and **two** bosses
+  on the deck — the Dragon Lord, who is the wall at 1500 (twenty-five clean
+  hits of the jumped kick, the biggest bar in the game), and the dragon over
+  him at 1140, which is nineteen. The dragon is 1500 on the isles where it
+  fights alone; the level sets its own number here, because two 1500s back to
+  back make the last level longer than the one before it rather than harder.
+  The gate will not open until both are beaten. It ends the course, so
+  finishing it replays it.
 * **Greybox** is the test fixture and nothing else. It is in neither list and is
   flagged `"listed": false` as well, so it can never be offered as something to
   play. Every suite boots it, because
@@ -377,6 +401,7 @@ the next level all read from the file.
 | `bottles` | `[[x, y, bars]]` | optional. White milk bottles; `bars` is **health-bar segments, 1–5**, not points |
 | `brews` | `[[x, y, bars]]` | optional. Brown bottles, same units against the **mana** bar |
 | `enemies` | `[[x, y]]`, `[[x, y, kind]]` or `[[x, y, kind, "perch"]]` | optional. One entry each. `kind` is `"bandit"` (the default), `"mark"`, `"hunter"`, `"dragon_lord"` or `"dragon"`; each is a folder under `features/combat/art/` cut by `scripts/extract_<kind>.py`. `"perch"` marks one that does **not** hold its section's gate. A `"dragon"` is a flyer and needs flat ground under its perch — every altitude it holds is measured from the height it took off at |
+| `enemy_health` | `{"kind": number}` | optional. What a kind of enemy is worth **on this level**, overriding the health in its profile. Only The Dragon’s Roost has one, for the dragon it shares with the isles |
 | `gates` | `[x, ...]` | optional. Section end walls, left to right. Three gates make four sections |
 | `boss_arena` | number | optional, and every level with a boss has one. The x a boss fight is sealed behind — the only wall in the game that stops you going BACK. It has to sit inside the boss's own section and behind every boss in it; the flyer is fenced to the same box. Omit and nothing is sealed |
 | `signs` | `[[x, y, heading]]` or `[[x, y, heading, subtitle]]` | background text, in world coordinates |
@@ -707,10 +732,30 @@ again — see `DOWN_TIME` in [player.gd](godot/features/player/player.gd). Being
 caught by the fire costs the damage, the throw and a second on the floor while
 the thing that threw you comes back round.
 
-**It takes 1500 to put down**, which is twenty-five clean hits of the hardest
-blow you own — the jumped kick at 60 — thirty-three blasts, or seventy-five
-punches. It was 240: four kicks, and the fight ended before either phase had
-run once. The health, the hit counts and what the dragon actually threw in
+**And the fire is drawn on you.** The pack has four frames of the player alight
+that nothing in the game used to ask for — two of him tumbling inside the flame
+and two of him burning where he landed (LF2 203–206, cut as `burn.png`). A blow
+now says whether it was made of fire, which is true of exactly three moves in
+the cast: the dragon’s `fire` and `fire_air` and the Dragon Lord’s `breath`.
+Caught by one of them, the whole knockdown is the burning version instead of
+the ordinary tumble, and which half of the strip shows is picked off his feet
+rather than off a clock — so the flame settles onto the deck on the frame he
+lands on it. It goes out when the stun does: nothing here ticks a bar down over
+time, and a fire that did would be a death you cannot answer. The two grounded
+frames are shifted 16 px in the extractor, because LF2 draws all four around
+the standing centre and the landed ones would otherwise burn in mid-air; that
+is the same correction the last lying frame of `death` already needed.
+[capture_burn.gd](godot/tests/capture_burn.gd) drives each boss into breathing
+and shoots it.
+
+**It takes 1500 to put down on the isles**, which is twenty-five clean hits of
+the hardest blow you own — the jumped kick at 60 — thirty-three blasts, or
+seventy-five punches. It was 240: four kicks, and the fight ended before either
+phase had run once. On The Dragon's Roost it is 1140 instead — nineteen kicks
+— because there it is the second boss rather than the whole fight; that number
+belongs to the level (`enemy_health`), not to the kind, and
+[diag_boss_health.gd](godot/tests/diag_boss_health.gd) prints both of them
+beside every attack that can land on them. The health, the hit counts and what the dragon actually threw in
 thirty seconds are all printed by
 [diag_dragonfight.gd](godot/tests/diag_dragonfight.gd), which is the
 before-and-after for any change to these numbers. The before was 3 swoops, 0

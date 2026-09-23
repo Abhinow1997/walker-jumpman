@@ -329,6 +329,7 @@ func reset_at(spawn: Vector2) -> void:
 	hurt_cooldown = 0.0
 	hurt_stun = 0.0
 	hurt_clock = 0.0
+	burning = false
 	fling_t = 0.0
 	down_t = 0.0
 	carrying = null
@@ -361,7 +362,25 @@ func heal(amount: int) -> int:
 func health_fraction() -> float:
 	return float(health) / float(MAX_HEALTH)
 
-func take_damage(amount: int, from: Vector2, fling: float = 0.0) -> bool:
+## Lit. Set by a blow made of fire and worn for as long as the stun that blow
+## cost him, because the burn is what that stun LOOKS like rather than damage
+## of its own — nothing in this game ticks a bar down over time, and a fire
+## that did would be a second death the player cannot answer. Cleared by the
+## next blow that is not fire, and by a retry.
+##
+## LF2 draws the burn as four frames, two in the air and two on the deck, which
+## is the whole reason this exists: the art was in the pack and nothing asked
+## for it. See is_burning(), the `burn` strip, and player_sprite.gd.
+var burning: bool = false
+
+func is_burning() -> bool:
+	## On fire, and still reeling from what set him on fire. Tied to is_hurt()
+	## rather than to a clock of its own so the flame goes out exactly when he
+	## has his feet back, whether that was a flinch or a knockdown.
+	return burning and is_hurt()
+
+func take_damage(amount: int, from: Vector2, fling: float = 0.0,
+		fire: bool = false) -> bool:
 	## Spends health and breaks whatever he was concentrating on. Returns true
 	## only when the blow actually landed, so an attacker can tell a hit from a
 	## swing that arrived inside the invulnerable window.
@@ -378,6 +397,9 @@ func take_damage(amount: int, from: Vector2, fling: float = 0.0) -> bool:
 	hurt_cooldown = HURT_INVULNERABLE
 	hurt_stun = HURT_STUN
 	hurt_clock = 0.0
+	# Set from the blow rather than or-ed with what he was already wearing: a
+	# punch through a burn puts the punch's own flinch on screen.
+	burning = fire
 	health = maxi(0, health - amount)
 	if fling > 0.0:
 		# Off his feet, away from the blow. He faces what hit him as he goes back,

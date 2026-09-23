@@ -72,7 +72,8 @@ the cell.
 | `rise.png` | 1 | 213 dash | ascending |
 | `fall.png` | 1 | 214 dash | descending |
 | `hurt.png` | 2 | 220–221 injured | struck: doubled over, 0.25 s of hitstun |
-| `death.png` | 5 | 180–184 falling | death, holds on the last frame |
+| `death.png` | 5 | 180–184 falling | death and the ordinary knockdown, holds on the last frame |
+| `burn.png` | 4 | 203–206 fire | struck by a dragon’s breath: 203–204 tumbling inside the flame, 205–206 burning where he landed |
 | `drink.png` | 4 | 55–58 weapon_drink | drinking the milk bottle |
 | `punch_a.png` | 4 | 60–63 punch | jab, standing attack |
 | `punch_b.png` | 4 | 65–68 punch | cross, chains off the jab |

@@ -1225,6 +1225,52 @@ func run() -> void:
 		{"furthest_west": roost_west, "wall": roost_line,
 		 "sealed": game.sealed})
 
+	# --- what the last fight is worth ---------------------------------------
+	# Two bosses back to back, so their numbers are set against each other and
+	# not one at a time. The Lord is the wall — 1500, twenty-five clean hits of
+	# the jumped kick at 60, the biggest bar in the game — and the dragon over
+	# him is 1140, nineteen, set BY THE LEVEL rather than by the kind. Two
+	# 1500s back to back would make the last level longer than the one before
+	# it rather than harder.
+	await fresh("dragons_roost")
+	game.start_session()
+	await steps(2)
+	var worth := {}
+	var roost_wyrm: Area2D = null
+	for foe in game.enemies:
+		if foe.is_boss():
+			worth[foe.kind] = foe.max_health
+			if foe.is_flyer():
+				roost_wyrm = foe
+	check("the-last-fight-is-a-wall-and-a-harasser",
+		int(worth.get("dragon_lord", 0)) == 1500
+		and int(worth.get("dragon", 0)) == 1140
+		and int(game.level.enemy_health["dragon"]) == 1140,
+		{"health": worth, "level_says": game.level.enemy_health})
+	# max_health and not health, so a retry — which puts every enemy back on
+	# its feet — puts the same bar back rather than the profile's.
+	var _cut: bool = roost_wyrm.take_hit(600, game.player.global_position)
+	roost_wyrm.reset()
+	check("and-a-retry-puts-that-same-bar-back",
+		roost_wyrm.health == 1140 and roost_wyrm.max_health == 1140,
+		{"health": roost_wyrm.health, "max": roost_wyrm.max_health})
+
+	# And the same kind is the profile's own number on the level that fights it
+	# alone: the override belongs to the Roost, not to dragons.
+	await fresh("fractured_isles")
+	game.start_session()
+	await steps(2)
+	var isles_wyrm: Area2D = null
+	for foe in game.enemies:
+		if foe.is_boss():
+			isles_wyrm = foe
+	check("and-the-isles-dragon-is-untouched-by-it",
+		isles_wyrm.max_health == int(Enemy.PROFILES["dragon"]["health"])
+		and isles_wyrm.max_health == 1500
+		and not Game.level_data("fractured_isles").has("enemy_health"),
+		{"isles": isles_wyrm.max_health,
+		 "profile": Enemy.PROFILES["dragon"]["health"]})
+
 	# --- beaten over the water -----------------------------------------------
 	# The way the ending used to be lost. A flyer holds a standoff of 340 to
 	# 470 and backs away from a player who crowds it, so whenever the player
@@ -1378,6 +1424,18 @@ func run() -> void:
 		{"cards": game.story_cards.size(),
 		 "panels": [str(game.level.cutscene[0].panel), str(game.level.cutscene[1].panel)],
 		 "audio": str(game.level.cutscene[0].get("audio", ""))})
+	# Both panels are spoken over, so both carry a subtitle. The isles' second
+	# card has none — it is a picture of the dragon leaving and there is nobody
+	# left to talk over it — but this beat is an exchange, and the lines are
+	# most of what it is for.
+	check("both-roost-panels-carry-a-line",
+		str(game.story_cards[0]["line"]) == str(game.level.cutscene[0].caption)
+		and str(game.story_cards[1]["line"]) == str(game.level.cutscene[1].caption)
+		and str(game.story_cards[0]["line"]).contains("Lugia")
+		and str(game.story_cards[1]["line"]).contains("shatter")
+		and str(game.story_cards[0]["line"]) != str(game.story_cards[1]["line"]),
+		{"first": game.story_cards[0]["line"],
+		 "second": game.story_cards[1]["line"]})
 	# The one dialogue clip is spread across both panels: the first holds an
 	# explicit slice rather than the whole 21 s, and the second keeps that clip
 	# running instead of restarting, so the cut lands on the dialogue's own beat.
@@ -1432,6 +1490,10 @@ func run() -> void:
 		if game.story_running() and game.story_art.texture == game.story_cards[0]["tex"]:
 			xfade_first = true
 			break
+	# What is printed under each picture, read at the two moments the pictures
+	# are up rather than off the level file — the file is checked above, and
+	# what matters here is that the swap carries the line across with the art.
+	var said_first: String = game.story_line.text
 	game.player.test_axis = 0.0
 	var xfade_swap := false
 	var xfade_covered := true
@@ -1451,10 +1513,27 @@ func run() -> void:
 				and game.story_art.modulate.a > 0.99:
 			xfade_second = true
 			break
+	var said_second: String = game.story_line.text
 	check("the-panels-cross-without-dropping-to-gameplay",
 		xfade_first and xfade_swap and xfade_covered and xfade_frozen and xfade_second,
 		{"panel1": xfade_first, "saw_swap": xfade_swap, "level_covered": xfade_covered,
 		 "player_frozen": xfade_frozen, "panel2_full": xfade_second})
+	check("and-each-panel-says-its-own-line",
+		said_first == str(game.level.cutscene[0].caption)
+		and said_second == str(game.level.cutscene[1].caption)
+		and said_first != said_second and game.story_line.visible,
+		{"first": said_first, "second": said_second,
+		 "shown": game.story_line.visible})
+	# Two lines of it, so it is taller than the isles' one-liner and the top of
+	# the scrim has further to climb. It still has to clear the picture's bottom
+	# edge and stay on the screen.
+	check("and-the-line-under-them-stays-on-the-screen",
+		game.story_line.position.y > 330.0
+		and game.story_line.position.y + game.story_line.size.y <= 540.0
+		and is_equal_approx(game.story_line.size.x, Game.VIEW_HALF.x * 2.0),
+		{"top": game.story_line.position.y,
+		 "bottom": game.story_line.position.y + game.story_line.size.y,
+		 "width": game.story_line.size.x})
 
 	# A level with no cards is untouched by any of it, which is most of them.
 	await fresh("first_steps")
@@ -1575,6 +1654,92 @@ func run() -> void:
 		not music.playing and music.track == "",
 		{"playing": music.playing, "track": music.track})
 	Music.hush(self)
+
+	# --- the battle track lasts as long as the LAST boss --------------------
+	# It belongs to the FIGHT, and the level's own loop is the bed for the
+	# aftermath — the body on the deck, the card, the climb out. That is one
+	# question on a level with one boss and a different one on The Dragon's
+	# Roost, which fights two.
+	#
+	# It used to ask boss() and then whether THAT one was alive. The Roost
+	# lists the dragon first, so beating the dragon dropped the track to the
+	# coast loop with the Dragon Lord still swinging, and put it back four and
+	# a half seconds later when the dragon's body finally left the level: a
+	# hole in the middle of the last fight in the game. See boss_fighting() in
+	# session.gd and tests/diag_boss_track.gd, which walks both levels through
+	# both deaths in both orders.
+	await fresh("dragons_roost")
+	game.start_session()
+	game.story_cards.clear()
+	await steps(2)
+	var pair_lord: Area2D = null
+	var pair_wyrm: Area2D = null
+	for foe in game.enemies:
+		if foe.kind == "dragon_lord":
+			pair_lord = foe
+		elif foe.kind == "dragon":
+			pair_wyrm = foe
+	var _woke: bool = game._wake_boss()
+	await steps(2)
+	check("the-roost-fight-opens-on-the-battle-track",
+		game.current_track() == "decisive_battle"
+		and game.boss_fighting() != null,
+		{"track": game.current_track()})
+
+	# The dragon first, which is the way round that was broken.
+	var _wyrm_out: bool = pair_wyrm.take_hit(pair_wyrm.health,
+			game.player.global_position)
+	await steps(2)
+	check("and-it-holds-while-the-other-one-is-still-up",
+		game.current_track() == "decisive_battle"
+		and game.boss_fighting() == pair_lord and not pair_wyrm.alive(),
+		{"track": game.current_track(), "dragon_alive": pair_wyrm.alive(),
+		 "fighting": "<none>" if game.boss_fighting() == null
+			else game.boss_fighting().kind})
+	# Including while the body is leaving, which is when it used to come back.
+	var flew_out := -1
+	for i in range(900):
+		await physics_frame
+		if not pair_wyrm.visible:
+			flew_out = i
+			break
+	await steps(2)
+	check("and-through-the-body-leaving-the-level",
+		flew_out >= 0 and game.current_track() == "decisive_battle",
+		{"track": game.current_track(), "body_gone_after_s": flew_out / 60.0})
+
+	# And the moment the last one falls it is the coast again, without waiting
+	# for HIS body either.
+	var _lord_out: bool = pair_lord.take_hit(pair_lord.health,
+			game.player.global_position)
+	await steps(2)
+	check("and-the-last-one-down-hands-it-back-to-the-coast",
+		game.current_track() == "magic_cliffs"
+		and game.boss_fighting() == null and pair_lord.visible,
+		{"track": game.current_track(), "body_still_there": pair_lord.visible})
+
+	# The isles is the other half of the same rule, and the half that was
+	# already right: one boss, and the track ends with the boss rather than
+	# with its body. The plate outlasts it on purpose — an empty bar under a
+	# departing dragon is the point, and a battle loop under it would undo it.
+	await fresh("fractured_isles")
+	game.start_session()
+	game.story_cards.clear()
+	await steps(2)
+	var lone: Area2D = null
+	for foe in game.enemies:
+		if foe.is_boss():
+			lone = foe
+	var _lone_woke: bool = game._wake_boss()
+	await steps(2)
+	var lone_on: String = game.current_track()
+	var _lone_out: bool = lone.take_hit(lone.health, game.player.global_position)
+	await steps(2)
+	check("and-one-boss-still-takes-its-track-with-it",
+		lone_on == "decisive_battle" and game.current_track() == "magic_cliffs"
+		and lone.visible and game.boss() == lone,
+		{"fighting": lone_on, "beaten": game.current_track(),
+		 "body_still_there": lone.visible, "plate_still_up": game.boss() == lone})
 
 	# --- themed levels ------------------------------------------------------
 	# A theme swaps the whole world renderer, so the wrong answer here is a level

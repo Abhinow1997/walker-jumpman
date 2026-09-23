@@ -1240,18 +1240,29 @@ func run() -> void:
 	# or a missing branch. tests/diag_dragonfight.gd measures the lot and is
 	# the before-and-after; these are the parts that can be asserted.
 
-	# TWENTY-FIVE HITS. The hardest single blow the player owns is the jumped
-	# kick, and the bar has to survive twenty-five of them. Read off the
-	# moveset rather than typed here: retune the kick and this moves with it.
+	# TWENTY-FIVE HITS, AND NINETEEN HERE. The hardest single blow the player
+	# owns is the jumped kick, and the dragon's own number — the one The
+	# Fractured Isles fights it at, where it is the whole boss — has to survive
+	# twenty-five of them. This level cuts it to nineteen in its own file
+	# (`enemy_health`), because here it fights over a Dragon Lord who is 1500
+	# himself and two of those back to back is a longer last level rather than
+	# a harder one. So both are asserted, and apart: the kind stays a
+	# twenty-five-hit boss, and the level is allowed to spend some of that
+	# without being allowed to make it cheap. Read off the moveset rather than
+	# typed here — retune the kick and both move with it.
 	var hardest := 0
 	for key in ["punch_a", "punch_b", "kick", "charge"]:
 		for kframe in range(12):
 			for hit in Moveset.hits(key, kframe):
 				hardest = maxi(hardest, int(hit["damage"]))
-	check("it-takes-twenty-five-of-the-players-best-to-put-down",
-		hardest > 0 and wyrm.max_health >= 25 * hardest,
-		{"health": wyrm.max_health, "hardest_blow": hardest,
-		 "hits": float(wyrm.max_health) / float(maxi(hardest, 1))})
+	var wyrm_own: int = int(Enemy.PROFILES["dragon"]["health"])
+	check("it-takes-twenty-five-of-the-players-best-and-nineteen-on-the-roost",
+		hardest > 0 and wyrm_own >= 25 * hardest
+		and wyrm.max_health >= 18 * hardest and wyrm.max_health < wyrm_own,
+		{"profile": wyrm_own, "on_this_level": wyrm.max_health,
+		 "hardest_blow": hardest,
+		 "hits_here": float(wyrm.max_health) / float(maxi(hardest, 1)),
+		 "hits_on_the_isles": float(wyrm_own) / float(maxi(hardest, 1))})
 
 	# IT HITS THROUGH YOU. Struck mid-swing from behind it keeps its facing,
 	# its swing and its ground: the counter is footwork, not trading. Same
@@ -1783,6 +1794,96 @@ func run() -> void:
 		and bruiser.sprite.modulate.r > bruiser.sprite.modulate.g + 0.3,
 		{"state": bruiser.state, "flash": bruiser.hurt_flash,
 		 "modulate": str(bruiser.sprite.modulate)})
+
+	# --- breathed on --------------------------------------------------------
+	# The Anti-Davis pack draws the player being hit by fire and nothing in the
+	# game asked for it until now: four frames, two of him tumbling inside the
+	# flame and two of him burning where he landed (LF2 203-206, cut as `burn`
+	# by scripts/extract_anti_davis.py). Both bosses breathe, so a blow says
+	# whether it was made of fire and the player wears it for exactly as long
+	# as the stun that blow cost him — no bar ticks down, which would be a
+	# second death he has no answer to.
+	#
+	# tests/capture_burn.gd is the picture of all of this.
+	await fresh()
+	game.load_level("dragons_roost")
+	game.start_session()
+	game.player.test_control = true
+	game.story_cards.clear()
+	game.level["boss_music"] = ""
+	await steps(3)
+	check("the-moves-made-of-fire-are-the-three-that-are-drawn-with-it",
+		Enemy.FIRE_MOVES.has("fire") and Enemy.FIRE_MOVES.has("fire_air")
+		and Enemy.FIRE_MOVES.has("breath")
+		and not Enemy.FIRE_MOVES.has("punch")
+		and not Enemy.FIRE_MOVES.has("slam")
+		and not Enemy.FIRE_MOVES.has("claw")
+		and not Enemy.FIRE_MOVES.has("swoop"),
+		{"fire": Enemy.FIRE_MOVES})
+
+	# End to end and through the boss's own hit box: nothing below calls
+	# take_damage. He stands in the breath's band — 146 to 274, so 200 picks
+	# the breath over the leap-slam — with the cooldowns spent every tick so
+	# the next thing the Lord decides is the special.
+	var burn_lord: Area2D = null
+	for foe in game.enemies:
+		if foe.kind == "dragon_lord":
+			burn_lord = foe
+		else:
+			# Put down properly rather than health = 0: a body at zero that
+			# never went through the death is still standing there fighting.
+			var _gone: bool = foe.take_hit(foe.health, Vector2.ZERO)
+			foe.visible = false
+	burn_lord.target = game.player
+	burn_lord.engaged = true
+	game.player.reset_at(Vector2(burn_lord.home.x - 200.0, 648.0))
+	game.player.enabled = true
+	game.player.test_control = true
+	var lit := -1
+	var lit_by := ""
+	for i in range(600):
+		game.player.health = game.player.MAX_HEALTH
+		burn_lord.cooldown = 0.0
+		burn_lord.special_ready = 0.0
+		await physics_frame
+		if game.player.is_burning():
+			lit = i
+			lit_by = burn_lord.move
+			break
+	check("a-breath-sets-the-player-alight",
+		lit >= 0 and lit_by == "breath" and game.player.is_downed(),
+		{"ticks": lit, "move": lit_by, "downed": game.player.is_downed(),
+		 "burning": game.player.is_burning()})
+	check("and-the-burn-is-what-is-drawn-rather-than-the-plain-tumble",
+		game.player.visual.playing == "burn",
+		{"drawing": game.player.visual.playing})
+
+	# And it goes out with the stun. The flame is what that stun looks like,
+	# not damage of its own.
+	var _lord_out: bool = burn_lord.take_hit(burn_lord.health, Vector2.ZERO)
+	var burn_ticks := -1
+	for i in range(180):
+		game.player.health = game.player.MAX_HEALTH
+		await physics_frame
+		if not game.player.is_hurt():
+			burn_ticks = i
+			break
+	check("and-it-goes-out-when-he-has-his-feet-back",
+		burn_ticks >= 0 and not game.player.is_burning()
+		and game.player.visual.playing != "burn",
+		{"ticks": burn_ticks, "burning": game.player.is_burning(),
+		 "drawing": game.player.visual.playing})
+
+	# A fist does not light him: same knockdown, same falling frames, no fire.
+	var _fist: bool = game.player.take_damage(20,
+			game.player.global_position + Vector2(60.0, 0.0), 240.0)
+	await physics_frame
+	check("and-a-blow-that-is-not-fire-leaves-him-unlit",
+		game.player.is_downed() and not game.player.is_burning()
+		and game.player.visual.playing == "death",
+		{"downed": game.player.is_downed(),
+		 "burning": game.player.is_burning(),
+		 "drawing": game.player.visual.playing})
 
 	# --- the blast goes up with him ----------------------------------------
 	# It used to be a ground move: `ground: true` in MOVES, refused in mid-air,

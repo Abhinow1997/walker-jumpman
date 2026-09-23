@@ -123,6 +123,19 @@ LOCOMOTION = {
     # dizzy loop (226-229) and two stagger-backward pairs (222-225); this is the
     # one that reads as a single blow landing rather than as a daze.
     "hurt":  {"ids": [220, 221],        "fps": 9.0,  "loop": False},
+    # Hit by fire. LF2 draws the burn as four frames and in two halves: 203-204
+    # is the body tumbling inside the flame and 205-206 is the same body
+    # burning where it landed. Both dragons breathe, so the game needs both
+    # halves — the sprite picks between them on whether his feet are down
+    # rather than on the clock, so the fire settles on him as he lands.
+    #
+    # One strip and not two, so the four frames are one sequence with one
+    # timing. 7 fps runs it in 0.57 s, the same shape as the `death` tumble it
+    # stands in for, and the last frame holds for the rest of DOWN_TIME.
+    #
+    # The pack also has `ice` (200-202) and `tired` (207), which nothing in
+    # this game can inflict. Left in the sheet.
+    "burn":  {"ids": [203, 204, 205, 206], "fps": 7.0, "loop": False},
     # Carrying something heavy: held overhead, and he walks rather than runs.
     # LF2 uses the same four frames standing still and moving, so this doubles
     # as the carry idle by holding its first frame.
@@ -176,7 +189,15 @@ BALL_ANIM = {
 # LF2 draws the final lying frame sunk below its origin, because there the body
 # is still travelling. Here the player dies in place, so the corpse is lifted to
 # rest on the ground line instead of sinking into the floor.
-ADJUST = {184: (0, -13)}
+#
+# The two grounded burn frames need the same treatment the other way round. LF2
+# gives all four `fire` frames the standing centre, which leaves 205-206 — the
+# body burning where it landed — floating 16 px over the ground line while the
+# standing frames' feet sit exactly on it. Measured, not guessed: every frame's
+# lowest opaque row against ORIGIN[1] is what these numbers are. The airborne
+# pair (203-204) is left alone; it is 9 px up because it is in the air, which is
+# where the falling frames it stands in for are too.
+ADJUST = {184: (0, -13), 205: (0, 16), 206: (0, 16)}
 
 _sheets = {}
 

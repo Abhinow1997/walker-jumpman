@@ -153,21 +153,26 @@ const PROFILES := {
 		# not much behind the bow, and his pool is the shallowest of the three.
 		"guard": 1.2, "react": 0.26,
 	},
-	# A bruiser turned up: twice a mark's
-	# health, hits harder, and barely rocks when hit. His reach is not set here
-	# — it is measured off the flame in the art by extract_dragon_lord.py — and
-	# it is long, so the gap that is safe against a mark is not safe against him.
+	# A bruiser turned up: hits harder, barely rocks when hit, and carries the
+	# longest bar in the game. His reach is not set here — it is measured off
+	# the flame in the art by extract_dragon_lord.py — and it is long, so the
+	# gap that is safe against a mark is not safe against him.
 	#
-	# NO LEVEL PLACES HIM at the moment: he held the Archway platform at the end
-	# of The Fractured Isles until the dragon took that fight. Everything about
-	# him still works and test_combat still exercises all of it, so putting him
-	# back is one entry in a level's `enemies` array and nothing else.
+	# HE IS THE LAST FIGHT. The Dragon's Roost stands him at 1620 with the
+	# dragon at 1800, and he is the one you have to close with: 1500 is
+	# twenty-five clean hits of the jumped kick, the biggest number in the cast
+	# and the number the dragon used to carry. It went the other way over the
+	# same change — 1140 on that level, nineteen kicks, set by the level rather
+	# than here because the isles still fights it alone at 1500. So the pair of
+	# them is a wall and a harasser rather than two walls.
+	# tests/diag_boss_health.gd prints both, and is the before-and-after for
+	# any change to either.
 	# Slow on purpose: the answer is the footwork the course has been teaching,
 	# and at twice the cast's size he is easy to read coming. He does not leap;
 	# the arena is flat and a boss who follows you over a chasm leaves nowhere
 	# to put the fight down.
 	"dragon_lord": {
-		"style": "bruiser", "health": 420, "speed": 52.0, "damage": 38,
+		"style": "bruiser", "health": 1500, "speed": 52.0, "damage": 38,
 		"cooldown": 1.35, "stagger": 0.10, "knock": 0.0, "aggro": 460.0,
 		"armor": true, "leap": 0.0, "body": Vector2(44, 88),
 		# No guard — the pack ships no defend frame, so there is nothing to put on
@@ -499,6 +504,16 @@ const FLYER_FALL_MAX := 1.2
 ## What the breath multiplies `fling` by. The claw and the swoop knock the
 ## player away; the fire picks him up and throws him.
 const FLING_BREATH := 1.8
+## The moves that are made of fire: the dragon's breath in the air and on its
+## feet, and the Dragon Lord's. A player caught by one of these burns rather
+## than merely flinching — LF2 draws him a whole four-frame burn for it and
+## nothing in this game used to ask for it. See is_fire(), take_damage in
+## features/player/player.gd, and the `burn` strip in the player's art.
+##
+## By move name and not by a profile flag, the same way fling_for() picks the
+## breath out: what an attack is made of is a property of the drawing, and the
+## drawing is the thing named here.
+const FIRE_MOVES := ["fire", "fire_air", "breath"]
 ## --- answering a spammed blast ----------------------------------------------
 ##
 ## A flyer goes over the top of a blast rather than guarding it, and one blast
@@ -541,9 +556,11 @@ enum State { IDLE, WALK, PUNCH, HURT, DEAD, CHARGE, SHOOT, JUMP, BLOCK }
 ## The session connects this; it owns the player's health, not the enemy.
 ## `fling` is the knockback the blow carries, in px/s — zero for every kind but
 ## the Dragon Lord, whose blows throw the player off his feet. See fling_for().
+## `fire` says the blow was made of fire, which is what the player is set
+## alight by — see FIRE_MOVES and is_fire().
 ## The arrow and the falling stone emit the same signal with two arguments; the
-## session's handler defaults the third, so their hits simply do not fling.
-signal struck_player(damage: int, from: Vector2, fling: float)
+## session's handler defaults the rest, so their hits neither fling nor burn.
+signal struck_player(damage: int, from: Vector2, fling: float, fire: bool)
 ## The archer looses an arrow: the session spawns it as its own travelling object,
 ## so it outlives the archer that fired it. `heading` is the full aim, so a shelf
 ## sniper can shoot down onto the deck rather than only flat along it.
@@ -621,6 +638,17 @@ var holds_gate: bool = true
 ## is clear it comes down (see `descend`) and is finished off on the deck. The
 ## level marks it "perch"; session.gd sets this and holds_gate together.
 var perched: bool = false
+## What this one's health is, when the LEVEL says rather than the profile. 0
+## means it does not: the kind's own number stands. Set by session.gd from the
+## level's `enemy_health` before the enemy is added, so it is in place when
+## _ready reads the profile — and it moves max_health, not health, so a retry
+## puts the same bar back.
+##
+## It exists because the dragon is two fights. On The Fractured Isles it is the
+## whole boss and 1500 is the size of that; on The Dragon's Roost it fights
+## over a Dragon Lord who is the wall now, and a second 1500 behind him makes
+## the last fight twice as long as the one before it rather than harder.
+var health_override: int = 0
 ## Flipped on by session.gd once this perch's section has no live ground holders
 ## left — the cue to come off the shelf. It raises drop_limit() so the sniper can
 ## take the step down its perch height normally forbids. Cleared by reset().
@@ -783,6 +811,8 @@ func _ready() -> void:
 	prof = profile()
 	style = str(prof.get("style", "walker"))
 	max_health = int(prof.get("health", MAX_HEALTH))
+	if health_override > 0:
+		max_health = health_override
 	speed = float(prof.get("speed", WALK_SPEED))
 	aggro = float(prof.get("aggro", AGGRO_RANGE))
 	attack_cooldown = float(prof.get("cooldown", ATTACK_COOLDOWN))
@@ -1359,8 +1389,15 @@ func _try_to_land() -> void:
 	for result in get_world_2d().direct_space_state.intersect_shape(query, 4):
 		if result.collider == target:
 			landed_this_punch = true
-			struck_player.emit(attack_damage(), global_position, fling_for())
+			struck_player.emit(attack_damage(), global_position, fling_for(),
+					is_fire())
 			return
+
+func is_fire() -> bool:
+	## Whether the move being thrown right now is one of the fire ones. Read at
+	## the moment the blow lands, like fling_for(), so it is the move that
+	## connected rather than whatever comes next.
+	return FIRE_MOVES.has(move)
 
 func fling_for() -> float:
 	## How hard this blow throws the player, in px/s of horizontal knockback; the
@@ -1820,7 +1857,8 @@ func _slam_impact() -> void:
 	var to: Vector2 = target.global_position - global_position
 	if absf(to.x) <= SLAM_SHOCK_RADIUS and absf(to.y) <= SLAM_SHOCK_HEIGHT:
 		var dmg := int(move_data("slam").get("damage", attack_damage()))
-		struck_player.emit(dmg, global_position, fling_for())
+		# The slam is a shockwave, not a flame: no burn, whatever else it does.
+		struck_player.emit(dmg, global_position, fling_for(), is_fire())
 
 func _advance_chase(delta: float) -> void:
 	if not is_instance_valid(target):

@@ -74,9 +74,19 @@ func run() -> void:
 	var mid_shot := false
 	var clip_at := 0.0
 	var same_clip := false
+	# Where in the dialogue the cut happens, and with it the subtitle: the line
+	# changes hands on the first frame of the swap, not when the dissolve ends.
+	# tests/diag_speech.gd puts the last sound of the first line at 6.70 s and
+	# the shout that opens the second at 7.40, so this wants to land between
+	# them. Move the first card's `hold` to move it.
+	var swap_at := -1.0
+	var said: String = game.story_line.text
 	for i in range(1800):
 		await step()
 		if game.story_phase == Game.Story.SWAP:
+			if swap_at < 0.0:
+				swap_at = game.story_voice.get_playback_position()
+				said = game.story_line.text
 			if game.story_dim.color.a < Game.STORY_DIM * 0.9:
 				covered = false
 			if game.player.enabled:
@@ -96,6 +106,9 @@ func run() -> void:
 	await shoot("cutscene-03-panel-two")
 	print("panel 2: same continuous clip=%s  clip_at %.1fs  covered_through_swap=%s  frozen=%s" % [
 		same_clip, clip_at, covered, frozen])
+	print("the line changes hands at %.2fs of the clip (speech runs 0.48-6.70 and 7.40-18.10)" % swap_at)
+	print("  panel 1: \"%s\"" % game.story_cards[0]["line"])
+	print("  panel 2: \"%s\"" % said)
 
 	# Out the other side: the fight, both bosses awake, plate up, and the BATTLE
 	# track now playing where the level's calm loop was.

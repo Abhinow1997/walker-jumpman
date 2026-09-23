@@ -222,6 +222,11 @@ func _build_world() -> void:
 	# A fourth value "perch" stands this one on a high shelf over the fight: it
 	# snipes down into it and holds its gate like the rest, but it only comes off
 	# the shelf once the ground below it is clear. See perched/descend in enemy.gd.
+	# A level may also set what a kind of enemy is worth ON IT, which is how the
+	# dragon is 1500 on the isles where it is the whole fight and 1140 on the
+	# Roost where it is half of one. By kind and not by entry: a level that
+	# wanted two of something at two sizes would want a reason first.
+	var tuned: Dictionary = level.get("enemy_health", {})
 	for entry in level.get("enemies", []):
 		var foe := Enemy.new()
 		foe.position = Vector2(entry[0], entry[1])
@@ -229,6 +234,9 @@ func _build_world() -> void:
 			foe.kind = str(entry[2])
 		if entry.size() > 3 and str(entry[3]) == "perch":
 			foe.perched = true
+		# Before add_child, like `kind`: _ready reads it.
+		if tuned.has(foe.kind):
+			foe.health_override = int(tuned[foe.kind])
 		foe.fall_limit = float(level.fall_y)
 		foe.struck_player.connect(_on_player_struck)
 		foe.fired_arrow.connect(_on_arrow_fired)
@@ -854,12 +862,32 @@ func current_track() -> String:
 	## for all three. The plate deliberately outlasts the track: see boss(),
 	## where an empty bar under a departing dragon is the whole point and a
 	## battle loop under the same moment would undo it.
-	var fighting := boss()
-	if fighting != null and fighting.alive():
+	if boss_fighting() != null:
 		var fight := str(level.get("boss_music", ""))
 		if fight != "":
 			return fight
 	return str(level.get("music", ""))
+
+func boss_fighting() -> Node2D:
+	## The boss the battle track belongs to: engaged, on screen and still on
+	## its feet. Any of them, not the first one the level happens to list.
+	##
+	## It used to ask boss() and then whether THAT one was alive, which is the
+	## same question on a level with one boss and the wrong one on The Dragon's
+	## Roost. Its enemies list the dragon first, so beating the dragon while
+	## the Dragon Lord was still swinging dropped the track to the level's
+	## quiet loop — and then put it back four and a half seconds later, when
+	## the dragon's body finally left the level and boss() moved on to the Lord.
+	## A hole in the middle of the last fight in the game. See
+	## tests/diag_boss_track.gd, which walks both levels through both deaths.
+	##
+	## `alive()` is what makes this different from boss(): the plate outlasts
+	## the track on purpose — an empty bar under a departing dragon is the
+	## point of it, and a battle loop under the same moment would undo it.
+	for foe in enemies:
+		if is_instance_valid(foe) and foe.is_boss() and foe.engaged 				and foe.visible and foe.alive():
+			return foe
+	return null
 
 func _story_due() -> int:
 	## The first card whose cue has come up, or -1. On his feet for either cue:
@@ -1541,17 +1569,19 @@ func _on_focus_lost() -> void:
 	if not test_mode and not story_running():
 		set_paused(true)
 
-func _on_player_struck(damage: int, from: Vector2, fling: float = 0.0) -> void:
+func _on_player_struck(damage: int, from: Vector2, fling: float = 0.0,
+		fire: bool = false) -> void:
 	## A punk landed one. He decides he hit; the player decides whether the blow
 	## counts, because only the player knows about its own invulnerable window.
 	##
 	## `fling` is the knockback the blow carries — non-zero only for the Dragon
-	## Lord (see fling_for() in enemy.gd). The arrow and the falling stone connect
-	## this same handler with a two-argument signal, so their hits default it to
-	## zero and never fling, which is what the default keeps.
+	## Lord (see fling_for() in enemy.gd) — and `fire` says it was a breath, which
+	## the player burns for rather than flinching. The arrow and the falling stone
+	## connect this same handler with a two-argument signal, so their hits default
+	## both and neither fling nor burn, which is what the defaults keep.
 	if state != State.PLAYING:
 		return
-	var _landed: bool = player.take_damage(damage, from, fling)
+	var _landed: bool = player.take_damage(damage, from, fling, fire)
 
 func enemies_down() -> int:
 	var n := 0
