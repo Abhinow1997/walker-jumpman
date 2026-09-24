@@ -39,17 +39,7 @@ const LEVEL_DB := -12.0
 ## trim the loudest sample out of the bus is -6 and there is nothing to clip.
 ## Keyed by track rather than by level: two levels play this one, and the
 ## reason for the trim is a property of the recording.
-##
-## dragon_lord_fight is The Dragon's Roost's battle loop, and it is a stand-in.
-## decisive_battle.wav is not in this repository — `*.wav` is gitignored with no
-## exception for godot/audio/, and its source lives outside the clone — so the
-## lookup in cue() found nothing and the last fight in the game ran under the
-## coast loop in every checkout. The clip that replaced it is the Dragon Lord's
-## own storyboard render, which is the only long fight audio that is actually
-## tracked. Its trim is 0.0 because nothing has measured it: the +8 above is a
-## property of the xDeviruchi recording and says nothing about this one. Run
-## tests/diag_music_levels.gd against it and put a real number here.
-const TRIM := {"decisive_battle": 8.0, "dragon_lord_fight": 0.0}
+const TRIM := {"decisive_battle": 8.0}
 ## The name it is found by. Anything already called this under the root is it.
 const NODE := "Music"
 ## Silence. Godot treats anything at or below -80 dB as off.
@@ -99,13 +89,13 @@ static func cue(tree: SceneTree, name: String) -> void:
 		node.stop()
 		node.stream = null
 		return
-	# Ogg first, then mp3, wav last. Every track here wants to be an ogg — the Magic
+	# Ogg first, wav second. Every track here wants to be an ogg — the Magic
 	# Cliffs loop is 96 s in 2.3 MB — and the boss track is a wav only because
 	# there is no Vorbis encoder on the machine it was added on. Encode it and
 	# this finds the ogg without another line changing. See
 	# scripts/extract_boss_music.py.
 	var path := ""
-	for suffix in [".ogg", ".mp3", ".wav"]:
+	for suffix in [".ogg", ".wav"]:
 		if ResourceLoader.exists(DIR + name + suffix):
 			path = DIR + name + suffix
 			break
@@ -114,21 +104,10 @@ static func cue(tree: SceneTree, name: String) -> void:
 					 % [name, DIR])
 		node.track = ""
 		return
-	# Duplicated, because the loop flags below are set on the STREAM and load()
-	# hands out one shared instance per path. The Roost's battle track is the
-	# same file its walk-in cutscene speaks (see _story_clip in session.gd),
-	# and looping the cached resource would leave that card's voice repeating
-	# under the picture. Cheap: the sample data is shared, the header is not.
-	var stream: AudioStream = load(path).duplicate()
+	var stream := load(path)
 	# The pack's loop is 96 seconds and meant to run continuously. Set here
 	# rather than in the .import, so a reimport cannot quietly drop it.
 	if stream is AudioStreamOggVorbis:
-		stream.loop = true
-	elif stream is AudioStreamMP3:
-		# Same decision again. The storyboard clips import with loop=false
-		# because they are one-shots under a picture, and one of them is also a
-		# level's battle loop — whether a track repeats is this caller's
-		# business, not the .import's.
 		stream.loop = true
 	elif stream is AudioStreamWAV:
 		# Same decision, different property. loop_end has to be a real sample
