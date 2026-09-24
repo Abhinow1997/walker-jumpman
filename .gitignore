@@ -19,7 +19,16 @@
 *.[mM][pP]4
 *.avi
 *.mov
+# Same exception again, and for a sharper reason than the mp3 one. The boss
+# track is decisive_battle.wav and it was ignored by this line with no
+# exception under it, so only its .import was ever committed: every clone
+# reached BOTH dragon fights with no battle music at all, and the tests did
+# not catch it because they compared a track NAME rather than a stream. It is
+# 20 MB, which is the price of there being no Vorbis encoder here — encode it
+# (see godot/audio/PROVENANCE.md) and the .ogg supersedes it, because music.gd
+# looks for .ogg first and .ogg is deliberately not listed above.
 *.wav
+!godot/audio/*.wav
 exports/
 builds/
 

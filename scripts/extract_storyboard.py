@@ -90,11 +90,19 @@ PANELS = [
 # WIDER than 16:9) rather than 4:3, so there is no tall band to take. write_card
 # trims their WIDTH instead, centred, and the `top` below is unused for them —
 # both characters sit dead centre of the frame, so there is nothing to choose.
+#
+#   climb_start, 0.  A third shape again: 2730 x 1536, the opening panels'
+#     size, which is 16:9 to within half a pixel. write_card's band works out
+#     at 1536 of a 1536-tall source, so the only legal `top` is 0 and nothing
+#     is cropped at all — it takes the plain-resize path that write_panel
+#     would, and sits here rather than in PANELS because it interrupts a level
+#     instead of playing in the cold open.
 CARDS = [
     ("dragon-fight-start.jpg", "dragon_fight_start.png", 192),
     ("dragon-fight-end.jpg", "dragon_fight_end.png", 0),
     ("dragon-lord-fight-start.jpg", "dragon_lord_fight_start.png", 0),
     ("dragon-lord-fight-start-2.jpg", "dragon_lord_fight_start_2.png", 0),
+    ("climb-storyboard.jpg", "climb_start.png", 0),
 ]
 
 # source file -> written name in godot/audio/. Named for what plays them:

@@ -94,17 +94,41 @@ static func cue(tree: SceneTree, name: String) -> void:
 	# there is no Vorbis encoder on the machine it was added on. Encode it and
 	# this finds the ogg without another line changing. See
 	# scripts/extract_boss_music.py.
+	# Asked for every tick by current_track() in session.gd, so a track that
+	# cannot load must not be retried every tick: before this, one boss fight
+	# put three engine errors a frame into the log for as long as it lasted.
+	# Remembered per name rather than per path, and never cleared — a file that
+	# appears mid-session is a reimport in the editor, and that restarts play.
+	if _missing.has(name):
+		node.track = ""
+		return
 	var path := ""
 	for suffix in [".ogg", ".wav"]:
 		if ResourceLoader.exists(DIR + name + suffix):
 			path = DIR + name + suffix
 			break
 	if path == "":
-		push_warning("music: no track called %s in %s (run the extractor that owns it)"
-					 % [name, DIR])
+		_warn_missing(name)
 		node.track = ""
 		return
 	var stream := load(path)
+	# ResourceLoader.exists() is satisfied by the .import file on its own, so a
+	# track whose SOURCE is missing gets all the way here and comes back null.
+	# decisive_battle.wav was exactly that for a while — ignored by `*.wav`
+	# with no exception for godot/audio/, so only its .import was committed —
+	# and the boss fights name it on both levels that have one.
+	#
+	# Leave whatever is playing where it is rather than assigning the null.
+	# `node.stream = null` is SILENCE, and that is how the last two fights in
+	# the game ran with nothing under them at all: not the coast loop, nothing.
+	# tests/diag_battle_music.gd printed `stream=<none> playing=false` for the
+	# whole fight. A missing battle track should cost you the battle track and
+	# leave the level's own loop running under the fight, which is what every
+	# other path through this function already does.
+	if stream == null:
+		_warn_missing(name)
+		node.track = ""
+		return
 	# The pack's loop is 96 seconds and meant to run continuously. Set here
 	# rather than in the .import, so a reimport cannot quietly drop it.
 	if stream is AudioStreamOggVorbis:
@@ -114,12 +138,54 @@ static func cue(tree: SceneTree, name: String) -> void:
 		# count: left at zero the loop is empty and the track plays once.
 		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		stream.loop_begin = 0
-		stream.loop_end = int(stream.get_length() * float(stream.mix_rate))
+		stream.loop_end = int(_loop_seconds(name, stream) * float(stream.mix_rate))
 	node.stream = stream
 	# Set per track, not once at creation: the trim above is part of the level
 	# this track plays at, and the mute and the duck have to survive the swap.
 	node.volume_db = _level_db(name)
 	node.play()
+
+
+## Where a track's loop turns back, in seconds, for the tracks that do not loop
+## at their own end. Keyed by track, like TRIM, and for the same reason: it is
+## a property of the recording.
+##
+## xDeviruchi's pack is built as Intro / Loop / End and ships a table of the
+## loop points ("READ THIS FIRST.pdf", Tables 1 and 2). Decisive Battle is
+## "Loop, End": it starts at 0, but the loop turns at 116.033 s and the last
+## four seconds of the 120.18 s file are an ENDING — a closing tag written to
+## finish the piece, not to run into the top of it again. Looping the whole
+## file plays that tag mid-fight and then jumps to the start, which is the one
+## audible seam in a track the pack says is otherwise seamless. A boss fight
+## can outlast two minutes, so this is reachable.
+##
+## Anything not named here loops at its own end, which is right for the Magic
+## Cliffs loop — Ansimuz's is a continuous 96 s bed with no ending.
+const LOOP_END := {"decisive_battle": 116.033}
+
+
+## The loop point for `name`, falling back to the whole file. Clamped, so a
+## table entry that outruns a replaced recording cannot produce a loop_end past
+## the last sample.
+static func _loop_seconds(name: String, stream: AudioStream) -> float:
+	var whole := float(stream.get_length())
+	if not LOOP_END.has(name):
+		return whole
+	return minf(float(LOOP_END[name]), whole)
+
+
+## Track names that could not be loaded, so cue() says so once and then stops
+## trying. See the guard in cue().
+static var _missing: Dictionary = {}
+
+
+static func _warn_missing(name: String) -> void:
+	if _missing.has(name):
+		return
+	_missing[name] = true
+	push_warning(("music: no track called %s in %s — the level's own loop is "
+				  + "carrying on under it. Run the extractor that owns it; for "
+				  + "decisive_battle see godot/audio/PROVENANCE.md.") % [name, DIR])
 
 
 ## What the player hears: this track's mix level, ducked under a voice, or

@@ -959,6 +959,14 @@ func run() -> void:
 	# picked by current_track(), which is asked every tick rather than cued
 	# once — the next block leans on that.
 	await steps(2)
+	#
+	# `loop.track` is a LABEL, and a silent boss fight used to pass this:
+	# decisive_battle.wav is not in the repository (see
+	# godot/audio/PROVENANCE.md), load() returned null, and cue() went on to
+	# set the name on a player with no stream. Green test, no music. cue() now
+	# clears the label when the load fails, so this check tells the truth
+	# without needing another clause — and it FAILS until that file is back,
+	# which is correct: nothing is playing under the fight.
 	check("the-fight-brings-its-own-track-in",
 		game.current_track() == str(game.level.boss_music)
 		and str(loop.track) == str(game.level.boss_music)
@@ -1624,6 +1632,9 @@ func run() -> void:
 	# track in cue() now, not once when the node is built.
 	Music.cue(self, "decisive_battle")
 	await steps(2)
+	# This one also fails while decisive_battle.wav is missing, and for the same
+	# reason as the fight check above: there is no node to put a trim on if the
+	# cue could not load anything. Restoring the file turns both green.
 	check("cueing-it-puts-the-trim-on-the-node",
 		music.track == "decisive_battle"
 		and absf(music.volume_db - Music._level_db("decisive_battle")) < 0.01,
@@ -1782,6 +1793,25 @@ func run() -> void:
 	await steps(2)
 	check("a-climb-says-so", game.climbing and not game.level.get("gates", []),
 		{"climbing": game.climbing, "gates": game.level.get("gates", []).size()})
+
+	# Its opening card. Every other story card in the game is a walk-in with a
+	# positive `at`, so this is the one that proves `at: 0` works: the cue is
+	# compared against x and a climb has no run of x to place one along, so
+	# the picture has to land on the first frame he is on his feet or never.
+	# test_mode collapses the card to its effect, so this checks the beat —
+	# capture_climb_card.gd is the one that shoots the picture.
+	check("the-climb-opens-on-its-card",
+		game.story_cards.size() == 1
+		and game.story_cards[0]["tex"] != null
+		and is_equal_approx(float(game.story_cards[0]["at"]), 0.0)
+		and float(game.story_cards[0]["at"]) <= float(game.level.spawn[0]),
+		{"cards": game.story_cards.size(), "at": game.story_cards[0]["at"],
+		 "spawn_x": game.level.spawn[0],
+		 "panel": game.story_cards[0]["tex"] != null})
+	check("and-it-is-seen-without-him-taking-a-step",
+		bool(game.story_cards[0]["seen"])
+		and is_equal_approx(game.player.position.x, float(game.level.spawn[0])),
+		{"seen": game.story_cards[0]["seen"], "x": game.player.position.x})
 
 	# One screen wide, so the camera has nothing left to do horizontally. This
 	# is what the whole design rests on and it is a consequence of `width`
