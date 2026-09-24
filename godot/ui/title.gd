@@ -122,7 +122,12 @@ func _choose(row: int) -> void:
 			# reach it.
 			Storyboard.open(get_tree(), Session.catalogue()[0])
 		"practice":
-			_boot(PRACTICE_LEVEL, true)
+			# ONE LEVEL AND BACK. First Steps is on the course as well as being
+			# the practice level, so reaching its flag from here would otherwise
+			# carry straight on into the Isles and this row would be a second,
+			# quieter NEW JOURNEY that skipped the opening. `single` says which
+			# row you came in by; see single_level in session.gd.
+			_boot(PRACTICE_LEVEL, true, true)
 		"select":
 			# No save files exist, so this opens the session's own level list
 			# instead: it boots without starting, which leaves it in State.MENU.
@@ -132,14 +137,14 @@ func _choose(row: int) -> void:
 		"quit":
 			get_tree().quit()
 
-func _boot(level_id: String, playing: bool) -> void:
+func _boot(level_id: String, playing: bool, single := false) -> void:
 	## Hands off to a session and takes the title out of the tree. The handoff
 	## itself lives in Session.boot, because the storyboard makes the same one
 	## at the end of the opening and the two must not drift: the session is
 	## built there rather than by loading game/main.tscn so that level_id is set
 	## before add_child, which is the order session.gd documents for booting
 	## straight into a level.
-	Session.boot(get_tree(), level_id, playing)
+	Session.boot(get_tree(), level_id, playing, single)
 
 func _draw() -> void:
 	draw_texture_rect(BACKDROP, Rect2(Vector2.ZERO, DESIGN), false)

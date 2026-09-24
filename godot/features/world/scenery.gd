@@ -131,9 +131,22 @@ func _run(key: String, at: Vector2, width: float) -> void:
 ## image's job and are skipped; outside it the level is procedural as ever.
 var backdrop_span := Vector2(1.0, -1.0)
 
+## How far outside the frame a decor piece is still drawn. Comfortably wider
+## than the widest piece any pack ships, so nothing can pop in at the edge of
+## the screen — and rock_mass, which carries its own width, is measured against
+## that instead. Costs a little drawing to be sure of never showing a seam.
+const DECOR_CULL := 320.0
+
+## The world the camera can currently see, refreshed once a frame in _draw and
+## read by _decor. One rect for the whole pass rather than a viewport query per
+## piece, which is the entire saving.
+var view_world := Rect2()
+
 func _draw() -> void:
 	if data.is_empty() or not is_instance_valid(game) or game.level.is_empty():
 		return
+	var half: Vector2 = get_viewport_rect().size * 0.5
+	view_world = Rect2(game.camera.position - half, half * 2.0)
 	_background()
 	_scene_backdrop()
 	_terrain()          # cliffs, named pieces and bridges, generated from the solids
@@ -486,6 +499,23 @@ func _decor() -> void:
 		if float(entry[0]) >= backdrop_span.x and float(entry[0]) < backdrop_span.y:
 			continue  # inside a demo image; its set dressing is already in the picture
 		var key: String = str(entry[2])
+		# OFF THE SIDE OF THE SCREEN IS NOT DRAWN. This list is the whole level,
+		# not the part of it you can see: First Steps carries 301 pieces across
+		# 4560 px and the camera shows 960 of them, so five pieces in six were
+		# being blitted into nowhere every frame. Measured before this existed,
+		# by tests/diag_levelcost.gd, the two decor-heavy levels ran about five
+		# times the physics step of the two light ones and First Steps spiked
+		# past a full second.
+		#
+		# X only. A level is far wider than it is tall — except The Climb, which
+		# is one screen wide and stacks vertically, so a horizontal test throws
+		# nothing away there and costs one comparison to find that out.
+		var ex := float(entry[0])
+		var reach := DECOR_CULL
+		if key == "rock_mass" and entry.size() > 3:
+			reach = maxf(reach, float(entry[3]))
+		if ex < view_world.position.x - reach or ex > view_world.end.x + reach:
+			continue
 		# A dark rock mass: the hanging stalactite and the legs/top of the archway
 		# formation. Not a sprite - it is the same fill-plus-cave-rock the cliff
 		# bodies wear, so it reads as the same rock, only hung from the sky instead

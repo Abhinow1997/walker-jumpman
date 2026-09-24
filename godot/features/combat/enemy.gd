@@ -159,12 +159,17 @@ const PROFILES := {
 	# gap that is safe against a mark is not safe against him.
 	#
 	# HE IS THE LAST FIGHT. The Dragon's Roost stands him at 1620 with the
-	# dragon at 1800, and he is the one you have to close with: 1500 is
-	# twenty-five clean hits of the jumped kick, the biggest number in the cast
+	# dragon at 1800, and he is the one you have to close with: 1275 is
+	# twenty-one clean hits of the jumped kick, the biggest number in the cast
 	# and the number the dragon used to carry. It went the other way over the
-	# same change — 1140 on that level, nineteen kicks, set by the level rather
-	# than here because the isles still fights it alone at 1500. So the pair of
-	# them is a wall and a harasser rather than two walls.
+	# same change — 969 on that level, sixteen kicks, set by the level rather
+	# than here because the isles still fights it alone at the profile's 1275.
+	# So the pair of them is a wall and a harasser rather than two walls.
+	#
+	# Both bosses were cut by 15% together — 1500 to 1275 here and in the
+	# dragon's profile, 1140 to 969 on the Roost — because the fights were
+	# long rather than hard. The ratio between the two of them is unchanged,
+	# which is the part that was tuned; only the length came off.
 	# tests/diag_boss_health.gd prints both, and is the before-and-after for
 	# any change to either.
 	# Slow on purpose: the answer is the footwork the course has been teaching,
@@ -172,7 +177,7 @@ const PROFILES := {
 	# the arena is flat and a boss who follows you over a chasm leaves nowhere
 	# to put the fight down.
 	"dragon_lord": {
-		"style": "bruiser", "health": 1500, "speed": 52.0, "damage": 38,
+		"style": "bruiser", "health": 1275, "speed": 52.0, "damage": 38,
 		"cooldown": 1.35, "stagger": 0.10, "knock": 0.0, "aggro": 460.0,
 		"armor": true, "leap": 0.0, "body": Vector2(44, 88),
 		# No guard — the pack ships no defend frame, so there is nothing to put on
@@ -221,12 +226,15 @@ const PROFILES := {
 	# jumped strike reaches 239 and lands. That is the air half of the fight —
 	# take the height, or wait for it to come down. It always does.
 	"dragon": {
-		# 1500, which is twenty-five clean hits of the hardest thing the player
-		# owns — the jumped kick at 60 — and thirty-three of the blast. It was
+		# 1275, which is twenty-one clean hits of the hardest thing the player
+		# owns — the jumped kick at 60 — and twenty-eight of the blast. It was
 		# 240: four kicks, and the fight was over before either phase had run
-		# once. See tests/diag_dragonfight.gd, which prints the hit counts for
-		# every attack he has and is the check on any change to this number.
-		"style": "flyer", "health": 1500, "speed": 165.0, "damage": 34,
+		# once. It was then 1500, which ran long, and came down 15% with the
+		# Dragon Lord's. See tests/diag_dragonfight.gd, which prints the hit
+		# counts for every attack he has, and tests/diag_boss_health.gd, which
+		# prints every boss on every level — either is the check on a change
+		# to this number.
+		"style": "flyer", "health": 1275, "speed": 165.0, "damage": 34,
 		"cooldown": 0.85, "stagger": 0.24, "knock": 0.0, "aggro": 560.0,
 		# Armoured, like the other boss and for the same reason turned up: you
 		# cannot stagger it out of a swoop it has already committed to. The red
@@ -645,10 +653,22 @@ var perched: bool = false
 ## puts the same bar back.
 ##
 ## It exists because the dragon is two fights. On The Fractured Isles it is the
-## whole boss and 1500 is the size of that; on The Dragon's Roost it fights
-## over a Dragon Lord who is the wall now, and a second 1500 behind him makes
+## whole boss and 1275 is the size of that; on The Dragon's Roost it fights
+## over a Dragon Lord who is the wall now, and a second 1275 behind him makes
 ## the last fight twice as long as the one before it rather than harder.
 var health_override: int = 0
+## Whether a beaten flyer gets up and flies out of the level, or stays where it
+## fell. True by default, and set false by the level's `boss_departs` before the
+## enemy is added, exactly as `health_override` is.
+##
+## It exists because the departure is one level's ENDING and not a property of
+## dragons. On The Fractured Isles the second story card is a picture of the
+## dragon leaving, and the body climbing out of the shot behind it is what that
+## card is about. The Dragon's Roost ends on the Dragon Lord and the Warden
+## instead, and a dragon flying off over that exchange is a second thing
+## happening during the last beat of the game. Ignored by everything that is
+## not a flyer: nothing else in the cast has a departure to skip.
+var departs: bool = true
 ## What his plain swing costs the player ON THIS LEVEL, overriding the `damage`
 ## in his profile. Zero — the default — leaves the profile's number alone. Set
 ## by session.gd from the level's `enemy_damage` block, by kind, exactly as
@@ -1677,6 +1697,16 @@ func _advance_flyer_death(delta: float) -> void:
 		# the beat: _frame_at would wrap a non-looping clip back to the start.
 		_show("death", _frame_at("death", since) if since < collapse
 				else maxi(_durations("death").size() - 1, 0))
+		return
+	if not departs:
+		# It stays where it fell. See `departs`: the flight out is The
+		# Fractured Isles' ending and belongs to that level, not to the kind.
+		# From here it is an ordinary corpse — flat on the deck on its last
+		# death frame, cleared after the same linger everything else gets.
+		velocity.x = move_toward(velocity.x, 0.0, 400.0 * delta)
+		_show("death", maxi(_durations("death").size() - 1, 0))
+		if since >= down_for() + DEAD_LINGER:
+			visible = false
 		return
 	if not aloft:
 		# Up off the deck under its own power. From here _integrate stops

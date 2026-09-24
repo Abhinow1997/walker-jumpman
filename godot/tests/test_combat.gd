@@ -1243,22 +1243,28 @@ func run() -> void:
 	# TWENTY-FIVE HITS, AND NINETEEN HERE. The hardest single blow the player
 	# owns is the jumped kick, and the dragon's own number — the one The
 	# Fractured Isles fights it at, where it is the whole boss — has to survive
-	# twenty-five of them. This level cuts it to nineteen in its own file
-	# (`enemy_health`), because here it fights over a Dragon Lord who is 1500
+	# twenty-one of them. This level cuts it to sixteen in its own file
+	# (`enemy_health`), because here it fights over a Dragon Lord who is 1275
 	# himself and two of those back to back is a longer last level rather than
 	# a harder one. So both are asserted, and apart: the kind stays a
-	# twenty-five-hit boss, and the level is allowed to spend some of that
+	# twenty-one-hit boss, and the level is allowed to spend some of that
 	# without being allowed to make it cheap. Read off the moveset rather than
 	# typed here — retune the kick and both move with it.
+	#
+	# The floors are one hit under each, not the figure itself: both bosses
+	# came down 15% together (1500 to 1275, 1140 to 969) and 969 is 16.1 kicks
+	# rather than a round number. Asserting >= 21 and >= 15 leaves the tuning
+	# room the old >= 25 and >= 18 had, and still fails the 240 this started
+	# at — four kicks, a fight over before either phase played.
 	var hardest := 0
 	for key in ["punch_a", "punch_b", "kick", "charge"]:
 		for kframe in range(12):
 			for hit in Moveset.hits(key, kframe):
 				hardest = maxi(hardest, int(hit["damage"]))
 	var wyrm_own: int = int(Enemy.PROFILES["dragon"]["health"])
-	check("it-takes-twenty-five-of-the-players-best-and-nineteen-on-the-roost",
-		hardest > 0 and wyrm_own >= 25 * hardest
-		and wyrm.max_health >= 18 * hardest and wyrm.max_health < wyrm_own,
+	check("it-takes-twenty-one-of-the-players-best-and-sixteen-on-the-roost",
+		hardest > 0 and wyrm_own >= 21 * hardest
+		and wyrm.max_health >= 15 * hardest and wyrm.max_health < wyrm_own,
 		{"profile": wyrm_own, "on_this_level": wyrm.max_health,
 		 "hardest_blow": hardest,
 		 "hits_here": float(wyrm.max_health) / float(maxi(hardest, 1)),
@@ -1467,8 +1473,15 @@ func run() -> void:
 			roost_collapsed = roost_collapsed or wyrm.sprite.animation == "death"
 		roost_flew = maxf(roost_flew, absf(wyrm.position.x - died_at.x))
 		roost_rose = maxf(roost_rose, roost_floor - wyrm.position.y)
-	check("it-collapses-on-the-deck-and-then-flies-out",
-		not wyrm.visible and roost_collapsed and roost_flew > 400.0 and roost_rose > 240.0,
+	# It used to fly out here too, and that assertion read `roost_flew > 400`
+	# and `roost_rose > 240`. The departure is The Fractured Isles' ending and
+	# now belongs to that level alone — this one sets `boss_departs: false`, so
+	# the body stays on the deck through the victory cards and is cleared where
+	# it fell. See the note in levels/dragons_roost.json. What still has to be
+	# true is the first half of the beat: it comes down on the deck and plays
+	# the collapse the pack ships, rather than vanishing where it was hit.
+	check("it-collapses-on-the-deck-and-stays-there",
+		not wyrm.visible and roost_collapsed and roost_rose < 60.0,
 		{"gone": not wyrm.visible, "played_the_collapse": roost_collapsed,
 		 "flew": roost_flew, "rose": roost_rose, "after_s": roost_ticks / 60.0})
 

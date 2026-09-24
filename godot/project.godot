@@ -16,11 +16,6 @@ config/features=PackedStringArray("4.7", "GL Compatibility")
 
 [display]
 
-; 960x540 in a 1280x720 window is a 4/3 canvas magnification, and the cast is
-; drawn at 3/4 of its pack size, so the two cancel: one pixel of the source art
-; lands on exactly one pixel of the screen. At the old 640x360 the canvas was
-; magnified 2x instead, which showed 3/4-size art at 1.5x and turned every texel
-; into a hard 2x2 block. Change either number and the other has to follow.
 window/size/viewport_width=960
 window/size/viewport_height=540
 window/size/window_width_override=1280
@@ -36,8 +31,6 @@ window/stretch/mode="canvas_items"
 
 [rendering]
 
-; Nearest: the sheets are drawn 1:1 on screen, so there is nothing to interpolate
-; and bilinear would only soften art that lands exactly on the pixel grid.
 textures/canvas_textures/default_texture_filter=0
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
