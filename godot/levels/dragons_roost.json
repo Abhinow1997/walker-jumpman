@@ -370,9 +370,14 @@
  ],
  "bottles": [
   [
-   540,
-   648,
+   1452,
+   456,
    3
+  ],
+  [
+   1524,
+   492,
+   2
   ]
  ],
  "enemy_health": {
@@ -417,7 +422,7 @@
  ],
  "gates_note": "One gate, and the dragon holds it. It perches at 2100, inside the section, so the wall at 2400 stays shut until it is beaten and its body is gone - a boss holds its section through its whole death, which on this level keeps the camera on the arena while it collapses and climbs out - and while it is shut the camera stops with the wall on the right edge of the screen, which is what frames the arena. Nothing blocks going back: retreating over the hop is a real answer to a swoop.\n\nThe wall is the dragon's limit too, not just the player's. session.gd fences a flyer into the section it was placed in - see fly_bounds in features/combat/enemy.gd - because a flyer has no floor to run out from under it and backs away from a player who crowds it, so one cornered against a shut gate would otherwise be pushed out through the side of the screen. tests/diag_arena.gd is the measurement: 272 frames of 900 off screen before the fence, none after.",
  "hazards_note": "None, for the reason The Fractured Isles gives: spikes kill outright whatever your health is, and this is a health-bar fight from the moment the gate shuts. The sea under the hop is the only thing here that can finish you without the dragon doing it.",
- "enemies_note": "Two bosses, side by side, and the gate at 2400 waits on BOTH. They stand a body apart at the centre of the deck \u2014 the Dragon Lord at 1620 and the dragon at 1800 \u2014 so the fight opens with the pair of them together and the dragon takes off out of the middle of it. The Lord is the bipedal bruiser that held the Isles archway before the dragon took that fight (see the dragon_lord profile in features/combat/enemy.gd): he wakes inside his 460 of aggro and walks in at 52, and on The Dragon's Roost he is turned up to a boss \u2014 he is unflinching (no blow of yours staggers or turns him, only footwork beats him), his hits fling you off your feet, and his close-range special is a leap-slam whose landing shocks the ground around where he comes down. The dragon takes off inside its 560 and breathes far more often here than it did alone (special_cooldown 2.5), to keep the air thick with fire over the Lord. Both stand on the deck like any other enemy, so scripts/check_levels.py can measure them, and both hold the gate, so the wall stays shut until the arena is cleared. The two floating stones are still the only way to reach the dragon in the air, and neither the Lord's claw nor his slam-shock can reach a player up on them \u2014 108 px above him, clear of the 96 the shock rises \u2014 so they stay the safe perch they were. On the HUD the Lord holds the plate's main green bar and the dragon the red one beneath it: two bosses, two meters. See boss_main/boss_second in game/session.gd and the boss block in ui/hud.gd. He is the longer of the two fights as well as the closer one: 1500 against the dragon's 1140 here (see enemy_health above), so he is the wall and the thing overhead is the harassment.",
+ "enemies_note": "Two bosses, side by side, and the gate at 2400 waits on BOTH. They stand a body apart at the centre of the deck — the Dragon Lord at 1620 and the dragon at 1800 — so the fight opens with the pair of them together and the dragon takes off out of the middle of it. The Lord is the bipedal bruiser that held the Isles archway before the dragon took that fight (see the dragon_lord profile in features/combat/enemy.gd): he wakes inside his 460 of aggro and walks in at 52, and on The Dragon's Roost he is turned up to a boss — he is unflinching (no blow of yours staggers or turns him, only footwork beats him), his hits fling you off your feet, and his close-range special is a leap-slam whose landing shocks the ground around where he comes down. The dragon takes off inside its 560 and breathes far more often here than it did alone (special_cooldown 2.5), to keep the air thick with fire over the Lord. Both stand on the deck like any other enemy, so scripts/check_levels.py can measure them, and both hold the gate, so the wall stays shut until the arena is cleared. The two floating stones are still the only way to reach the dragon in the air, and neither the Lord's claw nor his slam-shock can reach a player up on them — 108 px above him, clear of the 96 the shock rises — so they stay the safe perch they were. On the HUD the Lord holds the plate's main green bar and the dragon the red one beneath it: two bosses, two meters. See boss_main/boss_second in game/session.gd and the boss block in ui/hud.gd. He is the longer of the two fights as well as the closer one: 1500 against the dragon's 1140 here (see enemy_health above), so he is the wall and the thing overhead is the harassment.",
  "crates_note": "Two, at the mouth of the arena. Nobody needs targets to learn on this late - these are cover you can pick up and throw, and the last thing in the level a blast will reliably connect with.",
  "brews": [
   [
@@ -443,7 +448,7 @@
    "at": 900,
    "caption": "YOU! pathetic human, this island warden. I will shatter your bones just as I have shattered many such pitiful worlds.",
    "keep_audio": true,
-   "hold": 11.0,
+   "hold": 11,
    "skip": false
   }
  ],
