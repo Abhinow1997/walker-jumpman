@@ -24,9 +24,21 @@ licence.**
 | Source | `Assests/xDeviruchi - Decisive Battle.wav`, added by the author 2026-09-20 |
 | Origin | **Not established.** See Rights below. |
 
-The loop that takes over while the dragon is fighting — `boss_music` on both
-The Fractured Isles and The Dragon's Roost, cued by `current_track()` in
-`game/session.gd`. 120 s, 44.1 kHz stereo.
+The loop that takes over while the dragon is fighting — `boss_music` on The
+Fractured Isles, cued by `current_track()` in `game/session.gd`. 120 s,
+44.1 kHz stereo.
+
+**It is not in this repository, and that is a bug in this table rather than a
+choice.** `.gitignore` ignores `*.wav` and grants no exception for
+`godot/audio/` the way it does one line earlier for `*.mp3`, so only the
+`.import` beside it was ever committed; `Assests/` is outside the clone, so
+`extract_boss_music.py` cannot put it back on a fresh machine either. What a
+clone gets is `music.gd` warning and leaving the coast loop playing under both
+boss fights. The Dragon's Roost has been moved onto `dragon_lord_fight.mp3`
+below as a stand-in; The Fractured Isles still names this and is still silent
+of a battle track without it. Producing the `.ogg` with the command below
+fixes both and needs no `.gitignore` change — `.ogg` is deliberately not
+ignored.
 
 **It plays 8 dB above the other tracks**, and that is a mastering difference
 rather than a preference. Its file peaks at -2.0 dBFS and averages -14.9; the
@@ -64,9 +76,26 @@ CC0; which this one is has not been established, and "probably fine" is not a
 licence. It goes on the credits screen with the other unresolved items and it
 is on the release checklist beside the LF2 sprites and the dragon pack.
 
+## dragon_lord_fight.mp3
+
+A storyboard clip — see below — doing a second job. It is the audio under The
+Dragon's Roost's two walk-in panels, and since the wav above went missing it is
+also that level's `boss_music`. ~22 s, 128 kbps, and `music.gd` loops it
+(`AudioStreamMP3.loop`, set by the caller because the `.import` has
+`loop=false` for its one-shot use).
+
+**This is a stand-in and it should be replaced.** It is speech with a bed under
+it, not a battle theme; it is a fifth the length of the track it replaced; and
+the player hears it as dialogue in the cutscene immediately before the fight
+loops it. Its `TRIM` entry is `0.0` because nobody has measured it — the `+8`
+above belongs to the xDeviruchi master and not to this render. Point
+`boss_music` in `godot/levels/dragons_roost.json` back at `decisive_battle`
+once that file exists.
+
 ## The storyboard clips
 
-`storyboard_scene_1.mp3`, `dragon_fight_start.mp3`, `dragon_fight_end.mp3` and
+`storyboard_scene_1.mp3`, `dragon_fight_start.mp3`, `dragon_fight_end.mp3`,
+`dragon_lord_fight.mp3` and
 `dragon_roar.mp3` are all copied in by `scripts/extract_storyboard.py` from
 `Assests/Storyboard/`. They are the author's own renders — generated, the same
 provenance category as the title screen and the HUD plates, and not

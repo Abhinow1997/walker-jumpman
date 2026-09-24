@@ -649,6 +649,21 @@ var perched: bool = false
 ## over a Dragon Lord who is the wall now, and a second 1500 behind him makes
 ## the last fight twice as long as the one before it rather than harder.
 var health_override: int = 0
+## What his plain swing costs the player ON THIS LEVEL, overriding the `damage`
+## in his profile. Zero — the default — leaves the profile's number alone. Set
+## by session.gd from the level's `enemy_damage` block, by kind, exactly as
+## `health_override` is set from `enemy_health`.
+##
+## It exists because the same enemy is a different problem on different ground.
+## The Climb is the one level fought on ledges over a long fall, where a blow
+## is what knocks you off one rather than what takes a fifth of the bar, so a
+## bandit there is tuned down without softening him on the flat levels where
+## the same 20 is the fight the course taught.
+##
+## Only the plain swing: a special carries its own number in its move data and
+## keeps it, because a leap-slam tuned by the level it lands on is a second
+## thing to remember for every boss that has one.
+var damage_override: int = 0
 ## Flipped on by session.gd once this perch's section has no live ground holders
 ## left — the cue to come off the shelf. It raises drop_limit() so the sniper can
 ## take the step down its perch height normally forbids. Cleared by reset().
@@ -1094,6 +1109,8 @@ func attack_damage() -> int:
 	var spec := move_data(move)
 	if spec.has("damage"):
 		return int(spec["damage"])
+	if damage_override > 0:
+		return damage_override
 	return int(prof.get("damage", data().get("hit_damage", 0)))
 
 # --- seeing one coming -------------------------------------------------------

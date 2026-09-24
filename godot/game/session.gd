@@ -227,6 +227,10 @@ func _build_world() -> void:
 	# Roost where it is half of one. By kind and not by entry: a level that
 	# wanted two of something at two sizes would want a reason first.
 	var tuned: Dictionary = level.get("enemy_health", {})
+	# The same idea one number over: what a kind of enemy HITS FOR on this
+	# level. The Climb is fought on ledges over a long fall, where the cost of
+	# a blow is the ledge and not the bar.
+	var hits: Dictionary = level.get("enemy_damage", {})
 	for entry in level.get("enemies", []):
 		var foe := Enemy.new()
 		foe.position = Vector2(entry[0], entry[1])
@@ -237,6 +241,8 @@ func _build_world() -> void:
 		# Before add_child, like `kind`: _ready reads it.
 		if tuned.has(foe.kind):
 			foe.health_override = int(tuned[foe.kind])
+		if hits.has(foe.kind):
+			foe.damage_override = int(hits[foe.kind])
 		foe.fall_limit = float(level.fall_y)
 		foe.struck_player.connect(_on_player_struck)
 		foe.fired_arrow.connect(_on_arrow_fired)

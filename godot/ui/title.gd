@@ -62,7 +62,12 @@ func _ready() -> void:
 	Session.setup_input()
 	# The Fractured Isles names this same loop, so NEW JOURNEY does not restart
 	# it — see music.gd on why the node outlives this scene.
-	Music.cue(get_tree(), TRACK)
+	#
+	# Deferred because this is the main scene: its _ready runs while the root is
+	# still setting up children, and the music node's add_child() is refused in
+	# that window, so the title screen came up silent. Every other caller is a
+	# scene change and is already past it.
+	Music.cue.call_deferred(get_tree(), TRACK)
 
 func _plate_rect(row: int) -> Rect2:
 	return Rect2(Vector2((DESIGN.x - PLATE.x) * 0.5, FIRST_ROW_Y + row * ROW_PITCH), PLATE)

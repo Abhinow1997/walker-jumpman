@@ -1451,7 +1451,7 @@ func run() -> void:
 	# And the fight has its own battle track, cued the moment it starts and gone
 	# again once both bosses are down.
 	check("the-roost-fight-has-its-own-music",
-		str(game.level.get("boss_music", "")) == "decisive_battle"
+		str(game.level.get("boss_music", "")) == "dragon_lord_fight"
 		and str(game.level.get("music", "")) == "magic_cliffs",
 		{"boss_music": str(game.level.get("boss_music", "")),
 		 "music": str(game.level.get("music", ""))})
@@ -1635,7 +1635,9 @@ func run() -> void:
 	check("and-going-back-to-the-bed-takes-it-off",
 		absf(music.volume_db - Music.LEVEL_DB) < 0.01,
 		{"volume": music.volume_db})
-	# Both levels with a boss name the same track, so one trim covers the game.
+	# Every track a boss fights to has to be one the mixer has an opinion about.
+	# The two levels named the same one until the Roost's had to be swapped for
+	# a clip that is actually in the repository — see TRIM in music.gd.
 	var fights: Array = []
 	for id in shipped_ids:
 		var named := str(Game.level_data(id).get("boss_music", ""))
