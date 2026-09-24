@@ -411,12 +411,14 @@ invented difficulty would be dishonest.
 - **Gemini** — concept images, storyboard panels and game panels. *Accepted:* the
   storyboard panels, which are used in the opening and in the in-level cards.
   *Rejected:* the Wind-Up Knight concept art as a basis for the game; it was slow to
-  produce and could not be turned into usable sprites (Entry 1). Also rejected: a pair
-  of Dragon Lord defeat panels (`dragon-lorad-defeated-1.jpg` and `-2.jpg`, still in
-  the repository root). They were generated, not used, and never wired into
-  `scripts/extract_storyboard.py` or the game. Recording them here rather than
-  deleting them quietly, because generated-and-discarded is part of the honest count
-  of what the AI produced.
+  produce and could not be turned into usable sprites (Entry 1).
+  *Accepted later:* two Dragon Lord defeat panels. **Correction to an earlier version
+  of this file**, which recorded them as generated-and-discarded on the evidence that
+  nothing in the codebase referenced them. That was true when it was written and is
+  not true now: they became the two victory cards after the Roost fight, and the
+  second is drawn a third time under the thank-you card. Left visible as a correction
+  rather than edited away, because "the AI generated this and I threw it out" and "I
+  had not used it yet" are different claims and I made the wrong one.
 - **ElevenLabs** — the voice performance of the opening monologue. *Accepted*, over my
   own script. The delivery tags in the script (`[whispers]`, `[curious]`) are
   deliberately not shown in the captions; they are instructions to the voice, not

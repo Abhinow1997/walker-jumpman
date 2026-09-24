@@ -113,6 +113,6 @@ A fuller account, with commits and tests, is in [FRICTIONAL.md](FRICTIONAL.md).
   internally consistent and wrong, because one line spans two segments.
 - A boss-music test that compared a track *name* rather than a stream, and so passed
   on a build where the music file was missing entirely.
-- Two generated Dragon Lord defeat panels, which were never used in the game. They
-  are still in the repository root as `dragon-lorad-defeated-1.jpg` and `-2.jpg`,
-  listed here so the count of what was generated matches the count of what shipped.
+*(An earlier version of this file listed two generated Dragon Lord defeat panels as
+unused. They are used — they are the two victory cards after the final fight. The
+correction is noted rather than silently removed.)*

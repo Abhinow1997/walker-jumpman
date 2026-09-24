@@ -97,12 +97,21 @@ PANELS = [
 #     is cropped at all — it takes the plain-resize path that write_panel
 #     would, and sits here rather than in PANELS because it interrupts a level
 #     instead of playing in the cold open.
+#
+#   dragon_lord_defeated_1 and _2, 0.  Same 2730 x 1536 as climb_start and for
+#     the same reason: nothing is cropped and `top` is unused. They are the two
+#     panels after the Roost's fight — the Lord swearing he will be back, and
+#     the Warden answering him — and the second is drawn twice, because the
+#     thank-you card that follows reuses its picture rather than having one of
+#     its own. See the cutscene block in levels/dragons_roost.json.
 CARDS = [
     ("dragon-fight-start.jpg", "dragon_fight_start.png", 192),
     ("dragon-fight-end.jpg", "dragon_fight_end.png", 0),
     ("dragon-lord-fight-start.jpg", "dragon_lord_fight_start.png", 0),
     ("dragon-lord-fight-start-2.jpg", "dragon_lord_fight_start_2.png", 0),
     ("climb-storyboard.jpg", "climb_start.png", 0),
+    ("dragon-lorad-defeated-1.jpg", "dragon_lord_defeated_1.png", 0),
+    ("dragon-lorad-defeated-2.jpg", "dragon_lord_defeated_2.png", 0),
 ]
 
 # source file -> written name in godot/audio/. Named for what plays them:
@@ -115,6 +124,8 @@ AUDIO = [
     ("dragon-fight-endscene.mp3", "dragon_fight_end.mp3"),
     ("dragon-voice-angry-growl.mp3", "dragon_roar.mp3"),
     ("dargon-lord-fight.mp3", "dragon_lord_fight.mp3"),
+    ("climb-background.mp3", "climb_start.mp3"),
+    ("final-fight-background.mp3", "dragon_lord_defeated.mp3"),
 ]
 
 # How far from its target shape a source may be before this stops. A panel

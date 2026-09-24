@@ -104,11 +104,29 @@ still on it.
 ## The storyboard clips
 
 `storyboard_scene_1.mp3`, `dragon_fight_start.mp3`, `dragon_fight_end.mp3`,
-`dragon_lord_fight.mp3` and `dragon_roar.mp3` are all copied in by `scripts/extract_storyboard.py` from
+`dragon_lord_fight.mp3`, `climb_start.mp3`, `dragon_lord_defeated.mp3` and
+`dragon_roar.mp3` are all copied
+in by `scripts/extract_storyboard.py` from
 `Assests/Storyboard/`. They are the author's own renders — generated, the same
 provenance category as the title screen and the HUD plates, and not
 attributable the way the CC0 packs are. See `godot/ui/art/PROVENANCE.md`, which
 covers them alongside the pictures they play under.
+
+`climb_start.mp3` is the narration over The Climb's opening card (source
+`climb-background.mp3`, 4.83 s). That card is the one place in the game where
+two clips meet: the narration is its `audio` and `dragon_fight_end` is its
+`out_audio`, so the dragon's clip takes over as the picture dissolves and runs
+on over the level. See `cutscene_note` in `godot/levels/the_climb.json`.
+
+`dragon_lord_defeated.mp3` is the exchange after the final fight (source
+`final-fight-background.mp3`, 13.479 s) — the Dragon Lord swearing he will
+return and the Warden answering him. One clip pinned across two cards, cut at
+6.9 s. **That cut point is measured but not verified:** `tests/diag_speech.gd`
+finds seven runs of sound in the clip and the two candidate speaker changes,
+at 7.28 and 8.46, sit behind gaps of 0.80 s and 0.82 s — too close to tell
+apart on energy. See `cutscene_note` in `godot/levels/dragons_roost.json` for
+which one was chosen and why, and for the single number to change if it is
+wrong.
 
 One thing carries over from there: **where the opening voice-over's background
 bed came from is not recorded**, and that is a third thing to clear before

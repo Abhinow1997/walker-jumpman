@@ -1,14 +1,83 @@
-# walker-jumpman — First Steps
+# The Fractured Isles
 
-**Playable source prototype · September 10, 2026 · Godot 4.7.2 / GDScript**
+**A hack-and-slash platformer · Godot 4.7.2 / GDScript · keyboard · single player**
 
-Standalone game repository: [nikbearbrown/walker-jumpman](https://github.com/nikbearbrown/walker-jumpman). This checkout contains only this game's source, design package, and test evidence—not the Walker toolkit, Brutalist, or video renders.
+![The Fractured Isles title screen](evidence/screens/title-01-new-journey.png)
 
-Clone with `git clone https://github.com/nikbearbrown/walker-jumpman.git`, then import `walker-jumpman/godot/project.godot` in the regular Godot editor. No .NET runtime or external assets are required. On macOS, the launcher below also works when Godot is installed in Applications; on other platforms, use the editor or `godot --path godot` from the cloned folder.
+Built on the `walker-jumpman` starter, rebuilt as a Little Fighter 2–style
+hack-and-slash crossed with a platformer. Four levels, an opening cutscene with
+recorded narration, three kinds of enemy and two boss fights.
 
-Double-click [walker-jumpman.command](walker-jumpman.command) to play. The game opens on the title screen: **NEW JOURNEY** plays the opening and then starts the course in First Steps, carries on into The Fractured Isles, climbs The Climb and ends at The Dragon's Roost, **PRACTICE** drops straight into First Steps, and **LOAD GAME** opens the in-game level list — every level that ships, course or not (**W/S or up/down** to choose, **Enter** to start). In play, **A/D or left/right** to move, **Space** to jump, **J** to attack or throw, **K** to blast, **E** to lift or drink, **R** to retry, **Escape/P** to pause and **M** for the menu. Reach the lit stone at the end. Retries are unlimited, and finishing a level goes straight to the next one.
+## The story
 
-The title screen, the opening's title card and all four course levels share the Magic Cliffs loop — the pack ships one track — so starting a new journey carries the music straight on rather than restarting it. First Steps names the same track, so PRACTICE carries it on too; the greybox fixture is silent. Music lives in [music.gd](godot/game/music.gd), the one node in the project that outlives a scene.
+The Holocene earthquakes broke the world and shattered it into pieces. The old maps
+called this place Earth; the old maps are underwater now. What is left floats.
+
+You have held one ledge on those floating isles for years — no war, no wound, just
+salt off the water and the old stones humming to themselves. Then something explodes
+out over the sea. You know every sound these isles can make, and that is not one of
+them.
+
+*"So whatever just woke up out there… you should have slept a LITTLE longer. I've had
+years to get bored."*
+
+## The course
+
+Four levels, played in order. Each one asks for something the one before it taught.
+
+| # | Level | What it is |
+|---|---|---|
+| 1 | **First Steps** | The practice coast. Five short stretches, nothing in it that has not been introduced first. The only level that shows key prompts. |
+| 2 | **The Fractured Isles** | The crumbling coast and a bridge ambush, as one continuous course, ending on the archway where the dragon waits. |
+| 3 | **The Climb** | A mountain, not a course. One screen wide and seven screens tall, 47 hops with the sea underneath. The view ratchets upward and never comes back down. |
+| 4 | **The Dragon's Roost** | One arena, two bosses, a flag. The level *is* the fight. |
+
+**NEW JOURNEY** plays the opening and then runs the whole course, each level loading
+the next. **PRACTICE** drops straight into First Steps. **LOAD GAME** opens the level
+list so you can replay any level you have reached. **QUIT** exits.
+
+## Controls
+
+| Key | Action |
+|---|---|
+| **A / D** or **← / →** | Move |
+| **Space** | Jump |
+| **J** or **X** | Attack — punch, chain into a cross, kick in the air, shoulder charge at a run, or throw what you are carrying |
+| **K** or **C** | Energy blast. Costs mana. Can be thrown in mid-air |
+| **E** | Lift a crate or rock; hold to drink a bottle |
+| **R** | Retry. Unlimited, instant |
+| **Escape** or **P** | Pause |
+| **M** | Level menu |
+| **W / S** or **↑ / ↓** | Move the selection in a menu |
+| **Enter** | Confirm a menu choice |
+
+Reach the lit stone at the end of a level to finish it. Finishing goes straight to the
+next level.
+
+> **Note:** the title screen prints "SPACE: Confirm", but `confirm` is bound to
+> **Enter**. Use Enter on the title screen. This is a known bug, not a documentation
+> error — see the end of this file.
+
+## Running it
+
+There is no packaged build. Play it from source with Godot 4.7.2:
+
+```bash
+godot --path godot
+```
+
+Or import `godot/project.godot` in the Godot editor and press play. On macOS with
+Godot installed in Applications, [walker-jumpman.command](walker-jumpman.command) also
+works. No .NET runtime and no external asset downloads are required — everything the
+game loads is in this repository.
+
+## How it plays
+
+The title screen, the opening's title card and all four course levels share the Magic
+Cliffs loop — the pack ships one track — so starting a new journey carries the music
+straight on rather than restarting it. First Steps names the same track, so PRACTICE
+carries it on too; the greybox test fixture is silent. Music lives in
+[music.gd](godot/game/music.gd), the one node in the project that outlives a scene.
 
 The stage is cut into sections and you do not walk past a fight. While enemies are still standing in your section the camera stops dead, an invisible wall stands on the line, and you can see you have run out of screen rather than out of floor; put them down and both let go — the wall at once, the camera over about half a second, panning forward rather than cutting, with a chevron at the edge to say so. That pan is the only smoothing on the camera's horizontal: a fight backed into a gate ends with you pressed against the wall, which is the furthest the framing ever has to travel, and it used to travel it in one frame while you were still mid-swing. Walking back is never blocked — **except out of a boss fight**. The dragon is fenced into its arena, so a player who walked west out of that arena stood somewhere it could not follow and the fight simply stopped happening. A level names the line its fight is sealed behind (`boss_arena`), and a wall stands there from the moment the boss wakes with the player inside until its body is gone, with the camera stopping against it exactly as it stops against a gate. The Fractured Isles puts it at 6912, the lip of the dragon's deck: its section opens at 6110, out in the middle of the chasm, so sealing there would leave the four stepping stones inside the fight — the ledges he crossed to get there — and stand the wall in mid-air over the water. The Dragon's Roost puts it at 816, the first ground past the only gap in that level, and deliberately not at 1512 where its two bosses actually stand: the west floating stone is at 1188, and the two stones are the only way to reach the flying one. The boss is fenced to the same box either way, so it and the player are shut in one room. The Fractured Isles is five sections; the dragon's is the fourth, and a gate at 7800 stands behind it so the way out cannot be reached with the boss still up. It had no gate once, and the level could be finished by running underneath the fight.
 
@@ -26,11 +95,9 @@ Two bars sit in the top corner. Health is the green one and **you start on all o
 
 Neither bar snaps. Both slide to their new level over about a third of a second, while the number beside them changes at once — so a hit or a blast is something you watch land, and the slow refill is visible as movement rather than a figure that is quietly different next time you look.
 
-![The actual First Steps game, captured during a scripted jump](evidence/screens/03-jump.png)
+![First Steps in play: the health and mana bars, the level caption, and the first gap](evidence/screens/storyboard-10-playing.png)
 
-This simple level has two steps, two gaps, one spike hazard, and a finish. It is the control/retry slice, not the full three-zone/cherry design below. See [build results and limitations](BUILD-REPORT.md). To edit, import [godot/project.godot](godot/project.godot) into Godot.
-
-The first Walker example is a compact 2D platformer built around readable jumps, optional cherries and quick retries. Every new game project uses the `walker-` prefix. The original `jumping-man-godot` recovery collection remains separate and unchanged; it is not included or required here. Historical design references to sibling recovery files refer to the author's local source collection, not files shipped in this repository.
+*First Steps, a few seconds after the opening ends. Health is full at 100, mana starts at 60, and the level names itself in the corner.*
 
 ## The opening
 
@@ -236,21 +303,23 @@ dragon is airborne in it and anything off the top clips its wingtips.
 tests/capture_cutscene.gd` retakes them and is the only check that the clips
 actually come out of the speakers.
 
-## Read in this order
+## Documentation
 
-1. [Game brief](GAME-BRIEF.md) — the short player-facing idea and proposed scope.
-2. [Detailed GDD](GDD.md) — sixteen design sections, source evidence, requirements and twenty-two acceptance cases.
-3. [Level design](LEVEL-DESIGN.md) — the three-zone course and its untested geometry.
-4. [Production plan](PRODUCTION-PLAN.md) — twenty-two dependency-ordered tasks across six phases, plus four deferred tasks.
-5. [Playtest plan](PLAYTEST-PLAN.md) — mechanical tests, formative human sessions, evidence and revision rules.
-6. [Asset plan](ASSET-PLAN.md) — original greybox requirements and the provenance boundary.
-7. [Design status](DESIGN-STATUS.json) — machine-readable revision, decisions, pending approvals and honest runtime state.
+| Document | What it covers |
+|---|---|
+| [SOURCES.md](SOURCES.md) | Every asset, tool and AI service used, and what each contributed |
+| [CHANGE-BREIF.md](CHANGE-BREIF.md) | What I set out to build, what had to stay unchanged, predicted failures, and the revisions since |
+| [FRICTIONAL.md](FRICTIONAL.md) | The development log: what was tried, what broke, what was fixed or abandoned |
+| [TEST-REPORT.md](TEST-REPORT.md) | Recorded test results, the one open failure, and what is not covered |
+| [GDD.md](GDD.md) | The original design document, written against the starter |
+| [GAME-BRIEF.md](GAME-BRIEF.md) | The starter's player-facing scope statement |
+| [BUILD-REPORT.md](BUILD-REPORT.md) | Build history and limitations |
+| [DESIGN-REVIEW.md](DESIGN-REVIEW.md) | Consistency review of the original design package |
 
-![Candidate walker-jumpman course map; not a gameplay screenshot](design/level-overview.png)
-
-[Design consistency review](DESIGN-REVIEW.md) · [Editable SVG map](design/level-overview.svg)
-
-[Level coordinate data](design/level-01.json) drives this candidate blockout. Counts and geometry can be checked without Godot. Jump reachability, zero-cherry/all-cherry routing, camera behavior and enjoyment have not been tested.
+`GDD.md`, `GAME-BRIEF.md`, `BUILD-REPORT.md` and `DESIGN-REVIEW.md` describe the
+**starter** and its three-zone, cherry-collecting design. That design was not built.
+They are kept as the record of where the project began; where they disagree with this
+README, this README is the game.
 
 ## Adding a level
 
@@ -785,14 +854,43 @@ rather than a set of poses: perch, take-off, cruise, pass, strike, climb and
 fly-away, into `evidence/dragon/`. `tests/diag_dragon.gd` prints the numbers
 behind it.
 
-## Proposed defaults ready for review
+## Technical summary
 
-Godot 4 with typed GDScript, Compatibility rendering, one three-zone level, twenty optional cherries, one fixed-height jump with small forgiveness windows, hazards, quick retries, keyboard controls and a locally tested Web export. No paid services. No moving-platform dependency in the MVP.
+| | |
+|---|---|
+| Engine | Godot 4.7.2 stable, GL Compatibility renderer |
+| Language | GDScript, typed |
+| Canvas | 960 x 540 logical, 1280 x 720 window, nearest-neighbour filtering |
+| Physics | 60 ticks/second |
+| Input | Keyboard only, registered at runtime in `session.gd` |
+| Levels | JSON data in `godot/levels/`, loaded by one session scene |
+| Distribution | Source only. No packaged executable and no Web export |
 
-The tested engine is Godot 4.7.2.stable.official.ed1daf0bf. Zelda's reusable prompt and command/workflow specification belong to the separate Walker toolkit and are not dependencies of this game.
+## Credits and provenance
 
-## Current boundary
+Full credits are in **[SOURCES.md](SOURCES.md)**. In short: the character and enemies
+are Little Fighter 2 sprites, the protagonist is the community mod *Anti-Davis*, the
+environment and music are ansimuz's Magic Cliffs pack, and the two bosses are by
+Binary-80 and Shinobugaen. Storyboard panels were generated with Gemini and the
+narration voiced with ElevenLabs over a script written by the author. The code was
+written with Claude Code.
 
-The full design is still a draft. Bear subsequently authorized **“Build a simple level for walker-jumpman.”** The first slice is implemented and machine-tested; full-design approvals, human playtesting, cherries/settings, and the Web export remain pending. This is a source-code release, not a hosted game or downloadable executable. The build report and test receipts preserve the earlier local-build history.
+**This build is coursework and is not releasable.** The LF2 character and enemy art is
+fan-made content used without a distribution licence. Replacing it is a prerequisite
+for any public release.
 
-Next: play this small control/retry loop before expanding the course. The human owns intent, scope, play-feel judgments, and release decisions; AI implements and checks authorized work. The original `/Users/bear/walker-jumpman` stays untouched.
+## Current state
+
+Four levels, playable start to finish, with an opening cutscene, two boss fights and a
+recorded test suite. Known gaps, recorded honestly rather than left for discovery:
+
+- **The title screen prints the wrong key.** Its hint reads "SPACE: Confirm", but
+  `confirm` is bound to Enter alone, and [title.gd](godot/ui/title.gd) tests only
+  `confirm` — unlike the storyboard and the in-game menus, which accept jump *or*
+  confirm. Space therefore does nothing on the very first screen of the game. Either
+  bind Space to confirm or change the hint; the hint is currently a lie.
+- One open test failure in the combat suite — see [TEST-REPORT.md](TEST-REPORT.md).
+- No movement or keyboard suite output is retained at this build; those two suites
+  need re-running.
+- No human playtesting. Every balance decision was made by one player, its author.
+- No packaged build. Run it from source as described at the top.
