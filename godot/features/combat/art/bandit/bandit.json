@@ -2,6 +2,15 @@
  "_generated_by": "scripts/extract_bandit.py",
  "_source": "Little Fighter 2 Bandit (ripped sheet, unlicensed fan content)",
  "animations": {
+  "guard": {
+   "durations": [
+    0.3,
+    0.25
+   ],
+   "file": "guard.png",
+   "frames": 2,
+   "loop": false
+  },
   "hurt": {
    "durations": [
     0.1,
@@ -23,6 +32,15 @@
    "file": "idle.png",
    "frames": 4,
    "loop": true
+  },
+  "jump": {
+   "durations": [
+    0.3,
+    0.3
+   ],
+   "file": "jump.png",
+   "frames": 2,
+   "loop": false
   },
   "punch": {
    "durations": [
@@ -47,8 +65,8 @@
   }
  },
  "cell": [
-  59,
-  59
+  79,
+  79
  ],
  "faces": 1,
  "hit_damage": 20,
@@ -60,7 +78,8 @@
   10.5
  ],
  "origin": [
-  29.25,
-  59.25
- ]
+  39.0,
+  79.0
+ ],
+ "render_scale": 0.75
 }

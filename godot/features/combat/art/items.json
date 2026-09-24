@@ -1,90 +1,181 @@
 {
- "_generated_by": "scripts/extract_lf2_items.py",
+ "_generated_by": [
+  "scripts/extract_lf2_items.py",
+  "scripts/extract_rock.py"
+ ],
  "_source": "PC _ Computer - Little Fighter 2 - Miscellaneous - Items.png",
  "items": {
   "bottle": {
    "cell": [
-    11,
-    19
+    15,
+    25
    ],
    "file": "bottle.png",
    "frames": 1,
    "origin": [
-    5.25,
-    18.0
+    7.0,
+    24.0
    ]
   },
   "bottle_debris": {
    "cell": [
-    20,
-    21
+    27,
+    28
    ],
    "file": "bottle_debris.png",
    "frames": 8,
    "origin": [
-    9.75,
-    10.5
+    13.0,
+    14.0
    ]
   },
   "bottle_drink": {
    "cell": [
-    20,
-    14
+    26,
+    19
    ],
    "file": "bottle_drink.png",
    "frames": 1,
    "origin": [
-    9.75,
-    6.75
+    13.0,
+    9.0
    ]
   },
   "bottle_spin": {
    "cell": [
-    36,
-    36
+    48,
+    48
    ],
    "file": "bottle_spin.png",
    "frames": 8,
    "origin": [
-    18.0,
-    18.0
+    24.0,
+    24.0
+   ]
+  },
+  "brew": {
+   "cell": [
+    14,
+    32
+   ],
+   "file": "brew.png",
+   "frames": 1,
+   "origin": [
+    7.0,
+    31.0
+   ]
+  },
+  "brew_debris": {
+   "cell": [
+    27,
+    28
+   ],
+   "file": "brew_debris.png",
+   "frames": 8,
+   "origin": [
+    13.0,
+    14.0
+   ]
+  },
+  "brew_drink": {
+   "cell": [
+    31,
+    21
+   ],
+   "file": "brew_drink.png",
+   "frames": 1,
+   "origin": [
+    15.0,
+    10.0
+   ]
+  },
+  "brew_spin": {
+   "cell": [
+    48,
+    48
+   ],
+   "file": "brew_spin.png",
+   "frames": 8,
+   "origin": [
+    24.0,
+    24.0
    ]
   },
   "crate": {
    "cell": [
-    44,
-    44
+    58,
+    58
    ],
    "file": "crate.png",
    "frames": 1,
    "origin": [
-    21.75,
-    43.5
+    29.0,
+    58.0
    ]
   },
   "crate_debris": {
    "cell": [
-    20,
-    21
+    27,
+    28
    ],
    "file": "crate_debris.png",
    "frames": 16,
    "origin": [
-    9.75,
-    10.5
+    13.0,
+    14.0
    ]
   },
   "crate_spin": {
    "cell": [
-    44,
-    44
+    58,
+    58
    ],
    "file": "crate_spin.png",
    "frames": 6,
    "origin": [
-    21.75,
-    21.75
+    29.0,
+    29.0
    ]
+  },
+  "rock": {
+   "cell": [
+    36,
+    48
+   ],
+   "file": "rock.png",
+   "frames": 6,
+   "origin": [
+    18,
+    47
+   ],
+   "source": "rock.jpg"
+  },
+  "rock_break": {
+   "cell": [
+    56,
+    48
+   ],
+   "file": "rock_break.png",
+   "frames": 5,
+   "origin": [
+    28,
+    24
+   ],
+   "source": "rock.jpg"
+  },
+  "rock_debris": {
+   "cell": [
+    14,
+    14
+   ],
+   "file": "rock_debris.png",
+   "frames": 8,
+   "origin": [
+    7,
+    7
+   ],
+   "source": "rock.jpg"
   }
- }
+ },
+ "render_scale": 0.75
 }

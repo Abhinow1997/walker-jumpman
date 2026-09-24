@@ -51,16 +51,30 @@ func run() -> void:
 	await steps(70)
 	check("left-wall", game.player.position.x >= 19 and game.player.position.x <= 21, {"x": game.player.position.x})
 	await fresh()
+	# Off the floor he is actually standing on, rather than off a number: the
+	# level this boots is re-authored from time to time and its ground line has
+	# moved once already.
+	var floor_y: float = game.player.position.y
 	game.player.test_jump_pressed = true
 	game.player.test_jump_held = true
-	var min_y: float = game.player.position.y
+	var min_y: float = floor_y
+	var again := false
 	for i in range(50):
 		await steps(1)
 		min_y = minf(min_y, game.player.position.y)
-		if i == 12:
+		# Pressed again once he is demonstrably in the air, not on a fixed
+		# iteration. A step is a PROCESS frame and covers anywhere from one to
+		# eight physics ticks depending on how heavy the level is, so "i == 12"
+		# was the rise on a bare greybox and after the landing on a populated
+		# one — where a second press is a second jump rather than the double
+		# jump this is looking for.
+		if not again and not game.player.is_on_floor() and game.player.velocity.y > -100.0:
+			again = true
 			game.player.test_jump_pressed = true
 	# Rise and tolerance both scale with the world; apex time is unchanged at 0.333 s.
-	check("fixed-jump-and-no-double", game.player.jumps == 1 and absf((640-min_y)-106.6667) < 10, {"rise_px":640-min_y, "jumps":game.player.jumps})
+	check("fixed-jump-and-no-double",
+		game.player.jumps == 1 and again and absf((floor_y - min_y) - 106.6667) < 10,
+		{"rise_px": floor_y - min_y, "jumps": game.player.jumps, "pressed_again": again})
 	await steps(30)
 	check("held-jump-no-bounce", game.player.jumps == 1 and game.player.is_on_floor(), {"jumps":game.player.jumps})
 	# Actual geometry fixtures at a ledge; tick ages exercise inclusive 6 / expired 7.

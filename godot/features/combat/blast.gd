@@ -38,8 +38,9 @@ func _ready() -> void:
 	var c: Array = Moveset.data().get("ball_cell", [1, 1])
 	var o: Array = Moveset.data().get("ball_origin", [0, 0])
 	sprite.offset = Vector2(float(c[0]) / 2.0 - float(o[0]), float(c[1]) / 2.0 - float(o[1]))
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	sprite.scale = Vector2(direction, 1.0)
+	## Linear: his own art, off the same painted LF2 sheet, at the same 0.75.
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	sprite.scale = Vector2(direction, 1.0) * Moveset.render_scale()
 	add_child(sprite)
 	if sprite.sprite_frames.has_animation("fly"):
 		sprite.play("fly")
@@ -110,6 +111,15 @@ func _physics_process(delta: float) -> void:
 	for result in space.intersect_shape(query, 8):
 		var target = result.collider
 		if target == null or already_hit.has(target):
+			continue
+		# Flown into something's fire. Asked before take_hit and not through it,
+		# because this is a rule about projectiles and take_hit is the contract
+		# every hittable thing in the game shares — a crate should not have to
+		# know what a blast is. The Dragon Lord answers one by breathing on it
+		# (he has no guard); see burns_projectiles in features/combat/enemy.gd.
+		if target.has_method("burns_projectiles") and target.burns_projectiles():
+			already_hit.append(target)
+			landed = true
 			continue
 		if target.has_method("take_hit"):
 			if target.take_hit(damage, global_position):

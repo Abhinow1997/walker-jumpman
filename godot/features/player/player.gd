@@ -22,7 +22,10 @@ const HITTABLE := 64
 ##
 ##   ground   must be standing on the floor to start it
 ##   chain    move this one buffers into when attack is pressed again
-##   planted  ignores the movement axis for its duration
+##   planted  ignores the movement axis while his feet are on the floor. It
+##            cannot apply in mid-air, because there is nothing to plant: an
+##            airborne move that zeroed the axis would brake the jump it was
+##            thrown from and drop him short of wherever he was going.
 ##   drive    forced forward speed, for moves that carry you
 ##   ends_on_land  an air move that is cut short by touching down
 ##   loops         the animation repeats; the move's length is decided elsewhere
@@ -38,7 +41,18 @@ const MOVES := {
 	"punch_b": {"ground": true,  "chain": "",        "planted": true},
 	"kick":    {"ground": false, "chain": "",        "planted": false, "ends_on_land": true},
 	"charge":  {"ground": true,  "chain": "",        "planted": false, "drive": 300.0},
-	"blast":   {"ground": true,  "chain": "",        "planted": true,  "spawn_frame": 4},
+	# Throwable in mid-air, unlike every other committed move here. He plants
+	# his feet to throw one when he has feet to plant, and simply keeps his arc
+	# when he does not — see `planted` above.
+	#
+	# It matters because the muzzle rides HIM: BLAST_MUZZLE is measured from
+	# his feet, so a blast thrown at the top of a jump flies 107 px higher than
+	# one thrown standing. That is the whole point of it. A flat shot passes
+	# under a cruising dragon and over a crouching nobody; a jumped one is the
+	# only way to put an energy strike into something above head height, and it
+	# is equally the reason a jumped shot sails over a bandit standing right in
+	# front of you. Height is now the player's decision rather than a constant.
+	"blast":   {"ground": false, "chain": "",        "planted": true,  "spawn_frame": 4},
 	"drink":   {"ground": true,  "chain": "",        "planted": true,  "loops": true},
 	# Picking up and throwing. LF2 draws one bending pose for both weights and
 	# tells them apart by where the weapon point puts the object, so the object
@@ -59,12 +73,47 @@ const CHARGE_FROM := 150.0
 ## blast animation's release frame, then scaled with the art (x0.75).
 const BLAST_MUZZLE := Vector2(22.5, -34.5)
 
-## Health starts low so the bottle has something to do, and the punks take it
-## away a bar at a time. Spikes and falls remain instant death — that rule is
-## the game's, and a health bar does not get to quietly replace it — so health
-## is what enemies spend and hazards still ignore.
+## He starts full. It was 25, then 60, and it is the whole bar now: the first
+## thing a player sees is the bar, and a bar that starts short reads as a
+## punishment for something they have not done yet.
+##
+## What that costs, so it is a decision rather than a surprise: a milk bottle is
+## worth two of the bar's five segments — 40 points — and drink() REFUSES a
+## bottle at full health rather than wasting it. So a bottle found before the
+## first fight cannot be drunk, and says ALREADY FULL instead. That is why both
+## bottles on the practice course sit just after a fight and not before one; a
+## level that puts one in front of an untouched player is putting a locked door
+## there. The old 60 existed to make 60 + 40 land exactly on 100 so a full
+## bottle could always be swallowed whole, which stops mattering once you are
+## expected to have been hit before you reach one.
+##
+## The punks take it away a bar at a time. Spikes and falls remain instant death
+## — that rule is the game's, and a health bar does not get to quietly replace
+## it — so health is what enemies spend and hazards still ignore.
 const MAX_HEALTH := 100
-const START_HEALTH := 25
+const START_HEALTH := MAX_HEALTH
+
+## Mana is what the blast costs, and the blast is the only thing that spends it.
+## Punches and kicks stay free: the blast is the move that reaches across the
+## screen, and a ranged attack with no cost is the one that makes every other
+## move pointless.
+##
+## A blast is cheap and the bar refills itself, slowly: five points a shot
+## against a hundred, and five points back every ten seconds. So a full bar is
+## twenty blasts, a spawn is twelve, and one free shot arrives every ten seconds
+## whatever happens. At twenty a shot the bar emptied in five and only a brown
+## bottle brought it back, which made the blast something to hoard rather than
+## use — the opposite of the point of giving him one.
+##
+## The trickle also means he can never be permanently disarmed. Nothing here
+## kills him either: out of mana just means the K key does nothing for a moment.
+const MAX_MANA := 100
+const START_MANA := 60
+const BLAST_COST := 5
+## Points a second. BLAST_COST every ten seconds, by construction — change the
+## cost and the shot-per-ten-seconds promise follows it.
+const MANA_REGEN := float(BLAST_COST) / 10.0
+
 ## No two blows may land inside this window. Without it a punk standing inside
 ## the player lands on consecutive frames and empties the whole bar in a third
 ## of a second, which reads as a bug rather than a fight.
@@ -77,6 +126,37 @@ const HURT_INVULNERABLE := 0.6
 ## turn one punch into a death — and it is short enough not to be a sentence.
 const HURT_STUN := 0.25
 
+## Being FLUNG is heavier than being stunned, and only the Dragon Lord does it —
+## his blows carry a knockback the rest of the cast does not (see fling_for() in
+## enemy.gd). A flung blow throws him away from the fist and lifts him off his
+## feet, so the fall is the second half of the blow: "hit, then thrown, then
+## down." While he is flung his own momentum carries him — no walking, no air
+## steering — exactly like an enemy's committed jump, and it ends when he lands.
+##
+## FLING_LIFT is the upward pop the horizontal throw is paired with. Well under
+## his own -640 jump, so it reads as being knocked off balance rather than
+## launched, and its 0.42 s of air outlasts the 0.25 s stun so control comes back
+## as he is getting up rather than in the air.
+const FLING_LIFT := -400.0
+## The cap on how long the thrown momentum is held if he never finds a floor —
+## flung out over the sea, say. In the ordinary case landing clears it first.
+const FLING_TIME := 0.6
+## How long a flung blow keeps him off his feet ALTOGETHER — the tumble, the
+## landing and a beat on the deck before he is up again. Longer than
+## FLING_TIME, which only protects his thrown momentum, and much longer than
+## HURT_STUN, which is what an ordinary blow costs.
+##
+## LF2 draws it: frames 180-184, the falling sequence, which
+## scripts/extract_anti_davis.py writes out as `death` because being put down
+## for good is the other thing they are used for. Five frames at 9 fps is
+## 0.56 s and the last is held for what is left.
+##
+## Only the dragon and the Dragon Lord fling at all, and the dragon's breath
+## flings hardest — see fling_for() in features/combat/enemy.gd. So this is
+## what being caught by the fire costs: the damage, the throw, and a second on
+## the floor while the thing that threw you comes back round.
+const DOWN_TIME := 0.95
+
 ## Carrying something heavy costs him speed. He can still outrun a bandit, but
 ## only just, so hauling a crate across the level is a decision.
 const CARRY_SPEED := 0.55
@@ -87,13 +167,23 @@ const THROW_LIGHT := Vector2(330.0, -210.0)
 
 ## Emitted when a carried object leaves his hands, with the velocity to give it.
 signal threw(object: Node2D, velocity: Vector2)
-## The health bar draws five slots (ui/art/healthbar.json), so health is counted
-## in segments and "a bottle is worth two bars" stays true whatever MAX_HEALTH is.
+## A bottle is worth so many fifths of a bar rather than so many points, so
+## "worth two bars" stays true whatever MAX_HEALTH or MAX_MANA is. Five is what
+## the old segmented health asset drew; the bars are a continuous fill now, but
+## the level files are written in these units and a fifth is still the step the
+## eye can read off one.
 const HEALTH_SEGMENTS := 5
+const MANA_SEGMENTS := 5
+
+## Which bar a bottle fills. The drink machinery is identical either way — the
+## same animation, the same wait, the same mouthful-by-mouthful arrival — so the
+## kind is carried through it rather than duplicated.
+const REFILL_HEALTH := "health"
+const REFILL_MANA := "mana"
 
 ## Seconds to drink a completely full bottle. A part-full one takes its share:
-## a bottle half drunk, or cracked by a punch, is half the wait and half the
-## health. Nothing here is all-or-nothing — he keeps whatever he swallowed and
+## a bottle half drunk, or cracked by a punch, is half the wait and half of
+## whatever it was worth. Nothing here is all-or-nothing — he keeps whatever he swallowed and
 ## the bottle keeps the rest — so stopping is a decision about how long to stand
 ## still, not a gamble on losing the lot.
 const FULL_DRINK_TIME := 6.0
@@ -124,6 +214,12 @@ var require_jump_release: bool = true
 var facing: float = 1.0
 var jumps: int = 0
 var health: int = START_HEALTH
+var mana: int = START_MANA
+## The part of a point trickled back but not yet banked. Held apart from `mana`,
+## which is an integer everything else reasons about, and counted by
+## mana_fraction() so the bar rises smoothly instead of ticking a pixel every
+## two seconds.
+var mana_pool: float = 0.0
 var test_control: bool = false
 var test_axis: float = 0.0
 var test_jump_pressed: bool = false
@@ -149,12 +245,20 @@ var drink_t: float = 0.0
 var drink_fill: float = 1.0
 var drink_segments: int = 0
 var drink_pool: float = 0.0
+## Which bar the bottle in his hand fills, one of the REFILL_* constants.
+var drink_kind: String = REFILL_HEALTH
 ## Time left on the window above.
 var hurt_cooldown: float = 0.0
 ## Time left on the stun, and how far into the hurt animation he is. Separate
 ## clocks because the stun can be re-tuned without the animation changing speed.
 var hurt_stun: float = 0.0
 var hurt_clock: float = 0.0
+## Time left being flung. While it runs his thrown momentum is preserved — the
+## normal ground friction and air control are skipped — and it is cleared the
+## moment he lands. Zero for every blow that does not fling. See FLING_LIFT.
+var fling_t: float = 0.0
+## Seconds left of a knockdown. See DOWN_TIME.
+var down_t: float = 0.0
 ## What he is holding, and whether it is the two-handed kind. The object is a
 ## real prop in the world, not a texture: the visual drives its position from
 ## the current frame's weapon point, so throwing it is just handing it back its
@@ -168,6 +272,23 @@ var last_drink_consumed: float = 0.0
 var last_drink_left: float = 0.0
 var hits_landed: int = 0
 var attacks_thrown: int = 0
+## Moves that run on the attack machinery because they commit him the same way,
+## but that nobody would call a swing. They are kept out of attacks_thrown, the
+## figure the evidence run reports and the one the level's coaching line asks
+## before it stops telling you that J is a fist — see _coached in ui/hud.gd.
+##
+## Drinking was always out. The two pick-ups are out now: bending down for a
+## rock is E, and the rock on First Steps stands at 1524, INSIDE the bandit
+## stretch whose line says J is a fist. Lifting it retired that line before he
+## had thrown a punch, which is exactly backwards — the prompt that told him to
+## pick the rock up was what took the next lesson away.
+const NOT_A_SWING := ["drink", "pick_light", "pick_heavy"]
+## Of those, the ones that were blasts. Split out so "has he ever thrown a
+## punch" and "has he ever thrown a blast" are separate questions — which is
+## what the level's coaching lines ask before they stop showing themselves.
+## Lifetime, like attacks_thrown: a retry does not un-learn a control, so
+## neither is reset in reset_at.
+var blasts_thrown: int = 0
 var test_attack_pressed: bool = false
 var test_blast_pressed: bool = false
 
@@ -202,10 +323,15 @@ func reset_at(spawn: Vector2) -> void:
 	test_jump_pressed = false
 	jumps = 0
 	health = START_HEALTH
+	mana = START_MANA
+	mana_pool = 0.0
 	drink_pool = 0.0
 	hurt_cooldown = 0.0
 	hurt_stun = 0.0
 	hurt_clock = 0.0
+	burning = false
+	fling_t = 0.0
+	down_t = 0.0
 	carrying = null
 	carry_heavy = false
 	thrown_this_move = false
@@ -236,10 +362,33 @@ func heal(amount: int) -> int:
 func health_fraction() -> float:
 	return float(health) / float(MAX_HEALTH)
 
-func take_damage(amount: int, from: Vector2) -> bool:
+## Lit. Set by a blow made of fire and worn for as long as the stun that blow
+## cost him, because the burn is what that stun LOOKS like rather than damage
+## of its own — nothing in this game ticks a bar down over time, and a fire
+## that did would be a second death the player cannot answer. Cleared by the
+## next blow that is not fire, and by a retry.
+##
+## LF2 draws the burn as four frames, two in the air and two on the deck, which
+## is the whole reason this exists: the art was in the pack and nothing asked
+## for it. See is_burning(), the `burn` strip, and player_sprite.gd.
+var burning: bool = false
+
+func is_burning() -> bool:
+	## On fire, and still reeling from what set him on fire. Tied to is_hurt()
+	## rather than to a clock of its own so the flame goes out exactly when he
+	## has his feet back, whether that was a flinch or a knockdown.
+	return burning and is_hurt()
+
+func take_damage(amount: int, from: Vector2, fling: float = 0.0,
+		fire: bool = false) -> bool:
 	## Spends health and breaks whatever he was concentrating on. Returns true
 	## only when the blow actually landed, so an attacker can tell a hit from a
 	## swing that arrived inside the invulnerable window.
+	##
+	## `fling` is the horizontal knockback the blow carries, in px/s, and is zero
+	## for all but the Dragon Lord — see fling_for() in enemy.gd. A flung blow
+	## throws him away from the fist and lifts him off his feet; everything else
+	## still stuns him where he stands.
 	##
 	## Deliberately does NOT decide what an empty bar means. The session owns
 	## death and retry timing, exactly as it does for spikes and pits.
@@ -248,7 +397,22 @@ func take_damage(amount: int, from: Vector2) -> bool:
 	hurt_cooldown = HURT_INVULNERABLE
 	hurt_stun = HURT_STUN
 	hurt_clock = 0.0
+	# Set from the blow rather than or-ed with what he was already wearing: a
+	# punch through a burn puts the punch's own flinch on screen.
+	burning = fire
 	health = maxi(0, health - amount)
+	if fling > 0.0:
+		# Off his feet, away from the blow. He faces what hit him as he goes back,
+		# and his momentum is held until he lands — see fling_t in _physics_process.
+		var away := signf(global_position.x - from.x)
+		if away == 0.0:
+			away = -facing
+		facing = -away
+		velocity = Vector2(away * fling, FLING_LIFT)
+		fling_t = FLING_TIME
+		# And off his feet properly rather than merely shoved: the falling
+		# sequence plays and he has no control until he is up. See DOWN_TIME.
+		down_t = DOWN_TIME
 	# A drink cannot survive a punch. This is what DRINK_HIT was built for: the
 	# bottle is knocked out of his hand rather than set down, and he keeps only
 	# the mouthfuls he had already swallowed.
@@ -264,8 +428,58 @@ func take_damage(amount: int, from: Vector2) -> bool:
 		visual.on_hurt()
 	return true
 
+func is_downed() -> bool:
+	## Flung, and on the way to the floor or on it. A harder is_hurt: it gates
+	## the same things for longer and draws a different animation.
+	return down_t > 0.0
+
+func down_clock() -> float:
+	## How far into the knockdown he is, for the sprite to pick a frame with.
+	return DOWN_TIME - down_t
+
 func is_hurt() -> bool:
-	return hurt_stun > 0.0
+	## Reeling, and not free to act. A knockdown counts: everything that asks
+	## this — the input gate, the attack gate, the pick-up gate — should treat
+	## being on the floor as at least as disabling as being rocked, and this is
+	## the one place to say so. The SPRITE tells them apart, because they are
+	## drawn differently; nothing else has to.
+	return hurt_stun > 0.0 or down_t > 0.0
+
+# --- mana ------------------------------------------------------------------
+
+func restore_mana(amount: int) -> int:
+	## The mana twin of heal(), and reports the same way: how much actually went
+	## in, which is nothing on a full bar.
+	var before := mana
+	mana = clampi(mana + amount, 0, MAX_MANA)
+	return mana - before
+
+func mana_fraction() -> float:
+	## Counts the part-point still in the pool, so the bar shows the trickle as
+	## it happens rather than jumping a whole point at a time.
+	return clampf((float(mana) + mana_pool) / float(MAX_MANA), 0.0, 1.0)
+
+func _regenerate_mana(delta: float) -> void:
+	## The slow trickle. Runs whenever he is on his feet — not in a menu, not
+	## mid-death — and banks whole points as they arrive.
+	if mana >= MAX_MANA:
+		mana_pool = 0.0
+		return
+	mana_pool += MANA_REGEN * delta
+	var whole := int(floor(mana_pool))
+	if whole > 0:
+		mana_pool -= float(whole)
+		mana = mini(MAX_MANA, mana + whole)
+
+func segment_mana() -> int:
+	## One fifth of the mana bar, in points.
+	return int(round(float(MAX_MANA) / float(MANA_SEGMENTS)))
+
+func can_blast() -> bool:
+	## Whether there is a blast left in him. Asked before the move starts, so an
+	## empty bar means the key does nothing rather than playing the animation and
+	## firing a projectile that was never paid for.
+	return mana >= BLAST_COST
 
 # --- carrying ---------------------------------------------------------------
 
@@ -306,17 +520,29 @@ func segment_health() -> int:
 	## One slot of the health bar, in points.
 	return int(round(float(MAX_HEALTH) / float(HEALTH_SEGMENTS)))
 
-func begin_drink(segments: int, fill: float) -> bool:
+func refill_segment(kind: String) -> int:
+	## One fifth of whichever bar `kind` names, in that bar's points.
+	return segment_mana() if kind == REFILL_MANA else segment_health()
+
+func refill_full(kind: String) -> bool:
+	return mana >= MAX_MANA if kind == REFILL_MANA else health >= MAX_HEALTH
+
+func begin_drink(segments: int, fill: float, kind: String = REFILL_HEALTH) -> bool:
 	## Starts a drink on a bottle that is `fill` full (0 to 1) and worth
-	## `segments` bars when whole. The caller has already decided the drink is
-	## allowed; this only refuses when he is not in a position to start —
-	## mid-move, or off the ground.
+	## `segments` bars of `kind` when whole. The caller has already decided the
+	## drink is allowed; this only refuses when he is not in a position to start
+	## — mid-move, or off the ground.
 	if not can_attack() or not is_on_floor():
 		return false
 	if fill <= 0.0:
 		return false
 	if not begin_attack("drink"):
 		return false
+	if kind != drink_kind:
+		# The carried fraction below is in the units of whichever bar it came
+		# from, so it cannot follow him from a milk bottle to a brown one.
+		drink_pool = 0.0
+	drink_kind = kind
 	drink_segments = segments
 	drink_fill = clampf(fill, 0.0, 1.0)
 	drink_t = 0.0
@@ -375,14 +601,17 @@ func _advance_drink(delta: float) -> void:
 	# bottle than was in it.
 	var step: float = minf(delta, maxf(0.0, span - drink_t))
 	drink_t += step
-	# Health arrives as he swallows rather than in a lump at the end, so a drink
-	# cut short is worth exactly the part of it he got through.
-	drink_pool += step / FULL_DRINK_TIME * float(drink_segments * segment_health())
+	# Health or mana arrives as he swallows rather than in a lump at the end, so
+	# a drink cut short is worth exactly the part of it he got through.
+	drink_pool += step / FULL_DRINK_TIME * float(drink_segments * refill_segment(drink_kind))
 	var whole := int(floor(drink_pool))
 	if whole > 0:
 		drink_pool -= float(whole)
-		heal(whole)
-	if health >= MAX_HEALTH:
+		if drink_kind == REFILL_MANA:
+			restore_mana(whole)
+		else:
+			heal(whole)
+	if refill_full(drink_kind):
 		# Topped up with some still in the bottle. Stop rather than pour the
 		# rest away — he can come back for it.
 		_finish_drink(true, DRINK_FULL)
@@ -415,10 +644,10 @@ func begin_attack(key: String) -> bool:
 	chain_queued = false
 	blast_released = false
 	struck.clear()
-	# A drink is not a swing, and must not inflate the attacks-thrown figure the
-	# evidence run reports.
-	if key != "drink":
+	if not NOT_A_SWING.has(key):
 		attacks_thrown += 1
+	if key == "blast":
+		blasts_thrown += 1
 	return true
 
 func _end_attack() -> void:
@@ -460,6 +689,11 @@ func _advance_attack(delta: float) -> void:
 			threw.emit(object, Vector2(speed.x * facing, speed.y))
 	if rules.has("spawn_frame") and not blast_released and attack_frame >= int(rules.spawn_frame):
 		blast_released = true
+		# Paid for on the frame that lets go, not on the key press: a blast a
+		# punch interrupts before his hand comes up costs him nothing. Clamped
+		# rather than asserted — can_blast() has already refused an empty bar,
+		# and a mid-move drain is not worth a crash.
+		mana = maxi(0, mana - BLAST_COST)
 		blast_fired.emit(global_position + Vector2(BLAST_MUZZLE.x * facing, BLAST_MUZZLE.y), facing)
 
 	_resolve_hits()
@@ -511,11 +745,24 @@ func _physics_process(delta: float) -> void:
 	if not enabled:
 		return
 	tick += 1
+	# Gated on `enabled` by the return above, so it does not tick on a menu or
+	# through a death: the bar he comes back with is the one he spawned with.
+	_regenerate_mana(delta)
 	if hurt_cooldown > 0.0:
 		hurt_cooldown = maxf(0.0, hurt_cooldown - delta)
 	if hurt_stun > 0.0:
 		hurt_stun = maxf(0.0, hurt_stun - delta)
 		hurt_clock += delta
+	if fling_t > 0.0:
+		fling_t = maxf(0.0, fling_t - delta)
+		# Landed and no longer reeling: he has his feet back. Kept off the stun so
+		# a flung blow that ends its stun in mid-air still rides the arc to ground.
+		if is_on_floor() and velocity.y >= 0.0 and hurt_stun <= 0.0:
+			fling_t = 0.0
+	if down_t > 0.0:
+		# The knockdown outlives the thrown momentum: he is on the floor for
+		# the rest of it whether or not he has stopped sliding. See DOWN_TIME.
+		down_t = maxf(0.0, down_t - delta)
 	var axis := test_axis if test_control else Input.get_axis("move_left", "move_right")
 	var held := test_jump_held if test_control else Input.is_action_pressed("jump")
 	var pressed := test_jump_pressed if test_control else Input.is_action_just_pressed("jump")
@@ -550,7 +797,7 @@ func _physics_process(delta: float) -> void:
 			# rather than swinging through it.
 			if attack_pressed or blast_pressed:
 				begin_throw()
-		elif blast_pressed:
+		elif blast_pressed and can_blast():
 			begin_attack("blast")
 		elif attack_pressed:
 			begin_attack(_choose_attack())
@@ -561,7 +808,11 @@ func _physics_process(delta: float) -> void:
 	_advance_attack(delta)
 
 	var rules: Dictionary = MOVES.get(attack, {})
-	if rules.get("planted", false):
+	# Only where there is something to plant. Every other planted move is also
+	# `ground`, so it can never be mid-air to begin with and nothing about them
+	# changes; the blast is the one that can, and a blast that zeroed the axis
+	# in flight would brake the jump it was thrown from.
+	if rules.get("planted", false) and is_on_floor():
 		axis = 0.0
 	# A committed move cannot be jumped out of. The request is dropped rather
 	# than buffered, so it does not fire the instant the move ends.
@@ -575,7 +826,12 @@ func _physics_process(delta: float) -> void:
 		opportunity_consumed = false
 	if pressed and not require_jump_release:
 		jump_request_tick = tick
-	if rules.has("drive"):
+	if fling_t > 0.0:
+		# Thrown, and committed to it: neither friction nor air control touches his
+		# horizontal speed, so the knockback carries its full distance and gravity
+		# below brings him down. The same shape as an enemy's uninterruptible jump.
+		pass
+	elif rules.has("drive"):
 		velocity.x = move_toward(velocity.x, facing * float(rules.drive), tuning.acceleration * delta)
 	else:
 		var rate: float = tuning.acceleration if not is_zero_approx(axis) else tuning.deceleration

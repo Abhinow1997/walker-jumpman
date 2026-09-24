@@ -18,9 +18,12 @@ func step() -> void:
 func shot(label: String) -> void:
 	await RenderingServer.frame_post_draw
 	var frame := root.get_texture().get_image()
-	var origin: Vector2 = game.camera.position - Vector2(320, 180)
-	var at: Vector2 = (game.player.position - origin) * 2.0
-	var box := Rect2i(int(at.x) - 90, int(at.y) - 190, 180, 210)
+	## World point to screen pixel: back off to the camera's top-left corner, then
+	## apply the canvas magnification the 960x540 viewport gets in a 1280x720 window.
+	var origin: Vector2 = game.camera.position - Game.VIEW_HALF
+	var at: Vector2 = (game.player.position - origin) * (1280.0 / 960.0)
+	## Two thirds of the old 90/190/180/210: same framing, smaller cast.
+	var box := Rect2i(int(at.x) - 60, int(at.y) - 127, 120, 140)
 	box = box.intersection(Rect2i(Vector2i.ZERO, frame.get_size()))
 	frame.get_region(box).save_png(output + "/turn-" + label + ".png")
 

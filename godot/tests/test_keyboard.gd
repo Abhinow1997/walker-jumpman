@@ -30,6 +30,14 @@ func check(id: String, condition: bool, observed: String) -> void:
 	if not condition: failures += 1
 
 func run() -> void:
+	# Pinned to the fixture. Every expectation below needs ground under it — a key
+	# held for a fixed number of steps walks an unpredictable distance, because a
+	# step is a PROCESS frame and covers one to eight physics ticks — and the
+	# fixture is flat for 900 px where First Steps, which this used to boot, now
+	# has a gap at 540 and a drop past it. The first ENTER starts whatever the
+	# level list has highlighted, so the catalogue is stood in for rather than
+	# followed about: what is under test here is the keyboard.
+	Game._catalogue = ["greybox"]
 	game = Game.new()
 	game.test_mode = true
 	root.add_child(game)
@@ -40,8 +48,15 @@ func run() -> void:
 	await steps(10)
 	await key(KEY_D,false)
 	check("keyboard-move",game.player.position.x > 170,"x="+str(game.player.position.x))
+	var stood: float = game.player.position.y
 	await tap(KEY_SPACE)
-	check("keyboard-jump",game.player.jumps == 1 and game.player.velocity.y < 0,"jumps="+str(game.player.jumps))
+	# That he left the ground, not what his velocity was at the instant this
+	# line ran: a tap is four steps, a step is a process frame, and a process
+	# frame is anywhere from one to eight physics ticks — so sampling the sign
+	# of velocity.y here reads the rise or the fall depending on how busy the
+	# run happens to be.
+	check("keyboard-jump",game.player.jumps == 1 and game.player.position.y < stood - 8.0,
+		"jumps=%d rose=%.1f" % [game.player.jumps, stood - game.player.position.y])
 	await tap(KEY_ESCAPE)
 	var y: float = game.player.position.y
 	await steps(5)
@@ -49,7 +64,10 @@ func run() -> void:
 	await tap(KEY_ENTER)
 	check("enter-resume",game.state == Game.State.PLAYING,"state="+str(game.state))
 	await tap(KEY_R)
-	check("r-retry",game.player.position.distance_to(Vector2(128,640)) < 1 and game.deaths == 0,"position="+str(game.player.position))
+	# Read off the level rather than written down: this suite is pinned to First
+	# Steps, and First Steps is a level that gets re-authored.
+	var spawn := Vector2(float(game.level.spawn[0]), float(game.level.spawn[1]))
+	check("r-retry",game.player.position.distance_to(spawn) < 1 and game.deaths == 0,"position="+str(game.player.position))
 	game.resolve_contacts(false,true)
 	await tap(KEY_ENTER)
 	check("enter-replay",game.state == Game.State.PLAYING and game.player.jumps == 0,"state="+str(game.state))

@@ -67,16 +67,36 @@ var death_t: float = 0.0
 ## of the screen is not felt; this puts it on the character.
 var hurt_t: float = 0.0
 const HURT_FLASH := 0.35
+## The red a hit flashes. Named rather than inlined because the enemies flash the
+## same one — see HURT_TINT in features/combat/enemy.gd, which test_combat.gd
+## holds to this value. A player who has learnt what the red means on himself
+## should read it on a bandit without being told.
+const HURT_TINT := Color(1.0, 0.42, 0.38)
 
 var motes: Array = []
 var mote_seed: int = 0
+## Texture pixel to world unit, read from the manifest in _ready.
+var art_scale := 1.0
 
 func _ready() -> void:
 	sprite = AnimatedSprite2D.new()
 	sprite.sprite_frames = _build_frames()
 	sprite.centered = true
 	sprite.offset = Moveset.pivot()
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	## Linear, unlike the Magic Cliffs scenery, because this is not pixel art:
+	## LF2's sheets are painted and already anti-aliased, 145 colours in one idle
+	## frame, and they take a resample the way a small photograph does.
+	##
+	## It matters because the node below is scaled by 0.75, so the sprite only
+	## lands one texel per pixel when the canvas magnification is a multiple of
+	## 4/3 - that is, at 1280x720 or 2560x1440 and nowhere else. Resize the window
+	## to anything between and nearest sampling drops and doubles rows unevenly,
+	## which reads as the character being far blockier than everything around him.
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	## The sheets are at the pack's own resolution, so the node carries the
+	## three-quarter cast size. Every scale this rig computes below — squash,
+	## widen, the turn — multiplies on top of it rather than replacing it.
+	art_scale = Moveset.render_scale()
 	add_child(sprite)
 	_play("idle")
 
@@ -117,6 +137,19 @@ func _play(key: String) -> void:
 		return
 	playing = wanted
 	sprite.play(wanted)
+
+## Which frame of the four-frame burn is showing. LF2 draws it in two halves
+## — 203-204 is the body tumbling inside the flame and 205-206 is the same body
+## burning where it landed — so the half is picked off his FEET and only the
+## frame within it off the clock. Picking the lot off the clock put him on the
+## deck while he was still in the air on the short throws.
+const BURN_LANDED := 2
+
+func _burn_frame(clock: float, grounded: bool) -> int:
+	var frame := Moveset.frame_at("burn", clock)
+	if grounded:
+		return maxi(frame, BURN_LANDED)
+	return mini(frame, BURN_LANDED - 1)
 
 func _show_frame(key: String, frame: int) -> void:
 	## Attacks are stepped by the player, not by the AnimatedSprite2D's own
@@ -193,7 +226,7 @@ func advance(delta: float) -> void:
 
 	if hurt_t > 0.0:
 		hurt_t = maxf(0.0, hurt_t - delta)
-		sprite.modulate = Color.WHITE.lerp(Color(1.0, 0.42, 0.38), hurt_t / HURT_FLASH)
+		sprite.modulate = Color.WHITE.lerp(HURT_TINT, hurt_t / HURT_FLASH)
 	elif not dying:
 		sprite.modulate = Color.WHITE
 
@@ -202,8 +235,28 @@ func advance(delta: float) -> void:
 	# An attack overrides the locomotion pose for its whole duration; the player
 	# has already decided which frame of it is showing. Being hit outranks both:
 	# the blow has already cancelled whatever he was doing.
-	if body.is_hurt():
-		_show_frame("hurt", Moveset.frame_at("hurt", body.hurt_clock))
+	if body.is_downed():
+		# Flung off his feet. LF2's falling sequence, which the extractor
+		# writes as `death` because being put down for good uses the same five
+		# frames — see DOWN_TIME in player.gd. Checked before `hurt` because a
+		# knockdown outlives the stun and the tumble is the picture that
+		# matters, not the flinch that started it.
+		#
+		# Unless a dragon breathed on him, in which case the pack draws the
+		# whole thing again on fire and that is the picture instead.
+		if body.is_burning():
+			_show_frame("burn", _burn_frame(body.down_clock(), grounded))
+		else:
+			_show_frame("death", Moveset.frame_at("death", body.down_clock()))
+	elif body.is_hurt():
+		if body.is_burning():
+			# Alight but still on his feet — no fire in the cast throws that
+			# blow today, every one of them flings. Drawn anyway, and drawn
+			# with the airborne half, because a burn that only exists inside a
+			# knockdown is a burn that breaks the day somebody tunes one out.
+			_show_frame("burn", _burn_frame(body.hurt_clock, false))
+		else:
+			_show_frame("hurt", Moveset.frame_at("hurt", body.hurt_clock))
 	elif body.attack != "":
 		_show_frame(body.attack, body.attack_frame)
 	elif body.is_carrying() and body.carry_heavy and grounded:
@@ -266,7 +319,7 @@ func _apply_transform() -> void:
 	var facing := -1.0 if face_scale < 0.0 else 1.0
 	stretch_x *= TURN_NARROW + (1.0 - TURN_NARROW) * turn
 	stretch_y *= 1.0 + (1.0 - turn) * TURN_LIFT
-	sprite.scale = Vector2(stretch_x * facing, stretch_y)
+	sprite.scale = Vector2(stretch_x * facing, stretch_y) * art_scale
 
 func _noise(n: int) -> float:
 	## Deterministic, so headless captures and test runs stay reproducible.

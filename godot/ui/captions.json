@@ -1,0 +1,95 @@
+{
+ "_note": "The opening's captions, in the order they are spoken. `at` is seconds into godot/audio/storyboard_scene_1.mp3 and `until` is when the line leaves; ui/storyboard.gd reads this file and nothing else holds these numbers. These times were marked by ear against the recording with `<godot> --path godot --script tests/time_captions.gd`, which is how they get redone if the mp3 is ever re-rendered - do NOT try to derive them from tests/diag_speech.gd alone. That measures where sound starts and stops, which is real, but it cannot say which words are inside a run of sound, and an earlier pass that matched the fifteen measured segments against fifteen script items in order produced captions that were individually plausible and collectively wrong. Line one alone spans two measured segments, because it has an ellipsis in the middle of it. The delivery tags are deliberately absent: [whispers] and the rest are instructions to the voice, not words he says. [EXPLOSION] stays, because a sound with no words in it still has to be captioned.",
+ "lines": [
+  {
+   "at": 0.9,
+   "text": "The Holocene earthquakes broke the world… shattered it into pieces.",
+   "until": 6.59
+  },
+  {
+   "at": 6.59,
+   "text": "The old maps called this place EARTH.",
+   "until": 10.73
+  },
+  {
+   "at": 10.73,
+   "text": "The old maps are underwater now.",
+   "until": 13.2
+  },
+  {
+   "at": 13.2,
+   "text": "What's left… floats.",
+   "until": 16.58
+  },
+  {
+   "at": 16.58,
+   "text": "And what floats, I keep.",
+   "until": 19.3
+  },
+  {
+   "at": 19.3,
+   "text": "I've held this ledge.",
+   "until": 21.67
+  },
+  {
+   "at": 21.67,
+   "text": "No war. No wound.",
+   "until": 25.03
+  },
+  {
+   "at": 25.03,
+   "text": "Just salt off the water… and the old stones humming to themselves.",
+   "until": 29.43
+  },
+  {
+   "at": 29.43,
+   "text": "[EXPLOSION]",
+   "until": 32.22
+  },
+  {
+   "at": 32.22,
+   "text": "What was THAT?!",
+   "until": 33.97
+  },
+  {
+   "at": 33.97,
+   "text": "That's not wind.",
+   "until": 36.47
+  },
+  {
+   "at": 36.47,
+   "text": "I know every sound these isles can make.",
+   "until": 37.83
+  },
+  {
+   "at": 37.83,
+   "text": "That's not stone settling… or the bandits…",
+   "until": 41.65
+  },
+  {
+   "at": 41.65,
+   "text": "This is something else.",
+   "until": 44.32
+  },
+  {
+   "at": 44.32,
+   "text": "Something… unknown.",
+   "until": 47.91
+  },
+  {
+   "at": 47.91,
+   "text": "So whatever just woke up out there…",
+   "until": 50.08
+  },
+  {
+   "at": 50.08,
+   "text": "You should have slept a LITTLE longer.",
+   "until": 51.93
+  },
+  {
+   "at": 51.93,
+   "text": "I've had years to get bored.",
+   "until": 56.56
+  }
+ ]
+}

@@ -1,0 +1,96 @@
+{
+ "_generated_by": "scripts/extract_hunter.py",
+ "_source": "Little Fighter 2 Hunter (ripped sheet, unlicensed fan content)",
+ "animations": {
+  "guard": {
+   "durations": [
+    0.3,
+    0.25
+   ],
+   "file": "guard.png",
+   "frames": 2,
+   "loop": false
+  },
+  "hurt": {
+   "durations": [
+    0.1,
+    0.1,
+    0.14,
+    0.5
+   ],
+   "file": "hurt.png",
+   "frames": 4,
+   "loop": false
+  },
+  "idle": {
+   "durations": [
+    0.14,
+    0.14,
+    0.14,
+    0.14
+   ],
+   "file": "idle.png",
+   "frames": 4,
+   "loop": true
+  },
+  "jump": {
+   "durations": [
+    0.3,
+    0.3
+   ],
+   "file": "jump.png",
+   "frames": 2,
+   "loop": false
+  },
+  "punch": {
+   "durations": [
+    0.1,
+    0.2,
+    0.12
+   ],
+   "file": "punch.png",
+   "frames": 3,
+   "loop": false
+  },
+  "shoot": {
+   "durations": [
+    0.14,
+    0.16,
+    0.1,
+    0.1
+   ],
+   "file": "shoot.png",
+   "frames": 4,
+   "loop": false
+  },
+  "walk": {
+   "durations": [
+    0.11,
+    0.11,
+    0.11,
+    0.11
+   ],
+   "file": "walk.png",
+   "frames": 4,
+   "loop": true
+  }
+ },
+ "cell": [
+  79,
+  79
+ ],
+ "faces": 1,
+ "hit_damage": 20,
+ "hit_frame": 1,
+ "hit_rect": [
+  7.5,
+  -34.5,
+  10.5,
+  13.5
+ ],
+ "origin": [
+  39.0,
+  79.0
+ ],
+ "render_scale": 0.75
+}

@@ -25,13 +25,22 @@ static func data() -> Dictionary:
 static func item(name: String) -> Dictionary:
 	return data().get("items", {}).get(name, {})
 
+## Texture pixel to world unit. The sheets are written at the LF2 sheet's own
+## resolution; the props are drawn three-quarter size, and the sprite node
+## carries the difference. Anything that draws item art itself rather than
+## assigning it to a scaled node has to apply this — see prop.gd's debris.
+static func render_scale() -> float:
+	return float(data().get("render_scale", 1.0))
+
+## One frame, in the SHEET's own pixels rather than world units.
 static func cell(name: String) -> Vector2i:
 	var c: Array = item(name).get("cell", [1, 1])
 	return Vector2i(int(c[0]), int(c[1]))
 
 static func pivot(name: String) -> Vector2:
 	## Offset for a centred sprite that puts the item's ground point on the node
-	## origin: half the cell, minus where the origin sits inside it.
+	## origin: half the cell, minus where the origin sits inside it. In texture
+	## pixels, like cell(); the node's render_scale applies to it too.
 	var c := cell(name)
 	var o: Array = item(name).get("origin", [0, 0])
 	return Vector2(float(c.x) / 2.0 - float(o[0]), float(c.y) / 2.0 - float(o[1]))

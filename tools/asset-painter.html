@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Asset Painter — Walker/Jumpman</title>
+<style>
+  :root { --bg:#12151b; --panel:#1b2029; --line:#2b3340; --ink:#e6ebf2; --dim:#8b96a6;
+          --accent:#4aa3ff; --accent2:#7ee081; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+              font:13px/1.4 system-ui,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #app { display:grid; grid-template-columns:1fr 236px; grid-template-rows:auto 1fr auto; height:100%; }
+  header { grid-column:1/3; display:flex; gap:6px; align-items:center; flex-wrap:wrap;
+           padding:6px 10px; background:var(--panel); border-bottom:1px solid var(--line); }
+  header .sp { flex:1; }
+  button, select { background:#232a35; color:var(--ink); border:1px solid var(--line);
+           border-radius:6px; padding:5px 9px; cursor:pointer; font-size:12px; }
+  button:hover { border-color:var(--accent); }
+  button.on { background:var(--accent); color:#04121f; border-color:var(--accent); font-weight:600; }
+  button.g2.on { background:var(--accent2); color:#062012; border-color:var(--accent2); }
+  canvas#cv { display:block; width:100%; height:100%; cursor:crosshair; }
+  #stage { grid-row:2; grid-column:1; position:relative; overflow:hidden; background:#0c0f14; }
+  #side { grid-row:2; grid-column:2; background:var(--panel); border-left:1px solid var(--line);
+          overflow:auto; padding:8px; }
+  #side h3 { margin:10px 2px 4px; font-size:11px; letter-spacing:.06em; color:var(--dim); text-transform:uppercase; }
+  .pal { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; }
+  .cell { background:#0e1218; border:1px solid var(--line); border-radius:6px; padding:3px;
+          display:flex; flex-direction:column; align-items:center; cursor:pointer; }
+  .cell:hover { border-color:var(--accent); }
+  .cell.sel { border-color:var(--accent2); box-shadow:0 0 0 1px var(--accent2) inset; }
+  .cell canvas { width:56px; height:44px; image-rendering:pixelated; background:
+     repeating-conic-gradient(#20262f 0% 25%, #171c24 0% 50%) 50%/12px 12px; }
+  .cell span { font-size:9px; color:var(--dim); margin-top:2px; max-width:64px;
+               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  footer { grid-column:1/3; display:flex; gap:14px; align-items:center; padding:4px 10px;
+           background:var(--panel); border-top:1px solid var(--line); color:var(--dim); font-size:11px; }
+  #io { position:absolute; inset:0; background:rgba(8,10,14,.94); padding:18px; display:none; }
+  #io.show { display:flex; flex-direction:column; gap:8px; }
+  #io textarea { flex:1; width:100%; background:#0c0f14; color:var(--ink); border:1px solid var(--line);
+                 border-radius:8px; padding:10px; font:12px ui-monospace,Consolas,monospace; }
+  .row { display:flex; gap:6px; align-items:center; }
+  label.f { color:var(--dim); font-size:11px; }
+  input.n { width:64px; background:#0c0f14; color:var(--ink); border:1px solid var(--line);
+            border-radius:5px; padding:4px 6px; font-size:12px; }
+  #hint { position:absolute; left:10px; bottom:10px; color:var(--dim); font-size:11px;
+          background:rgba(12,15,20,.7); padding:5px 8px; border-radius:6px; pointer-events:none; }
+  #boot { position:absolute; inset:0; z-index:5; display:flex; flex-direction:column; gap:10px;
+          align-items:center; justify-content:center; text-align:center; padding:24px;
+          background:rgba(10,13,18,.97); color:var(--ink); font-size:16px; }
+  #boot small { color:var(--dim); font-size:13px; max-width:620px; line-height:1.7; }
+  #boot.hide { display:none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <strong style="color:var(--accent2)">Asset Painter</strong>
+    <select id="imp" title="Import an existing level"><option value="">Import level…</option></select>
+    <span style="width:6px"></span>
+    <button class="tool on" data-tool="place">Place</button>
+    <button class="tool" data-tool="select">Select</button>
+    <button class="tool" data-tool="erase">Erase</button>
+    <button class="tool" data-tool="cliff">Cliff</button>
+    <button class="tool" data-tool="spawn">Spawn</button>
+    <button class="tool" data-tool="finish">Finish</button>
+    <button class="tool" data-tool="pan">Pan</button>
+    <span style="width:6px"></span>
+    <button id="snap" class="g2 on">Snap 12</button>
+    <button id="grid" class="g2 on">Grid</button>
+    <button id="undo">Undo</button>
+    <span class="sp"></span>
+    <label class="f">w</label><input id="mw" class="n" value="2400">
+    <label class="f">fall_y</label><input id="mfy" class="n" value="1400">
+    <label class="f">horizon</label><input id="mh" class="n" value="648">
+    <button id="ioBtn">JSON ⇄</button>
+  </header>
+
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="hint"></div>
+    <div id="boot">Loading assets…<small>one moment</small></div>
+    <div id="io">
+      <div class="row">
+        <button id="copy">Copy</button>
+        <button id="dl">Download .json</button>
+        <button id="loadBox">Load from box</button>
+        <span class="sp" style="flex:1"></span>
+        <label class="f">id</label><input id="mid" class="n" style="width:150px" value="painted_level">
+        <label class="f">title</label><input id="mtitle" class="n" style="width:170px" value="Painted Level">
+        <button id="ioClose">Close</button>
+      </div>
+      <textarea id="json" spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <div id="side"></div>
+
+  <footer>
+    <span id="stat">loading assets…</span>
+    <span class="sp" style="flex:1"></span>
+    <span id="counts"></span>
+  </footer>
+</div>
+
+<script>
+const ART = new URL("../godot/features/world/art/magic_cliffs/", location.href).href;
+const LEVELS = new URL("../godot/levels/", location.href).href;
+const RS = 0.75;
+let TILE = 12;
+
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const stage = document.getElementById("stage");
+let manifest=null, IMG={}, BG={};
+const GROUPS = {
+  "Ground / cliff": ["grass_strip","grass_short","ground_left","ground_right","fill_stone","edge_left","edge_right","body_stone"],
+  "Plants": ["tree","bush","tuft","pillar_bush","vine","vine_rock"],
+  "Islands & rocks": ["island_large","island_small","island_wide","rock_chunk","rock_float"],
+  "Bridge": ["bridge_left","bridge_mid","bridge_right"],
+  "Formations": ["hang_left","hang_thin","hang_right","archway"],
+};
+// ground defaults, mirroring scenery.gd
+const GDEF = { lean:0.55, lean_min_width:336, break_step:24, break_jitter:24,
+               texture:0.5, edge_left_x:0, edge_right_x:0 };
+
+// ---- level (the real format: solids + decor) -------------------------------
+let level = blank();
+function blank(){ return { id:"painted_level", title:"Painted Level", theme:"magic_cliffs",
+  width:2400, fall_y:1400, horizon:648, spawn:[120,648], finish:[2280,536,48,112],
+  solids:[], decor:[], hazards:[], crates:[], bottles:[], enemies:[], signs:[], ground:null }; }
+let view={zoom:.7, panX:-40, panY:360}, tool="place", active=null, snap=true, showGrid=true;
+let sel=null, drag=null, hover=null, history=[], placeAngle=0;
+
+// ---- boot ------------------------------------------------------------------
+fetch(ART+"magic_cliffs.json").then(r=>r.json()).then(m=>{
+  manifest=m; TILE=(m.tile||16)*RS;
+  const names=Object.keys(m.pieces), bg=(m.background||[]).map(b=>b.file);
+  let need=names.length+bg.length; const done=()=>{ if(--need<=0){ buildPalette(); loadIndex();
+     resize(); draw(); document.getElementById("boot").classList.add("hide");
+     document.getElementById("stat").textContent="ready — Import a level, or pick an asset and click to place"; } };
+  names.forEach(n=>{ const im=new Image(); im.onload=im.onerror=done; im.src=ART+m.pieces[n].file; IMG[n]=im; });
+  (m.background||[]).forEach(b=>{ const im=new Image(); im.onload=im.onerror=done; im.src=ART+b.file; BG[b.file]=im; });
+}).catch(bootFail);
+function bootFail(){ const b=document.getElementById("boot"); b.classList.remove("hide");
+  b.childNodes[0].nodeValue="Can’t load the assets";
+  b.querySelector("small").innerHTML = location.protocol==="file:"
+    ? "You opened this as a local <b>file://</b> — browsers block that from loading the art and levels.<br>Open it through the local server instead:<br><b style='color:#7ee081;font-size:15px'>http://localhost:8777/tools/asset-painter.html</b>"
+    : "Couldn’t reach the art at<br>"+ART+"<br>Serve the project root first: <code>python -m http.server 8777</code>"; }
+if(location.protocol==="file:") bootFail();
+
+function loadIndex(){ fetch(LEVELS+"index.json").then(r=>r.json()).then(ix=>{
+  const sel=document.getElementById("imp");
+  (ix.order||[]).forEach(id=>{ const o=document.createElement("option"); o.value=id; o.textContent="Import: "+id; sel.appendChild(o); });
+}).catch(()=>{}); }
+
+// ---- piece helpers ---------------------------------------------------------
+function sz(n){ const s=manifest.pieces[n].size; return {w:s[0]*RS, h:s[1]*RS}; }
+function surf(n){ return (manifest.pieces[n].surface||0)*RS; }
+function standable(n){ return !!manifest.pieces[n].standable; }
+
+// ---- ground silhouette, mirroring scenery.gd -------------------------------
+const g = k => (level.ground && level.ground[k]!==undefined) ? level.ground[k] : GDEF[k];
+const profOf = x => ((level.ground&&level.ground.profiles)||{})[String(Math.round(x))];
+const profStep = p => Math.max((p&&p.step)||48, 4);
+function sculpt(x,depth,left){ const p=profOf(x); if(!p) return null;
+  const s=p[left?"left":"right"]; if(!s||!s.length) return null;
+  return s[Math.max(0,Math.min(Math.floor(depth/profStep(p)),s.length-1))]; }
+function brk(a,b){ return Math.abs((Math.sin(a*0.1237+b*78.233)*43758.5453)%1); }
+function faceX(x0,sideX,y,topY,pull){ const depth=Math.max(y-topY,0);
+  const d=sculpt(x0,depth,pull>=0); if(d!==null) return sideX+(pull>=0?d:-d);
+  if(Math.abs(pull)<1e-6) return sideX;
+  const slide=Math.min(g("lean")*depth,Math.abs(pull)), step=Math.floor(depth/g("break_step"));
+  const ease=Math.min(depth/(g("break_step")*2),1), wob=(brk(x0+sideX,step)-0.5)*2*g("break_jitter");
+  return sideX+Math.sign(pull)*Math.max(0,Math.min(slide+wob*ease,Math.abs(pull))); }
+function silhouette(x,y,w,h){ const drawn=!!profOf(x), leans=drawn||w>=g("lean_min_width");
+  const closes=leans?(w*0.5)/Math.max(g("lean"),0.01):0, depth=drawn?h:(leans?Math.min(h,closes):h);
+  const pull=drawn?w*0.5:(leans?g("lean")*depth:0), bottom=y+depth;
+  if(!leans) return [[x,y],[x+w,y],[x+w,bottom],[x,bottom]];
+  const L=[],R=[]; let yy=y, step=g("break_step");
+  for(;;){ const lx=faceX(x,x,yy,y,pull), rx=faceX(x,x+w,yy,y,-pull), next=Math.min(yy+step,bottom);
+    if(yy>=bottom||rx-lx<=step){ const m=(lx+rx)/2; L.push([m,Math.min(yy,bottom)]); break; }
+    L.push([lx,yy]); L.push([lx,next]); R.push([rx,yy]); R.push([rx,next]); yy=next; }
+  return [[x,y],[x+w,y]].concat(R, L.reverse()); }
+
+// ---- view ------------------------------------------------------------------
+function toS(x,y){ return [ (x-view.panX)*view.zoom, (y-view.panY)*view.zoom ]; }
+function toW(sx,sy){ return [ sx/view.zoom+view.panX, sy/view.zoom+view.panY ]; }
+function snapV(v){ return snap?Math.round(v/TILE)*TILE:Math.round(v); }
+
+// ---- render ----------------------------------------------------------------
+function resize(){ const r=stage.getBoundingClientRect(); cv.width=r.width; cv.height=r.height; }
+function draw(){
+  ctx.imageSmoothingEnabled=false;
+  const H=parseFloat(document.getElementById("mh").value)||648;
+  ctx.fillStyle="#8fdadf"; ctx.fillRect(0,0,cv.width,cv.height);
+  drawBG("far_grounds.png",H,.55); drawBG("clouds.png",H-170*RS,.5);
+  const [,hy]=toS(0,H); drawBG("sea.png",H,1);
+  if(hy<cv.height){ const sh=(BG["sea.png"]?.height||96)*RS*view.zoom;
+    ctx.fillStyle="#4e9e96"; ctx.fillRect(0,hy+sh,cv.width,cv.height); }
+  if(showGrid) grid();
+  // terrain (solids), then decor — exactly the game's order
+  level.solids.forEach((s,i)=>{ drawSolid(s, sel&&sel.list==="solids"&&sel.i===i); });
+  level.decor.forEach((d,i)=>{ drawDecor(d, sel&&sel.list==="decor"&&sel.i===i); });
+  markers();
+  if(tool==="place"&&active&&hover){ ctx.globalAlpha=.55; ghost(active,hover[0],hover[1]); ctx.globalAlpha=1; }
+  if(drag&&drag.mode==="cliff"){ const r=rectFromDrag(); const [x,y]=toS(r.x,r.y);
+    ctx.strokeStyle="#7ee081"; ctx.lineWidth=2; ctx.strokeRect(x,y,r.w*view.zoom,r.h*view.zoom); }
+  updateStat();
+}
+function drawBG(file,worldY,alpha){ const im=BG[file]; if(!im||!im.width) return;
+  const w=im.width*RS*view.zoom, h=im.height*RS*view.zoom, [,y]=toS(0,worldY-im.height*RS);
+  ctx.globalAlpha=alpha;
+  for(let x=((-view.panX*view.zoom)%w+w)%w-w; x<cv.width; x+=w) ctx.drawImage(im,x,y,w,h);
+  ctx.globalAlpha=1; }
+function grid(){ const step=TILE*view.zoom; if(step<6) return;
+  ctx.strokeStyle="rgba(255,255,255,.06)"; ctx.lineWidth=1;
+  const ox=((-view.panX*view.zoom)%step+step)%step, oy=((-view.panY*view.zoom)%step+step)%step;
+  ctx.beginPath();
+  for(let x=ox;x<cv.width;x+=step){ ctx.moveTo(x,0); ctx.lineTo(x,cv.height); }
+  for(let y=oy;y<cv.height;y+=step){ ctx.moveTo(0,y); ctx.lineTo(cv.width,y); }
+  ctx.stroke(); }
+
+function drawSolid(s, seld){
+  const x=+s[0], y=+s[1], w=+s[2], h=+s[3], art=s[4]||"";
+  if(art==="bridge") drawBridge(x,y,w);
+  else if(art && manifest.pieces[art]) drawNamed(x,y,w,art);
+  else drawCliff(x,y,w,h);
+  if(seld){ const [sx,sy]=toS(x,y); ctx.strokeStyle="#7ee081"; ctx.lineWidth=2;
+    ctx.strokeRect(sx,sy,w*view.zoom,h*view.zoom); }
+}
+function drawCliff(x,y,w,h){
+  const poly=silhouette(x,y,w,h);
+  ctx.beginPath();
+  poly.forEach((p,i)=>{ const s=toS(p[0],p[1]); i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]); });
+  ctx.closePath(); ctx.fillStyle="#112024"; ctx.fill();
+  // Flat, and nothing over it: the pack's cliff interiors are one colour, and
+  // scenery.gd stopped tiling body_stone across them because a single fin shape
+  // repeated down a face reads as wallpaper. A body_stone you PLACE still draws,
+  // as decor - that is how a fin gets into a body now, here and in the game.
+  const gs=IMG.grass_strip;
+  if(gs&&gs.width){ const gw=gs.width*RS, gh=gs.height*RS, top=y-surf("grass_strip");
+    for(let xx=x; xx<x+w-0.1; xx+=gw){ const cw=Math.min(gw,x+w-xx), s=toS(xx,top);
+      ctx.drawImage(gs,0,0,cw/RS,gs.height, s[0],s[1], cw*view.zoom, gh*view.zoom); } }
+}
+function drawNamed(x,y,w,name){ const im=IMG[name]; if(!im||!im.width) return;
+  const p=sz(name), s=toS(x+(w-p.w)/2, y-surf(name));
+  ctx.drawImage(im, s[0], s[1], p.w*view.zoom, p.h*view.zoom); }
+function drawBridge(x,y,w){ const L=IMG.bridge_left,M=IMG.bridge_mid,R=IMG.bridge_right; if(!M||!M.width) return;
+  const el=sz("bridge_left"), em=sz("bridge_mid"), top=y-surf("bridge_mid");
+  let s=toS(x,top); ctx.drawImage(L,s[0],s[1],el.w*view.zoom,el.h*view.zoom);
+  const inner=Math.max(w-el.w*2,0);
+  for(let xx=x+el.w; xx<x+el.w+inner-0.1; xx+=em.w){ const cw=Math.min(em.w,x+el.w+inner-xx);
+    s=toS(xx,top); ctx.drawImage(M,0,0,cw/RS,M.height, s[0],s[1], cw*view.zoom, em.h*view.zoom); }
+  s=toS(x+w-el.w,top); ctx.drawImage(R,s[0],s[1],el.w*view.zoom,el.h*view.zoom); }
+function decorTL(d){ const n=d[2], p=sz(n);
+  return standable(n) ? [d[0]-p.w/2, d[1]-surf(n)] : [d[0]-p.w/2, d[1]-p.h]; }
+function rockPoly(d){ const cx=+d[0],top=+d[1],w=+d[3],h=+d[4],tp=+(d[5]||0);
+  const ht=w/2, hb=Math.max(w*(1-Math.min(tp,.95))/2,3), bot=top+h;
+  return [[cx-ht,top],[cx+ht,top],[cx+hb,bot],[cx-hb,bot]]; }
+function drawDecor(d, seld){ const n=d[2];
+  if(n==="rock_mass"){                              // hanging stalactite / archway mass
+    const poly=rockPoly(d); ctx.beginPath();
+    poly.forEach((p,i)=>{ const s=toS(p[0],p[1]); i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]); });
+    ctx.closePath(); ctx.fillStyle="#112024"; ctx.fill();
+    const bs=IMG.body_stone; if(bs&&bs.width){ const pat=ctx.createPattern(bs,"repeat");
+      if(pat&&pat.setTransform) pat.setTransform(new DOMMatrix([RS*view.zoom,0,0,RS*view.zoom,-view.panX*view.zoom,-view.panY*view.zoom]));
+      ctx.save(); ctx.globalAlpha=.9; ctx.fillStyle=pat||"#1a2b2b"; ctx.fill(); ctx.globalAlpha=1; ctx.restore(); }
+    ctx.fillStyle="rgba(0,0,0,.12)"; ctx.fill();
+    if(seld){ const s=toS(+d[0]-+d[3]/2,+d[1]); ctx.strokeStyle="#7ee081"; ctx.lineWidth=2;
+      ctx.strokeRect(s[0],s[1],+d[3]*view.zoom,+d[4]*view.zoom); } return; }
+  const im=IMG[n]; if(!im||!im.width) return;
+  const p=sz(n), ang=(+d[3]||0)*Math.PI/180, base=toS(+d[0],+d[1]);
+  const ox=-p.w/2*view.zoom, oy=(standable(n)?-surf(n):-p.h)*view.zoom;  // pivot at the base
+  ctx.save(); ctx.translate(base[0],base[1]); ctx.rotate(ang);
+  ctx.drawImage(im,ox,oy,p.w*view.zoom,p.h*view.zoom);
+  if(seld){ ctx.strokeStyle="#7ee081"; ctx.lineWidth=2; ctx.strokeRect(ox,oy,p.w*view.zoom,p.h*view.zoom); }
+  ctx.restore(); }
+function ghost(name,wx,wy){ const p=sz(name);
+  if(standable(name)){ drawSolid([snapV(wx-p.w/2),snapV(wy),Math.round(p.w),24,name],false); }
+  else { drawDecor([snapV(wx),snapV(wy),name,placeAngle],false); } }
+function markers(){ const [sx,sy]=toS(level.spawn[0],level.spawn[1]);
+  ctx.fillStyle="#4aa3ff"; ctx.beginPath(); ctx.arc(sx,sy,6,0,7); ctx.fill();
+  ctx.fillStyle="#cfe6ff"; ctx.font="10px system-ui"; ctx.fillText("spawn",sx+8,sy-6);
+  const f=level.finish, [fx,fy]=toS(f[0],f[1]); ctx.strokeStyle="#ffd36b"; ctx.lineWidth=2;
+  ctx.strokeRect(fx,fy,f[2]*view.zoom,f[3]*view.zoom); ctx.fillStyle="#ffd36b"; ctx.fillText("finish",fx,fy-4); }
+
+// ---- picking ---------------------------------------------------------------
+function decorAt(wx,wy){ for(let i=level.decor.length-1;i>=0;i--){ const d=level.decor[i], n=d[2];
+  if(n==="rock_mass"){ if(wx>=+d[0]-+d[3]/2&&wx<=+d[0]+ +d[3]/2&&wy>=+d[1]&&wy<=+d[1]+ +d[4]) return i; continue; }
+  if(!manifest.pieces[n]) continue;
+  const p=sz(n), [tx,ty]=decorTL(d);
+  if(wx>=tx&&wx<=tx+p.w&&wy>=ty&&wy<=ty+p.h) return i; } return -1; }
+function solidAt(wx,wy){ for(let i=level.solids.length-1;i>=0;i--){ const s=level.solids[i];
+  if(wx>=+s[0]&&wx<=+s[0]+ +s[2]&&wy>=+s[1]&&wy<=+s[1]+ +s[3]) return i; } return -1; }
+function rectFromDrag(){ const a=drag.start,b=drag.now, x=snapV(Math.min(a[0],b[0])), y=snapV(Math.min(a[1],b[1]));
+  return {x,y,w:Math.max(TILE,snapV(Math.abs(a[0]-b[0]))), h:Math.max(TILE,snapV(Math.abs(a[1]-b[1])))}; }
+
+// ---- history ---------------------------------------------------------------
+function snap0(){ history.push(JSON.stringify(level)); if(history.length>120)history.shift(); }
+function undo(){ if(!history.length)return; level=JSON.parse(history.pop()); sel=null; syncMeta(); draw(); }
+
+// ---- interaction -----------------------------------------------------------
+cv.addEventListener("contextmenu",e=>e.preventDefault());
+cv.addEventListener("mousedown",e=>{ const [wx,wy]=toW(e.offsetX,e.offsetY);
+  if(e.button===1||tool==="pan"||(tool==="select"&&e.button===2)){
+    drag={mode:"pan",sx:e.offsetX,sy:e.offsetY,px:view.panX,py:view.panY}; return; }
+  if(tool==="place"&&active){ snap0(); placeAt(wx,wy); drag={mode:"paint"}; return; }
+  if(tool==="cliff"){ drag={mode:"cliff",start:[wx,wy],now:[wx,wy]}; return; }
+  if(tool==="spawn"){ snap0(); level.spawn=[snapV(wx),snapV(wy)]; draw(); return; }
+  if(tool==="finish"){ snap0(); level.finish=[snapV(wx),snapV(wy),48,112]; draw(); return; }
+  if(tool==="select"){ const di=decorAt(wx,wy);
+    if(di>=0){ sel={list:"decor",i:di}; snap0(); const d=level.decor[di]; drag={mode:"moveD",dx:wx-d[0],dy:wy-d[1]}; }
+    else { const si=solidAt(wx,wy);
+      if(si>=0){ sel={list:"solids",i:si}; snap0(); const s=level.solids[si]; drag={mode:"moveS",dx:wx-+s[0],dy:wy-+s[1]}; }
+      else sel=null; } draw(); return; }
+  if(tool==="erase"){ const di=decorAt(wx,wy);
+    if(di>=0){ snap0(); level.decor.splice(di,1); } else { const si=solidAt(wx,wy);
+      if(si>=0){ snap0(); level.solids.splice(si,1); } } sel=null; draw(); return; }
+});
+window.addEventListener("mousemove",e=>{ const r=cv.getBoundingClientRect();
+  hover=toW(e.clientX-r.left,e.clientY-r.top);
+  if(!drag){ if(tool==="place") draw(); return; }
+  if(drag.mode==="pan"){ view.panX=drag.px-(e.clientX-r.left-drag.sx)/view.zoom;
+    view.panY=drag.py-(e.clientY-r.top-drag.sy)/view.zoom; draw(); return; }
+  const [wx,wy]=hover;
+  if(drag.mode==="paint"){ placeAt(wx,wy,true); return; }
+  if(drag.mode==="moveD"&&sel){ const d=level.decor[sel.i]; d[0]=snapV(wx-drag.dx); d[1]=snapV(wy-drag.dy); draw(); return; }
+  if(drag.mode==="moveS"&&sel){ const s=level.solids[sel.i]; s[0]=snapV(wx-drag.dx); s[1]=snapV(wy-drag.dy); draw(); return; }
+  if(drag.mode==="cliff"){ drag.now=[wx,wy]; draw(); return; }
+});
+window.addEventListener("mouseup",()=>{ if(drag&&drag.mode==="cliff"){ const r=rectFromDrag();
+  if(r.w>=TILE&&r.h>=TILE){ snap0(); level.solids.push([r.x,r.y,r.w,Math.max(r.h,60)]); } } drag=null; draw(); });
+function placeAt(wx,wy,dragging){ const p=sz(active);
+  if(standable(active)){ const x=snapV(wx-p.w/2), y=snapV(wy);
+    if(dragging&&level.solids.length&&sameXY(level.solids.at(-1),x,y)) return;
+    level.solids.push([x,y,Math.round(p.w),24,active]); }
+  else { const x=snapV(wx), y=snapV(wy);
+    if(dragging&&level.decor.length){ const d=level.decor.at(-1); if(d[0]===x&&d[1]===y&&d[2]===active) return; }
+    const e=[x,y,active]; if(placeAngle) e.push(((placeAngle%360)+360)%360); level.decor.push(e); } draw(); }
+function sameXY(s,x,y){ return +s[0]===x&&+s[1]===y; }
+cv.addEventListener("wheel",e=>{ e.preventDefault(); const [wx,wy]=toW(e.offsetX,e.offsetY);
+  view.zoom=Math.max(.15,Math.min(5,view.zoom*(e.deltaY<0?1.1:1/1.1)));
+  const [nx,ny]=toW(e.offsetX,e.offsetY); view.panX+=wx-nx; view.panY+=wy-ny; draw(); },{passive:false});
+
+window.addEventListener("keydown",e=>{ if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA") return;
+  const k=e.key.toLowerCase();
+  if((e.ctrlKey||e.metaKey)&&k==="z"){ e.preventDefault(); undo(); return; }
+  if((k==="delete"||k==="backspace")&&sel){ snap0(); (sel.list==="decor"?level.decor:level.solids).splice(sel.i,1); sel=null; draw(); return; }
+  if(sel&&k.startsWith("arrow")){ e.preventDefault(); snap0(); const d=e.shiftKey?TILE:1;
+    const o=sel.list==="decor"?level.decor[sel.i]:level.solids[sel.i];
+    if(k==="arrowleft")o[0]=+o[0]-d; if(k==="arrowright")o[0]=+o[0]+d;
+    if(k==="arrowup")o[1]=+o[1]-d; if(k==="arrowdown")o[1]=+o[1]+d; draw(); return; }
+  if(k==="["||k==="]"){ const step=(e.shiftKey?5:15)*(k==="["?-1:1);
+    if(sel&&sel.list==="decor"){ snap0(); const d=level.decor[sel.i];
+      const a=(((+d[3]||0)+step)%360+360)%360; if(a) d[3]=a; else d.length=3; }
+    else { placeAngle=((placeAngle+step)%360+360)%360; } draw(); return; }
+  const map={p:"place",v:"select",e:"erase",c:"cliff",s:"spawn",f:"finish",h:"pan"}; if(map[k]) setTool(map[k]);
+  if(k==="g"){ showGrid=!showGrid; document.getElementById("grid").classList.toggle("on",showGrid); draw(); } });
+
+// ---- palette ---------------------------------------------------------------
+function buildPalette(){ const side=document.getElementById("side"); side.innerHTML=""; const seen=new Set();
+  const add=(t,list)=>{ const real=list.filter(n=>manifest.pieces[n]); if(!real.length) return;
+    const h=document.createElement("h3"); h.textContent=t; side.appendChild(h);
+    const gg=document.createElement("div"); gg.className="pal"; real.forEach(n=>{ seen.add(n); gg.appendChild(thumb(n)); }); side.appendChild(gg); };
+  for(const k in GROUPS) add(k,GROUPS[k]); add("Other",Object.keys(manifest.pieces).filter(n=>!seen.has(n))); }
+function thumb(name){ const c=document.createElement("div"); c.className="cell"; c.dataset.name=name;
+  const tc=document.createElement("canvas"); tc.width=56; tc.height=44; const gx=tc.getContext("2d"); gx.imageSmoothingEnabled=false;
+  const im=IMG[name]; if(im&&im.width){ const s=Math.min(52/im.width,40/im.height), w=im.width*s, h=im.height*s; gx.drawImage(im,(56-w)/2,(44-h)/2,w,h); }
+  const s=document.createElement("span"); s.textContent=name; c.appendChild(tc); c.appendChild(s);
+  c.onclick=()=>{ active=name; setTool("place"); document.querySelectorAll(".cell").forEach(e=>e.classList.toggle("sel",e.dataset.name===name)); updateStat(); };
+  return c; }
+
+// ---- import / export -------------------------------------------------------
+document.getElementById("imp").onchange=e=>{ const id=e.target.value; if(!id) return;
+  fetch(LEVELS+id+".json").then(r=>r.json()).then(L=>{ snap0(); importLevel(L); draw();
+    document.getElementById("stat").textContent="imported "+id+" — "+level.solids.length+" solids, "+level.decor.length+" decor"; })
+  .catch(()=>alert("could not fetch "+id)); e.target.value=""; };
+function importLevel(L){ level=Object.assign(blank(), L);
+  level.solids=(L.solids||[]).map(s=>s.slice()); level.decor=(L.decor||[]).map(d=>d.slice());
+  level.spawn=(L.spawn||[120,648]).slice(); level.finish=(L.finish||[2280,536,48,112]).slice();
+  level.ground=L.ground||null; sel=null; syncMeta();
+  // frame the level
+  view.zoom=Math.max(.15,Math.min(.9,(cv.width-40)/Math.max(level.width,600))); view.panX=-30; view.panY=(level.horizon||648)-140; }
+function syncMeta(){ const v=(id,val)=>document.getElementById(id).value=val;
+  v("mw",level.width); v("mfy",level.fall_y); v("mh",level.horizon); v("mid",level.id||"painted_level"); v("mtitle",level.title||"Painted Level"); }
+function exportLevel(){ const gv=id=>document.getElementById(id).value;
+  const out=Object.assign({}, level, { id:gv("mid"), title:gv("mtitle"), theme:"magic_cliffs",
+    width:parseFloat(gv("mw"))||level.width, fall_y:parseFloat(gv("mfy"))||level.fall_y,
+    horizon:parseFloat(gv("mh"))||level.horizon });
+  if(!out.ground) delete out.ground; return out; }
+
+const io=document.getElementById("io");
+document.getElementById("ioBtn").onclick=()=>{ io.classList.add("show"); document.getElementById("json").value=JSON.stringify(exportLevel(),null,1); };
+document.getElementById("ioClose").onclick=()=>io.classList.remove("show");
+document.getElementById("copy").onclick=()=>{ const t=document.getElementById("json"); t.value=JSON.stringify(exportLevel(),null,1); t.select(); document.execCommand("copy"); };
+document.getElementById("dl").onclick=()=>{ const b=new Blob([JSON.stringify(exportLevel(),null,1)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=(document.getElementById("mid").value||"level")+".json"; a.click(); };
+document.getElementById("loadBox").onclick=()=>{ try{ snap0(); importLevel(JSON.parse(document.getElementById("json").value)); io.classList.remove("show"); draw(); }catch(err){ alert("Bad JSON: "+err.message); } };
+
+// ---- ui --------------------------------------------------------------------
+function setTool(t){ tool=t; document.querySelectorAll(".tool").forEach(b=>b.classList.toggle("on",b.dataset.tool===t)); updateStat(); }
+document.querySelectorAll(".tool").forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
+document.getElementById("snap").onclick=e=>{ snap=!snap; e.target.classList.toggle("on",snap); };
+document.getElementById("grid").onclick=e=>{ showGrid=!showGrid; e.target.classList.toggle("on",showGrid); draw(); };
+document.getElementById("undo").onclick=undo;
+["mw","mfy","mh"].forEach(id=>document.getElementById(id).oninput=()=>{ level.width=parseFloat(document.getElementById("mw").value)||level.width;
+  level.fall_y=parseFloat(document.getElementById("mfy").value)||level.fall_y; level.horizon=parseFloat(document.getElementById("mh").value)||level.horizon; draw(); });
+function updateStat(){
+  const selAng = sel&&sel.list==="decor" ? (+level.decor[sel.i][3]||0) : 0;
+  const tilt = (tool==="place"&&active&&!standable(active)&&placeAngle) ? "  ·  tilt "+placeAngle+"°"
+             : selAng ? "  ·  tilt "+selAng+"°" : "";
+  document.getElementById("stat").textContent =
+    tool.toUpperCase()+(active&&tool==="place"?"  ·  "+active+(standable(active)?" (platform)":" (decor)"):"")+tilt+(hover?"   ("+Math.round(hover[0])+", "+Math.round(hover[1])+")":"");
+  document.getElementById("counts").textContent = level.solids.length+" solids · "+level.decor.length+" decor";
+  document.getElementById("hint").textContent = { place:"Click to place · drag to lay a run · [ ] tilt (Shift = 5°) · standable pieces become platforms",
+    select:"Click to move · [ ] tilt · Delete removes · arrows nudge (Shift = grid)", erase:"Click to remove",
+    cliff:"Drag a rectangle = a grassed cliff (collision + generated rock)", spawn:"Click the start point",
+    finish:"Click the bottom-left of the exit flag", pan:"Drag to pan · wheel to zoom" }[tool]; }
+window.addEventListener("resize",()=>{ resize(); draw(); });
+</script>
+</body>
+</html>

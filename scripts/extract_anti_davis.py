@@ -58,7 +58,7 @@ OUT_DIR = os.path.normpath(os.path.join(
 
 # Davis is drawn 73 px tall in the pack, and the CC0 street enemies are 50 px.
 # Side by side at native size he towers over them, so everything he and the
-# props are made of is resampled by this factor on the way out: 73 -> 55, a head
+# props are made of is sized by this factor on the way out: 73 -> 55, a head
 # taller than an enemy, which is the relationship a protagonist wants.
 #
 # Only the cast scales. The level geometry and the movement tuning are left
@@ -66,10 +66,29 @@ OUT_DIR = os.path.normpath(os.path.join(
 # the level simply reads as roomier around a smaller cast — which is the space
 # walking enemies need anyway.
 #
-# LANCZOS because LF2's art is painted and already anti-aliased (145 colours in
-# one idle frame), so it resamples like a small photograph. Crisp indie pixel
-# art would not survive this and must never be put through it.
+# LANCZOS is the filter if any of this is ever resampled again: LF2's art is
+# painted and already anti-aliased (145 colours in one idle frame), so it takes
+# a resize like a small photograph. Crisp indie pixel art would not survive that
+# and must never be put through it. Nothing is resampled now — see TEXTURE_SCALE.
 SCALE = 0.75
+
+# The sheets are written at the pack's own resolution and never resampled.
+#
+# SCALE used to shrink the texture as well as the geometry, which threw a
+# quarter of the detail away before the screen had its say — and the screen
+# magnifies. The game runs a 960x540 viewport in a 1280x720 window, a 4/3
+# magnification, and 0.75 x 4/3 is exactly 1: a pack pixel lands on one screen
+# pixel. Shrinking the texture too made it 4/3 of a three-quarter-size sheet
+# instead, and TEXTURE_FILTER_NEAREST turned that into visibly blocky edges.
+#
+# So SCALE is a world measurement and TEXTURE_SCALE is a resolution one. Leave
+# this at 1.0 unless the pack itself changes size.
+TEXTURE_SCALE = 1.0
+
+# What a sprite node must be scaled by to turn a texture pixel into a world
+# unit. Published in the manifest so that nothing which draws this art has to
+# know either number above.
+RENDER_SCALE = SCALE / TEXTURE_SCALE
 
 CELL_W = CELL_H = 79
 GUTTER = 1
@@ -104,6 +123,19 @@ LOCOMOTION = {
     # dizzy loop (226-229) and two stagger-backward pairs (222-225); this is the
     # one that reads as a single blow landing rather than as a daze.
     "hurt":  {"ids": [220, 221],        "fps": 9.0,  "loop": False},
+    # Hit by fire. LF2 draws the burn as four frames and in two halves: 203-204
+    # is the body tumbling inside the flame and 205-206 is the same body
+    # burning where it landed. Both dragons breathe, so the game needs both
+    # halves — the sprite picks between them on whether his feet are down
+    # rather than on the clock, so the fire settles on him as he lands.
+    #
+    # One strip and not two, so the four frames are one sequence with one
+    # timing. 7 fps runs it in 0.57 s, the same shape as the `death` tumble it
+    # stands in for, and the last frame holds for the rest of DOWN_TIME.
+    #
+    # The pack also has `ice` (200-202) and `tired` (207), which nothing in
+    # this game can inflict. Left in the sheet.
+    "burn":  {"ids": [203, 204, 205, 206], "fps": 7.0, "loop": False},
     # Carrying something heavy: held overhead, and he walks rather than runs.
     # LF2 uses the same four frames standing still and moving, so this doubles
     # as the carry idle by holding its first frame.
@@ -157,7 +189,15 @@ BALL_ANIM = {
 # LF2 draws the final lying frame sunk below its origin, because there the body
 # is still travelling. Here the player dies in place, so the corpse is lifted to
 # rest on the ground line instead of sinking into the floor.
-ADJUST = {184: (0, -13)}
+#
+# The two grounded burn frames need the same treatment the other way round. LF2
+# gives all four `fire` frames the standing centre, which leaves 205-206 — the
+# body burning where it landed — floating 16 px over the ground line while the
+# standing frames' feet sit exactly on it. Measured, not guessed: every frame's
+# lowest opaque row against ORIGIN[1] is what these numbers are. The airborne
+# pair (203-204) is left alone; it is 9 px up because it is in the air, which is
+# where the falling frames it stands in for are too.
+ADJUST = {184: (0, -13), 205: (0, 16), 206: (0, 16)}
 
 _sheets = {}
 
@@ -262,8 +302,17 @@ def sc_hits(hits):
     return [{"damage": h["damage"], "rect": sc(h["rect"])} for h in hits]
 
 
-def scaled_cell(out_size):
-    return (round(out_size[0] * SCALE), round(out_size[1] * SCALE))
+def tex(value):
+    """Scale a number, point or rect from the pack's pixels to the texture's.
+    Only the cell and the origin come through here — they address the sheet, not
+    the world. Everything the game measures in world units goes through sc()."""
+    if isinstance(value, (list, tuple)):
+        return [tex(v) for v in value]
+    return round(value * TEXTURE_SCALE, 3)
+
+
+def texture_cell(out_size):
+    return (round(out_size[0] * TEXTURE_SCALE), round(out_size[1] * TEXTURE_SCALE))
 
 
 def write_strip(path, tiles, out_size):
@@ -272,8 +321,11 @@ def write_strip(path, tiles, out_size):
         strip.paste(src, (i * out_size[0] + dx, dy), src)
     # Resized as one strip rather than per cell: resampling each frame alone
     # rounds its edges independently and the character jitters between frames.
-    cw, ch = scaled_cell(out_size)
-    strip = strip.resize((cw * len(tiles), ch), Image.LANCZOS)
+    # At TEXTURE_SCALE 1.0 there is nothing to resize and the pack's own pixels
+    # are written straight out.
+    cw, ch = texture_cell(out_size)
+    if (cw, ch) != (out_size[0], out_size[1]):
+        strip = strip.resize((cw * len(tiles), ch), Image.LANCZOS)
     strip.save(path)
 
 
@@ -298,8 +350,12 @@ def main():
     table = frames_table()
     manifest = {
         "_generated_by": "scripts/extract_anti_davis.py",
-        "cell": list(scaled_cell(OUT)), "origin": sc(list(ORIGIN)),
-        "ball_cell": list(scaled_cell(BALL_OUT)), "ball_origin": sc(list(BALL_ORIGIN)),
+        # cell and origin address the texture, in its own pixels; render_scale
+        # takes a texture pixel to a world unit. Every other number below is
+        # already in world units.
+        "render_scale": round(RENDER_SCALE, 6),
+        "cell": list(texture_cell(OUT)), "origin": tex(list(ORIGIN)),
+        "ball_cell": list(texture_cell(BALL_OUT)), "ball_origin": tex(list(BALL_ORIGIN)),
         "animations": {}, "ball": {},
     }
 

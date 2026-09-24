@@ -24,9 +24,14 @@ func steps(n: int) -> void:
 func shot(label: String) -> void:
 	await RenderingServer.frame_post_draw
 	var frame := root.get_texture().get_image()
-	var origin: Vector2 = game.camera.position - Vector2(320, 180)
-	var at: Vector2 = (game.player.position - origin) * 2.0
-	var box := Rect2i(int(at.x) - 150, int(at.y) - 210, 320, 250)
+	## World point to screen pixel: back off to the camera's top-left corner, then
+	## apply the canvas magnification the 960x540 viewport gets in a 1280x720 window.
+	var origin: Vector2 = game.camera.position - Game.VIEW_HALF
+	var at: Vector2 = (game.player.position - origin) * (1280.0 / 960.0)
+	## Framed on a character 73 px tall on screen. These were 150/210/320/250
+	## when the canvas was magnified 2x and he stood 110 px; two thirds of each
+	## keeps every shot framed exactly as it was.
+	var box := Rect2i(int(at.x) - 100, int(at.y) - 140, 213, 167)
 	box = box.intersection(Rect2i(Vector2i.ZERO, frame.get_size()))
 	if box.size.x <= 0 or box.size.y <= 0:
 		print("skipped " + label + ": player off screen")

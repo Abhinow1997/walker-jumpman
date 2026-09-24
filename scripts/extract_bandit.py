@@ -51,7 +51,15 @@ PALETTE = 0          # 0 = red bandana, 1 = teal
 ## There is no .dat with this rip, so the convention is used directly and every
 ## frame is checked against it below.
 ORIGIN = (39, CELL)
+
+## World size, and only world size. See the long note on SCALE and TEXTURE_SCALE
+## in scripts/extract_anti_davis.py — both extractors must agree on these or the
+## bandit and the player stop being to the same scale.
 SCALE = 0.75
+## The sheet is written at the rip's own resolution and never resampled: 0.75 of
+## world size against the viewport's 4/3 magnification is exactly 1:1 on screen.
+TEXTURE_SCALE = 1.0
+RENDER_SCALE = SCALE / TEXTURE_SCALE
 
 ## LF2 pic indices. Read off the sheet rather than taken on faith — render
 ## scripts and the checks below both exist because the bandit's template is
@@ -70,6 +78,19 @@ ANIMS = {
               "hold": [0.100, 0.200, 0.120]},
     "hurt":  {"pics": [36, 37, 31, 34], "loop": False,
               "hold": [0.100, 0.100, 0.140, 0.500]},
+    # The jump: rising, then falling. These are the only two pics on the whole
+    # sheet whose feet leave the floor line, which is what the check in main()
+    # asserts - a grounded pose cannot be substituted for one of them by
+    # accident. 63 has the legs swept back under him, 64 the knees up in front,
+    # the same pair the player's own rise and fall are drawn from.
+    "jump":  {"pics": [63, 64],         "loop": False,
+              "hold": [0.300, 0.300]},
+    # The guard. 60 is LF2's defend - arms in, weight back - and 61 its
+    # broken-defend, the moment it gives. enemy.gd shows one or the other by
+    # hand rather than playing the run: frame 0 while the guard holds, frame 1
+    # on the blow that empties it.
+    "guard": {"pics": [60, 61],         "loop": False,
+              "hold": [0.300, 0.250]},
 }
 
 ## Index into punch's pics, not an LF2 pic: the frame with the arm out.
@@ -85,6 +106,17 @@ HIT_DAMAGE = 20
 ## ORIGIN. Re-checked every run so a different rip cannot silently leave the hit
 ## box pointing at empty air.
 ARM_EXPECTED = (39, -43, -33)
+## A jump frame has to be drawn in the air. Every grounded pose on these rips
+## plants its feet 1 px above the floor line; the airborne ones sit 8 to 13 px
+## clear, so this tells them apart with room to spare and a re-rip that shifts
+## the grid fails loudly instead of leaving him sliding along the ground.
+AIRBORNE_CLEAR = 5
+## And the mirror of it: a guard is a stance, so its feet are ON the floor line
+## like every other grounded pose. Cheap, and it catches the same regrid that
+## AIRBORNE_CLEAR does, from the other side.
+GUARD_PLANTED = 2
+
+
 
 
 def load_sheet():
@@ -129,6 +161,14 @@ def sc(value):
     return round(value * SCALE, 3)
 
 
+def tex(value):
+    """Pack pixels to texture pixels. Only the cell and the origin, which
+    address the sheet rather than the world."""
+    if isinstance(value, (list, tuple)):
+        return [tex(v) for v in value]
+    return round(value * TEXTURE_SCALE, 3)
+
+
 def main():
     sheet = load_sheet()
     if sheet.size != (PITCH * COLS_PER_SHEET * 2, PITCH * ROWS_PER_SHEET * 2):
@@ -136,11 +176,14 @@ def main():
                  % (sheet.size, (PITCH * COLS_PER_SHEET * 2, PITCH * ROWS_PER_SHEET * 2)))
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    out_cell = (round(CELL * SCALE), round(CELL * SCALE))
+    out_cell = (round(CELL * TEXTURE_SCALE), round(CELL * TEXTURE_SCALE))
     manifest = {
         "_generated_by": "scripts/extract_bandit.py",
         "_source": "Little Fighter 2 Bandit (ripped sheet, unlicensed fan content)",
-        "cell": list(out_cell), "origin": sc(list(ORIGIN)), "faces": 1,
+        # cell and origin address the texture; render_scale takes a texture
+        # pixel to a world unit. The hit box and reach below are already world.
+        "render_scale": round(RENDER_SCALE, 6),
+        "cell": list(out_cell), "origin": tex(list(ORIGIN)), "faces": 1,
         "hit_frame": HIT_FRAME, "hit_rect": sc(HIT_RECT), "hit_damage": HIT_DAMAGE,
         "animations": {},
     }
@@ -155,14 +198,37 @@ def main():
         for i, tile in enumerate(tiles):
             strip.paste(tile, (i * CELL, 0), tile)
         # Resized as one strip, not per cell: resampling each frame alone rounds
-        # its edges independently and the character jitters between frames.
-        strip = strip.resize((out_cell[0] * len(tiles), out_cell[1]), Image.LANCZOS)
+        # its edges independently and the character jitters between frames. At
+        # TEXTURE_SCALE 1.0 there is nothing to resize.
+        if out_cell != (CELL, CELL):
+            strip = strip.resize((out_cell[0] * len(tiles), out_cell[1]), Image.LANCZOS)
         strip.save(os.path.join(OUT_DIR, "%s.png" % name))
         manifest["animations"][name] = {
             "file": "%s.png" % name, "frames": len(tiles),
             "loop": spec["loop"], "durations": spec["hold"],
         }
         print("%-6s %d frame(s) from pics %s" % (name, len(tiles), spec["pics"]))
+
+    for n in ANIMS["jump"]["pics"]:
+        box = pic(sheet, n).getbbox()
+        if box is None:
+            sys.exit("jump: pic %d is empty" % n)
+        clear = ORIGIN[1] - (box[3] - 1)
+        if clear < AIRBORNE_CLEAR:
+            sys.exit("jump: pic %d has its feet %d px off the floor line, needs %d "
+                     "- that is a standing pose, not an airborne one"
+                     % (n, clear, AIRBORNE_CLEAR))
+        print("jump   pic %d clears the floor line by %d px" % (n, clear))
+
+    for n in ANIMS["guard"]["pics"]:
+        box = pic(sheet, n).getbbox()
+        if box is None:
+            sys.exit("guard: pic %d is empty" % n)
+        clear = ORIGIN[1] - (box[3] - 1)
+        if clear > GUARD_PLANTED:
+            sys.exit("guard: pic %d has its feet %d px off the floor line - that is "
+                     "an airborne pose, not a stance" % (n, clear))
+        print("guard  pic %d stands on the floor line" % n)
 
     arm = arm_extent(pic(sheet, ANIMS["punch"]["pics"][HIT_FRAME]))
     if arm is None:
