@@ -95,10 +95,6 @@ Two bars sit in the top corner. Health is the green one and **you start on all o
 
 Neither bar snaps. Both slide to their new level over about a third of a second, while the number beside them changes at once — so a hit or a blast is something you watch land, and the slow refill is visible as movement rather than a figure that is quietly different next time you look.
 
-![First Steps in play: the health and mana bars, the level caption, and the first gap](evidence/screens/storyboard-10-playing.png)
-
-*First Steps, a few seconds after the opening ends. Health is full at 100, mana starts at 60, and the level names itself in the corner.*
-
 ## The opening
 
 NEW JOURNEY plays a cold open before the level: four storyboard panels against

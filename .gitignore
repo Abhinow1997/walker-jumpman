@@ -48,10 +48,12 @@ credentials/
 # it accumulated to 90 reports and 79 PNGs before this rule existed.
 #
 # build-manifest.json and screens/ used to be excepted, because the manifest is
-# the deliverable and screens/ is linked from README.md. They are not any more:
-# the folder is generated output and the rule is now the whole folder, with no
-# corner of it tracked. The cost is paid in the README — its gameplay
-# screenshot does not render on GitHub off a clone that has never run a
-# capture, and the manifest's hashes name files the repository does not carry.
-# Regenerate both before a release rather than committing them.
+# the deliverable and screens/ is linked from README.md. The rule is now the
+# whole folder, with exactly one exception: evidence/screens/title-01-new-journey.png
+# is tracked, force-added past this rule with `git add -f`, because it is the
+# README's title image and GitHub renders only what the repository carries. A
+# file already tracked is not re-ignored, so it stays tracked without an
+# unignore rule — do not "tidy" it out. Everything else here is regenerated
+# before a release rather than committed, including the manifest, whose hashes
+# name files no fresh clone carries.
 evidence/
