@@ -8,6 +8,8 @@ Built on the `walker-jumpman` starter, rebuilt as a Little Fighter 2–style
 hack-and-slash crossed with a platformer. Four levels, an opening cutscene with
 recorded narration, three kinds of enemy and two boss fights.
 
+**▶ [Watch the gameplay recording](https://northeastern-my.sharepoint.com/:v:/g/personal/gangurde_a_northeastern_edu/IQDO9wMrkFdCTZviPp21xJroAfd-io9MefBzNcI4GRw95o4?e=jQvlwQ)** — hosted on Northeastern SharePoint; opening it asks for a Northeastern sign-in.
+
 ## The story
 
 The Holocene earthquakes broke the world and shattered it into pieces. The old maps
