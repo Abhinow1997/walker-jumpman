@@ -11,15 +11,37 @@ recorded narration, three kinds of enemy and two boss fights.
 ## The story
 
 The Holocene earthquakes broke the world and shattered it into pieces. The old maps
-called this place Earth; the old maps are underwater now. What is left floats.
+called this place Earth; the old maps are underwater now. What is left floats — and
+what floats, you keep.
 
-You have held one ledge on those floating isles for years — no war, no wound, just
-salt off the water and the old stones humming to themselves. Then something explodes
-out over the sea. You know every sound these isles can make, and that is not one of
-them.
+You have been the warden of these isles for years, holding one ledge against nothing
+worse than weather — no war, no wound, just salt off the water and the old stones
+humming to themselves. Then something explodes out over the sea. You know every sound
+these isles can make, and that is not one of them.
 
 *"So whatever just woke up out there… you should have slept a LITTLE longer. I've had
 years to get bored."*
+
+So you go and look. Out past the crumbling coast and the bandits working it, to the
+archway at the far end of the isles — and what is waiting under it is a drake, which
+is not something these islands have ever had. You put it down. It does not die: it
+gets up, takes to the wing, and runs.
+
+*"It's running away — and the only way off these floating isles is up."*
+
+So you climb. Seven screens of rock with the sea underneath, up to the roost at the
+top of the world, where the drake has gone to ground and something older has come
+looking for it. The Dragon Lord finds his own blood hurt, wants someone to answer for
+it, and settles on you.
+
+*"YOU! Pathetic human, this island warden. I will shatter your bones just as I have
+shattered many such pitiful worlds."*
+
+Two dragons, one ledge, and the same job you have held all along. Put both of them
+down and the Dragon Lord leaves the way everything leaves these isles — on the wing,
+promising to come back for it. You tell him exactly where you will be.
+
+*"…and I will be waiting right here at my fragmented islands, demon!"*
 
 ## The course
 
