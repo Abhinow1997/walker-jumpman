@@ -243,6 +243,9 @@ func _build_world() -> void:
 			foe.health_override = int(tuned[foe.kind])
 		if hits.has(foe.kind):
 			foe.damage_override = int(hits[foe.kind])
+		# Whether a beaten flyer leaves the level or stays on the deck. The
+		# flight out is The Fractured Isles' ending; see `departs` in enemy.gd.
+		foe.departs = bool(level.get("boss_departs", true))
 		foe.fall_limit = float(level.fall_y)
 		foe.struck_player.connect(_on_player_struck)
 		foe.fired_arrow.connect(_on_arrow_fired)
@@ -546,6 +549,14 @@ func _sync_descent() -> void:
 ## both: the card stops the world with the body on the deck, and the dragon
 ## gets up and climbs out of the level the moment the picture is gone.
 ##
+## `after: "bosses_down"` is the same cue for a level that fights more than
+## one — The Dragon's Roost — and waits for ALL of them. `boss_down` fires on
+## the first to drop, which on that level would put the victory cards up with
+## the survivor still swinging at a player who cannot move. See _boss_fallen
+## and _bosses_all_fallen, which are deliberately two functions rather than one
+## with a flag: the isles' cue must not change behaviour because the roost
+## needed a stricter one.
+##
 ## THE CLIP DECIDES HOW LONG THE PICTURE HOLDS. A card with `audio` holds until
 ## its own clip is out, read off the stream's length, so re-rendering one
 ## longer lengthens the card and nothing here or in the level has a duration
@@ -603,6 +614,35 @@ const STORY_LINE_INK := Color(0.96, 0.97, 0.98)
 const STORY_LINE_EDGE := Color(0.0, 0.0, 0.0, 0.75)
 const STORY_LINE_SCRIM := Color(0.0, 0.0, 0.0, 0.44)
 
+## The last card in the game, which is not a subtitle over a picture.
+##
+## It used to be one: the thank-you was a `caption` in the band above, on a
+## third look at the same panel, so the last thing the game said arrived in the
+## same typography the Dragon Lord had been shouting in and then faded out. It
+## read as one more line of dialogue rather than as an ending.
+##
+## An `"end_card": true` card is laid out instead — the level's own title over
+## a rule, the thank-you under it, a credit line at the foot, all centred — and
+## the picture behind it is taken most of the way down so it is a backdrop and
+## not the subject. Nothing else about the card changes: it still holds, still
+## dissolves, still ends the level through _finish_if_the_cards_were_the_ending.
+const END_DIM := 0.97
+## How far the PANEL goes down under an end card. Not to black: the Warden on
+## his cliff should still be there behind the words, just well back.
+const END_SCRIM := Color(0.02, 0.03, 0.05, 0.84)
+const END_TITLE_SIZE := 33
+const END_THANKS_SIZE := 19
+const END_CREDIT_SIZE := 11
+## Warm rather than the subtitle's cold white: this is the one piece of text in
+## the game that is not someone speaking.
+const END_TITLE_INK := Color(0.98, 0.91, 0.74)
+const END_THANKS_INK := Color(0.93, 0.94, 0.96)
+const END_CREDIT_INK := Color(0.62, 0.66, 0.72)
+const END_RULE_INK := Color(0.98, 0.91, 0.74, 0.5)
+const END_RULE := Vector2(232.0, 2.0)
+## Gaps in the centred stack: title to rule, rule to thanks, thanks to credit.
+const END_GAPS := Vector3(16.0, 16.0, 30.0)
+
 ## Appended to, never reordered — SWAP is the panel-to-panel dissolve within one
 ## beat, added after the three that existed. See _begin_swap.
 enum Story { NONE, IN, HOLD, OUT, SWAP }
@@ -622,6 +662,14 @@ var story_art: TextureRect
 ## between panels. Idle (transparent) at every other time. See _begin_swap.
 var story_art_prev: TextureRect
 var story_line: Label
+## The end card's own furniture — see _build_end_card. Null on no level: it is
+## built with the story layer and shown only by a card that asks for it.
+var end_scrim: ColorRect
+var end_card: Control
+var end_title: Label
+var end_rule: ColorRect
+var end_thanks: Label
+var end_credit: Label
 var story_voice: AudioStreamPlayer
 
 func _make_story() -> void:
@@ -647,6 +695,17 @@ func _make_story() -> void:
 	story_layer.add_child(story_art_prev)
 	story_art = _new_story_art()
 	story_layer.add_child(story_art)
+	# Over the picture, where story_dim is under it. story_dim darkens the
+	# LEVEL so the panel reads as the screen; this darkens the PANEL so set
+	# text reads over it. Two different jobs that both look like "dim", and
+	# putting the end card's one below the art was the first thing that went
+	# wrong here — the thank-you came up over a full-brightness close-up.
+	end_scrim = ColorRect.new()
+	end_scrim.color = END_SCRIM
+	end_scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	end_scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	end_scrim.visible = false
+	story_layer.add_child(end_scrim)
 	story_line = Label.new()
 	story_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	story_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -664,11 +723,102 @@ func _make_story() -> void:
 	story_line.add_theme_stylebox_override("normal", scrim)
 	story_line.visible = false
 	story_layer.add_child(story_line)
+	_build_end_card()
 	# The card's own voice. Not the music node: that one outlives scenes on
 	# purpose and is a looping bed, and this is a clip that belongs to a level.
 	story_voice = AudioStreamPlayer.new()
 	story_layer.add_child(story_voice)
 	add_child(story_layer)
+
+func _build_end_card() -> void:
+	## The centred stack the last card is laid out in. Built once with the rest
+	## of the story layer and left hidden: every level carries the machinery and
+	## only a card that asks for it turns it on, the same way `caption` works.
+	##
+	## Laid out by hand rather than in a VBoxContainer. The three labels are
+	## different sizes and the gaps between them are a typographic decision per
+	## gap (see END_GAPS), not one uniform separation, and the whole stack has
+	## to sit optically centred — which is not the same as centring a box that
+	## happens to contain a credit line at the bottom.
+	end_card = Control.new()
+	end_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	end_card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	end_card.visible = false
+	end_title = _new_end_label(END_TITLE_SIZE, END_TITLE_INK)
+	end_rule = ColorRect.new()
+	end_rule.color = END_RULE_INK
+	end_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	end_rule.size = END_RULE
+	end_card.add_child(end_rule)
+	end_thanks = _new_end_label(END_THANKS_SIZE, END_THANKS_INK)
+	end_credit = _new_end_label(END_CREDIT_SIZE, END_CREDIT_INK)
+	story_layer.add_child(end_card)
+
+func _new_end_label(size: int, ink: Color) -> Label:
+	## One line of the end card. Full viewport width and centred, so a longer
+	## title or a two-line credit stays on the same axis as everything else
+	## instead of needing its own x.
+	var label := Label.new()
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", size)
+	label.add_theme_color_override("font_color", ink)
+	# Outlined, not scrimmed. The subtitle band is a strip over a bright
+	# picture; this sits on a screen that is nearly black, so a band would draw
+	# a rectangle nobody asked for and the outline is only there to keep the
+	# thin strokes off whatever cloud is still faintly showing through.
+	label.add_theme_color_override("font_outline_color", STORY_LINE_EDGE)
+	label.add_theme_constant_override("outline_size", 4)
+	end_card.add_child(label)
+	return label
+
+func _set_end_card(card: Dictionary) -> void:
+	## Fills and lays out the stack, or hides it for an ordinary card. The
+	## measure-then-place pass is why this is not a container: each label is
+	## sized to its own text first, the stack's total height is known only then,
+	## and the whole thing is placed from that so it is centred as a unit.
+	if not is_instance_valid(end_card):
+		return
+	var on := bool(card.get("end_card", false))
+	end_card.visible = on
+	if is_instance_valid(end_scrim):
+		end_scrim.visible = on
+	if not on:
+		return
+	var wide := VIEW_HALF.x * 2.0
+	# The level's own title unless the card names another. The Roost's title is
+	# "The Dragon's Roost" and the thing being thanked for is the whole game,
+	# so this one names it.
+	var titled := str(card.get("end_title", ""))
+	if titled == "":
+		titled = str(level.get("title", ""))
+	var lines := [titled, str(card["line"]), str(card.get("end_credit", ""))]
+	var labels := [end_title, end_thanks, end_credit]
+	var tall := 0.0
+	for i in labels.size():
+		var label: Label = labels[i]
+		label.text = str(lines[i])
+		label.visible = str(lines[i]) != ""
+		label.size = Vector2(wide, 0.0)
+		label.size = Vector2(wide, label.get_minimum_size().y)
+		if label.visible:
+			tall += label.size.y
+	end_rule.visible = end_title.visible
+	if end_rule.visible:
+		tall += END_RULE.y + END_GAPS.x + END_GAPS.y
+	if end_credit.visible:
+		tall += END_GAPS.z
+	var y := (VIEW_HALF.y * 2.0 - tall) * 0.5
+	if end_title.visible:
+		end_title.position = Vector2(0.0, y)
+		y += end_title.size.y + END_GAPS.x
+		end_rule.position = Vector2((wide - END_RULE.x) * 0.5, y)
+		y += END_RULE.y + END_GAPS.y
+	end_thanks.position = Vector2(0.0, y)
+	y += end_thanks.size.y
+	if end_credit.visible:
+		end_credit.position = Vector2(0.0, y + END_GAPS.z)
 
 func _new_story_art() -> TextureRect:
 	## One full-frame panel layer. Two of these are stacked so a same-beat
@@ -721,6 +871,13 @@ func _read_story_card(entry: Dictionary) -> Dictionary:
 		# in on the dialogue instead of after the whole thing. See The Dragon's
 		# Roost, and _begin_story / _begin_story_out, which leave the clip running.
 		"keep_audio": bool(entry.get("keep_audio", false)),
+		# The last card in the game, laid out rather than subtitled. `caption`
+		# is still the line — it is just set in the middle of the screen at
+		# END_THANKS_SIZE instead of in the band — and the two fields beside it
+		# are the title over it and the credit under. See _set_end_card.
+		"end_card": bool(entry.get("end_card", false)),
+		"end_title": str(entry.get("end_title", "")),
+		"end_credit": str(entry.get("end_credit", "")),
 		"seen": false,
 	}
 	# The clip decides the hold — less the fade it is already playing under,
@@ -854,6 +1011,41 @@ func _boss_fallen() -> bool:
 			return true
 	return false
 
+func _bosses_all_fallen() -> bool:
+	## Every boss still in the level is down and has finished falling — which is
+	## NOT what _boss_fallen answers. That one fires on the FIRST boss to drop,
+	## which is right for The Fractured Isles and wrong for The Dragon's Roost:
+	## its victory cards would come up over a fight still in progress, with the
+	## survivor hitting a player frozen behind the picture.
+	##
+	## A boss that has already climbed out of the level is gone from `enemies`
+	## rather than lingering as a beaten one, so this counts what is left and
+	## requires that at least one boss is there to count. Both conditions matter:
+	## without the first a two-boss level never resolves once one body leaves,
+	## and without the second every level with no boss at all would report its
+	## bosses beaten on the first frame.
+	## `fallen()` IS NOT THE TEST, and using it alone was a bug that lost the
+	## Roost's ending outright. For the Dragon Lord it is a bruiser's "dead and
+	## still on the deck", which stays true. For the dragon it is the narrow
+	## window between its collapse landing and its body leaving — after it has
+	## flown out, `visible` is false and `fallen()` goes back to false with it.
+	## So kill the dragon first, finish the Lord a minute later, and every boss
+	## was down while NO boss reported fallen: the cards never came.
+	##
+	## Dead and gone has to count as down. What is still worth waiting for is a
+	## body mid-collapse, because the card belongs between the fall and the
+	## leaving rather than over the drop.
+	var found := false
+	for foe in enemies:
+		if not is_instance_valid(foe) or not foe.is_boss():
+			continue
+		found = true
+		if foe.alive():
+			return false
+		if foe.visible and not foe.fallen():
+			return false
+	return found
+
 ## The loop the level plays while a boss is fighting you, named in the level
 ## file as `boss_music`. Asked for every tick rather than cued at the moment a
 ## fight starts, because that is not the only way in or out of one: dying puts
@@ -908,6 +1100,10 @@ func _story_due() -> int:
 			continue
 		if str(card["after"]) == "boss_down":
 			if _boss_fallen():
+				return i
+		elif str(card["after"]) == "bosses_down":
+			# Every boss, not the first. See _bosses_all_fallen.
+			if _bosses_all_fallen():
 				return i
 		elif player.position.x >= float(card["at"]):
 			return i
@@ -970,7 +1166,10 @@ func _begin_swap() -> void:
 	story_at = nxt
 	story_phase = Story.SWAP
 	story_clock = 0.0
-	_set_story_line(str(card["line"]))
+	# The thank-you card arrives through here, not through _begin_story: it
+	# keeps the previous card's clip, so it is a same-beat swap.
+	_set_story_line("" if bool(card.get("end_card", false)) else str(card["line"]))
+	_set_end_card(card)
 	if not bool(card.get("keep_audio", false)):
 		_play_story_clip(card["voice"])
 	_show_story()
@@ -991,7 +1190,8 @@ func _begin_story(index: int) -> void:
 	player.velocity = Vector2.ZERO
 	_freeze_world(true)
 	story_art.texture = card["tex"]
-	_set_story_line(str(card["line"]))
+	_set_story_line("" if bool(card.get("end_card", false)) else str(card["line"]))
+	_set_end_card(card)
 	story_layer.visible = true
 	# Under, not off: see Music.DUCK_DB.
 	Music.duck(get_tree(), true)
@@ -1053,15 +1253,46 @@ func _end_story() -> void:
 		# instant control comes back: the same guard set_paused keeps.
 		player.require_jump_release = true
 		player.jump_request_tick = -1000
+	_finish_if_the_cards_were_the_ending()
+
+func _finish_if_the_cards_were_the_ending() -> void:
+	## A level may end ON its last story card rather than on its flag, with
+	## `"finish_after_cutscene": true`. The Dragon's Roost does: the whole level
+	## is the boss fight, and once both bosses are beaten and the three victory
+	## cards have played there is nothing between the player and the flag but
+	## a walk across an empty arena they have already crossed. The cards ARE the
+	## ending, so the level ends on them.
+	##
+	## Deliberately narrow. It fires only when every card the level has is
+	## spent, so the cards before the fight cannot end the level on their way
+	## past, and only from PLAYING, so it cannot fire over a death or a finish
+	## that already happened. The flag is still built and still works — a level
+	## reached from LOAD GAME and replayed can be finished by walking to it in
+	## the ordinary way if the fight is skipped somehow.
+	if state != State.PLAYING or not bool(level.get("finish_after_cutscene", false)):
+		return
+	if story_cards.is_empty():
+		return
+	for card in story_cards:
+		if not bool(card["seen"]):
+			return
+	resolve_contacts(false, true)
 
 func skip_story() -> bool:
 	## Past it, and the level still starts again: skipping the picture has to
 	## leave things in the state watching it does.
 	##
 	## False when the card refuses to be skipped. `"skip": false` in the level
-	## marks one the author wants watched — both of the dragon's are — and the
-	## key is still swallowed by the caller either way, so an unskippable card
-	## cannot let escape fall through and pause the game behind its own picture.
+	## marks one the author wants watched. NO CARD SHIPPING TODAY SETS IT — every
+	## panel in the game is skippable — but the mechanism stays, because the
+	## reason it existed is still a real one: a card carrying the only story a
+	## level tells is worth watching once. That is now handled by cards playing
+	## once per visit rather than by taking the key away on the fifth attempt at
+	## the boss behind them.
+	##
+	## The key is swallowed by the caller either way, skippable or not, so a
+	## card can never let escape fall through and pause the game behind its own
+	## picture with nothing left that would start it again.
 	if story_phase == Story.NONE or story_phase == Story.OUT:
 		return false
 	if story_at >= 0 and not bool(story_cards[story_at]["skip"]):
@@ -1101,8 +1332,18 @@ func _set_story_line(line: String) -> void:
 
 func _show_story() -> void:
 	var lit := story_alpha()
-	story_dim.color.a = lit * STORY_DIM
+	# An end card takes the level further down than a talking card does — see
+	# END_DIM. The picture is still there and still dissolves, but it is a
+	# backdrop behind set text rather than the thing being looked at.
+	var ending := story_at >= 0 and bool(story_cards[story_at].get("end_card", false))
+	story_dim.color.a = lit * (END_DIM if ending else STORY_DIM)
 	story_line.modulate.a = lit
+	if is_instance_valid(end_card):
+		end_card.modulate.a = lit
+	if is_instance_valid(end_scrim):
+		# Rides the same dissolve as the panel it is covering, so the picture
+		# never flashes up bright on its way in or out.
+		end_scrim.modulate.a = lit
 	if story_phase == Story.SWAP:
 		# Panel-to-panel dissolve within one beat: the new panel fades in over the
 		# old, which is held solid behind it, so the level never shows between them.
@@ -1153,6 +1394,18 @@ func _add_bottle(bottle: Node2D, entry: Array) -> void:
 
 ## Finishing a level loads the next one in the index. Empty on the last level,
 ## where there is nothing to advance to.
+## Whether this visit is ONE LEVEL rather than the course. Set by the title's
+## PRACTICE row, which plays First Steps for its own sake.
+##
+## It exists because First Steps is on the course as well as being the practice
+## level, so "what comes after it" has two answers and the level cannot give
+## either on its own — only the row you came in by knows. NEW JOURNEY plays it
+## and carries on into the Isles; PRACTICE plays it and hands back to the title.
+## Without this the practice row was a way to start the whole game by accident.
+##
+## Checked ahead of next_level_id, so a level that HAS a next still ignores it.
+var single_level: bool = false
+
 func next_level_id() -> String:
 	var order := catalogue()
 	var i := order.find(level_id)
@@ -1164,7 +1417,73 @@ func advance_level() -> bool:
 	var next := next_level_id()
 	if next == "":
 		return false
+	_carry_bars_forward()
 	_swap_now(next)
+	return true
+
+## What the next level starts your bars on. -1 in either means "a fresh start",
+## which is what the player profile's START_HEALTH and START_MANA give.
+##
+## THE COURSE CARRIES AND THE LIST DOES NOT. Walking out of The Fractured Isles
+## on a third of a bar is a state you earned and the next level opens on it —
+## the bottles on the coast are then worth something, and a fight you scraped
+## costs you into the one after it. Picking that same level off LOAD GAME is
+## not a continuation of anything: there is no run behind it to inherit from,
+## and a level list that handed you whatever you happened to be on last time
+## would make the same pick play differently for no reason you could see.
+##
+## A RETRY RESTORES THESE, not the profile's numbers. They are what you entered
+## the level holding, so dying is never a way to refill: the level gives you
+## back exactly the run you brought into it. Same rule as a boss's max_health
+## on a retry, and for the same reason.
+var carry_health: int = -1
+var carry_mana: int = -1
+
+func _carry_bars_forward() -> void:
+	if not is_instance_valid(player):
+		return
+	carry_health = player.health
+	carry_mana = player.mana
+
+func _start_bars_fresh() -> void:
+	carry_health = -1
+	carry_mana = -1
+
+func _apply_carried_bars() -> void:
+	## Runs after reset_at, which has just put the profile's fresh numbers on
+	## the bars. -1 in either leaves them exactly where reset_at put them.
+	##
+	## Health floors at 1 rather than 0. Finishing a level on your last point
+	## is a real way to arrive and should be a frightening one; arriving dead
+	## is not a state the level has any way to play.
+	if not is_instance_valid(player):
+		return
+	if carry_health >= 0:
+		player.health = clampi(carry_health, 1, player.MAX_HEALTH)
+	if carry_mana >= 0:
+		player.mana = clampi(carry_mana, 0, player.MAX_MANA)
+
+## Where the game goes when the course runs out. project.godot boots here, and
+## boot() above is what replaced it with a session; this is that handoff run
+## backwards.
+const TITLE_SCENE := "res://ui/title.tscn"
+
+func _leave_for_title() -> bool:
+	## Hands the tree back to the title screen. Returns false when it did not,
+	## and the caller then does what finishing a level did before this existed:
+	## replays it. That fallback is the whole reason this reports a result
+	## rather than returning void — under test_mode it must NOT tear the scene
+	## down, because a suite that finishes a level goes on asserting against
+	## this session afterwards, and a version of this that quietly did nothing
+	## left the game sitting in COMPLETE with the confirm key doing nothing at
+	## all. Refusing and falling back is a state the caller can handle; a
+	## silent no-op is not.
+	if test_mode:
+		return false
+	var tree := get_tree()
+	if tree == null:
+		return false
+	tree.change_scene_to_file(TITLE_SCENE)
 	return true
 
 # --- the swap between levels -------------------------------------------------
@@ -1449,11 +1768,17 @@ static func setup_input() -> void:
 ## point — level_id is set before add_child, which is what boots straight into a
 ## level instead of into DEFAULT_LEVEL and then changing its mind one frame
 ## later. Returns the session so the caller can carry a fade across the handoff.
-static func boot(tree: SceneTree, id: String, playing: bool) -> Node2D:
+static func boot(tree: SceneTree, id: String, playing: bool,
+		single := false) -> Node2D:
 	if tree == null:
 		return null
 	var game = new()
 	game.level_id = id
+	# Before add_child for the same reason level_id is: the level it boots into
+	# may be finished before anything else gets a chance to set this, and a
+	# practice run that advanced into the Isles once is a practice run that
+	# started the game. See single_level.
+	game.single_level = single
 	var outgoing := tree.current_scene
 	tree.root.add_child(game)
 	tree.current_scene = game
@@ -1986,10 +2311,42 @@ func confirm() -> void:
 			# The list, not the course: LOAD GAME offers every level that ships.
 			var rows := listing()
 			var pick: String = rows[clampi(menu_index, 0, rows.size() - 1)]
+			# A level PICKED is a level started, not a level continued. See
+			# carry_health: the course carries your bars, the list does not.
+			_start_bars_fresh()
 			begin_swap(pick if pick != level_id else "")
 		State.COMPLETE:
-			# The last level has nowhere to advance to, so it replays instead.
-			begin_swap(next_level_id())
+			# The last level has nowhere to advance to. It used to replay, which
+			# put a player who had just finished the game back at the start of
+			# the boss level with no way out but the menu. It hands back to the
+			# title screen instead: the course is over, and the title is where
+			# the next thing — practice, the level list, quit — is chosen from.
+			# Only the END OF THE COURSE goes back to the title. A level with no
+			# next is not the same thing as the last level: everything picked off
+			# LOAD GAME that is not on the course also leads nowhere, and the
+			# greybox fixture leads nowhere either. Those still replay, which is
+			# what finishing a level you chose deliberately should do.
+			# Whatever is left of your bars goes with you into the next level.
+			# Captured here and not in _swap_now, because the swap may fade
+			# first and the player is rebuilt on the other side of it.
+			_carry_bars_forward()
+			# PRACTICE is one level, not the start of the course. First Steps
+			# has a next and is not allowed to take it on this route — see
+			# single_level, which is why this is tested before next_level_id.
+			#
+			# It never falls through to the advance. _leave_for_title refuses
+			# under test_mode, and an early version of this let that refusal
+			# drop into begin_swap(next_level_id()) — so practice advanced into
+			# the Isles, which is the exact thing the flag exists to stop.
+			# Replaying is the right answer to "cannot reach the title": it is
+			# still one level.
+			if single_level:
+				if not _leave_for_title():
+					begin_swap("")
+				return
+			if not (next_level_id() == "" and catalogue().has(level_id)
+					and _leave_for_title()):
+				begin_swap(next_level_id())
 		State.PAUSED:
 			set_paused(false)
 

@@ -548,6 +548,41 @@ func run() -> void:
 	check("the-last-level-cannot-advance", not game.advance_level(),
 		{"level_id": game.level_id})
 
+	# --- PRACTICE is one level, not the course --------------------------------
+	# First Steps opens the course AND is the practice level, so the row you came
+	# in by is the only thing that knows what follows its flag. NEW JOURNEY
+	# carries on into the Isles; PRACTICE hands back to the title. Without the
+	# flag the practice row was a second, quieter way to start the whole game.
+	Game._catalogue = shipped
+	await fresh("first_steps")
+	game.start_session()
+	await steps(2)
+	check("practice-plays-a-level-that-does-have-a-next",
+		game.next_level_id() == "fractured_isles" and not game.single_level,
+		{"next": game.next_level_id(), "single": game.single_level})
+	# Off the course by the flag alone, and the level it is standing on is
+	# unchanged: finishing it advances, exactly as NEW JOURNEY does.
+	game.resolve_contacts(false, true)
+	game.confirm()
+	await steps(2)
+	check("a-journey-run-takes-that-next",
+		game.level_id == "fractured_isles",
+		{"level_id": game.level_id})
+	# Now the same flag and the same level, and the confirm must NOT land on the
+	# Isles. _leave_for_title refuses under test_mode, so what it falls back to
+	# is what is asserted: it replays. An early version fell through to the
+	# advance instead, which made practice a quiet way to start the whole game.
+	await fresh("first_steps")
+	game.single_level = true
+	game.start_session()
+	await steps(2)
+	game.resolve_contacts(false, true)
+	game.confirm()
+	await steps(2)
+	check("but-a-practice-run-does-not",
+		game.level_id == "first_steps" and game.state == Game.State.PLAYING,
+		{"level_id": game.level_id, "state": game.state})
+
 	# --- picking a level from the list ---------------------------------------
 	# Loading a level, playing it, and opening the menu highlights the row you are
 	# actually standing in. Shown on the last course level, which chains to nothing
@@ -959,6 +994,14 @@ func run() -> void:
 	# picked by current_track(), which is asked every tick rather than cued
 	# once — the next block leans on that.
 	await steps(2)
+	#
+	# `loop.track` is a LABEL, and a silent boss fight used to pass this:
+	# decisive_battle.wav is not in the repository (see
+	# godot/audio/PROVENANCE.md), load() returned null, and cue() went on to
+	# set the name on a player with no stream. Green test, no music. cue() now
+	# clears the label when the load fails, so this check tells the truth
+	# without needing another clause — and it FAILS until that file is back,
+	# which is correct: nothing is playing under the fight.
 	check("the-fight-brings-its-own-track-in",
 		game.current_track() == str(game.level.boss_music)
 		and str(loop.track) == str(game.level.boss_music)
@@ -1227,11 +1270,16 @@ func run() -> void:
 
 	# --- what the last fight is worth ---------------------------------------
 	# Two bosses back to back, so their numbers are set against each other and
-	# not one at a time. The Lord is the wall — 1500, twenty-five clean hits of
+	# not one at a time. The Lord is the wall — 1275, twenty-one clean hits of
 	# the jumped kick at 60, the biggest bar in the game — and the dragon over
-	# him is 1140, nineteen, set BY THE LEVEL rather than by the kind. Two
-	# 1500s back to back would make the last level longer than the one before
+	# him is 969, sixteen, set BY THE LEVEL rather than by the kind. Two
+	# 1275s back to back would make the last level longer than the one before
 	# it rather than harder.
+	#
+	# Both were cut 15% from 1500 and 1140 in one pass, which is why neither is
+	# a round number now. The ratio between them is what was tuned and it is
+	# unchanged; these pins are here to catch a change that moves one without
+	# the other.
 	await fresh("dragons_roost")
 	game.start_session()
 	await steps(2)
@@ -1243,16 +1291,16 @@ func run() -> void:
 			if foe.is_flyer():
 				roost_wyrm = foe
 	check("the-last-fight-is-a-wall-and-a-harasser",
-		int(worth.get("dragon_lord", 0)) == 1500
-		and int(worth.get("dragon", 0)) == 1140
-		and int(game.level.enemy_health["dragon"]) == 1140,
+		int(worth.get("dragon_lord", 0)) == 1275
+		and int(worth.get("dragon", 0)) == 969
+		and int(game.level.enemy_health["dragon"]) == 969,
 		{"health": worth, "level_says": game.level.enemy_health})
 	# max_health and not health, so a retry — which puts every enemy back on
 	# its feet — puts the same bar back rather than the profile's.
 	var _cut: bool = roost_wyrm.take_hit(600, game.player.global_position)
 	roost_wyrm.reset()
 	check("and-a-retry-puts-that-same-bar-back",
-		roost_wyrm.health == 1140 and roost_wyrm.max_health == 1140,
+		roost_wyrm.health == 969 and roost_wyrm.max_health == 969,
 		{"health": roost_wyrm.health, "max": roost_wyrm.max_health})
 
 	# And the same kind is the profile's own number on the level that fights it
@@ -1266,7 +1314,7 @@ func run() -> void:
 			isles_wyrm = foe
 	check("and-the-isles-dragon-is-untouched-by-it",
 		isles_wyrm.max_health == int(Enemy.PROFILES["dragon"]["health"])
-		and isles_wyrm.max_health == 1500
+		and isles_wyrm.max_health == 1275
 		and not Game.level_data("fractured_isles").has("enemy_health"),
 		{"isles": isles_wyrm.max_health,
 		 "profile": Enemy.PROFILES["dragon"]["health"]})
@@ -1343,29 +1391,36 @@ func run() -> void:
 	game.player.position = Vector2(card_x + 24.0, 660.0)
 	game.player.velocity = Vector2.ZERO
 	await steps(6)
-	check("the-card-is-up-and-refuses-to-be-skipped",
+	# EVERY CARD IS SKIPPABLE NOW. These two were `"skip": false` and the two
+	# checks under this one asserted that a key could not get past them — the
+	# argument being that four and ten seconds is little to ask and what they
+	# carry is the only story the level tells. That is still true of a first
+	# playthrough and false of every one after it: a player who has seen the
+	# card and is on their fifth attempt at the boss behind it is being held,
+	# not told a story. The keys are still SWALLOWED, which is the separate
+	# guarantee below and the one that actually matters here.
+	check("the-card-is-up-and-can-be-skipped",
 		game.story_running() and not cut.engaged
-		and not bool(game.story_cards[0]["skip"])
-		and not bool(game.story_cards[1]["skip"]),
+		and bool(game.story_cards[0]["skip"])
+		and bool(game.story_cards[1]["skip"]),
 		{"running": game.story_running(),
 		 "skip": [game.story_cards[0]["skip"], game.story_cards[1]["skip"]]})
-	var pressed_at: float = game.story_alpha()
-	for action in ["jump", "confirm", "pause"]:
-		game._unhandled_input(_press(action))
+	check("and-skip_story-says-so-and-does-it",
+		game.skip_story(),
+		{"running_after": game.story_running()})
+	# Escape reaches the card and goes no further. A pause that fell through
+	# would stop the game behind the picture with no key left to start it
+	# again, and that is true whether or not the card lets itself be skipped.
+	game._unhandled_input(_press("pause"))
 	await steps(2)
-	check("space-enter-and-escape-do-not-get-past-it",
-		game.story_running() and game.state == Game.State.PLAYING
-		and not game.player.enabled and game.story_alpha() >= pressed_at,
-		{"running": game.story_running(), "state": game.state,
-		 "enabled": game.player.enabled, "alpha": game.story_alpha()})
-	check("and-skip_story-says-so-rather-than-doing-it",
-		not game.skip_story() and game.story_running(),
-		{"skipped": not game.story_running()})
+	check("and-escape-does-not-pause-the-game-behind-it",
+		game.state == Game.State.PLAYING,
+		{"state": game.state, "running": game.story_running()})
 	for i in range(1200):
 		await steps(1)
 		if not game.story_running():
 			break
-	check("it-hands-the-level-back-when-it-is-good-and-ready",
+	check("it-hands-the-level-back-and-wakes-the-boss-either-way",
 		not game.story_running() and game.player.enabled
 		and game.state == Game.State.PLAYING and not Music.ducked
 		and cut.engaged,
@@ -1416,7 +1471,7 @@ func run() -> void:
 		elif foe.kind == "dragon":
 			roost_flyer = foe
 	check("the-roost-holds-two-dragon-lord-panels",
-		game.story_cards.size() == 2
+		game.story_cards.size() == 5
 		and str(game.level.cutscene[0].panel) == "dragon_lord_fight_start"
 		and str(game.level.cutscene[1].panel) == "dragon_lord_fight_start_2"
 		and str(game.level.cutscene[0].audio) == "dragon_lord_fight"
@@ -1424,6 +1479,86 @@ func run() -> void:
 		{"cards": game.story_cards.size(),
 		 "panels": [str(game.level.cutscene[0].panel), str(game.level.cutscene[1].panel)],
 		 "audio": str(game.level.cutscene[0].get("audio", ""))})
+	# --- and three more after it --------------------------------------------
+	# The fight is bracketed now: two panels walking in, three on the way out.
+	# All three wait on `bosses_down` rather than `boss_down`, which is the
+	# whole point of that cue existing — this is the only level where the two
+	# are not the same thing, and the first boss to drop must not bring the
+	# victory cards up over a fight still running.
+	check("and-three-cards-after-the-fight",
+		game.story_cards.size() == 5
+		and str(game.level.cutscene[2].panel) == "dragon_lord_defeated_1"
+		and str(game.level.cutscene[3].panel) == "dragon_lord_defeated_2"
+		and str(game.level.cutscene[4].panel) == "dragon_lord_defeated_2"
+		and game.story_cards[2]["tex"] != null
+		and game.story_cards[3]["tex"] != null
+		and game.story_cards[4]["tex"] != null,
+		{"panels": [str(game.level.cutscene[2].panel),
+					str(game.level.cutscene[3].panel),
+					str(game.level.cutscene[4].panel)]})
+	check("and-every-one-of-them-waits-for-both-bosses",
+		str(game.story_cards[2]["after"]) == "bosses_down"
+		and str(game.story_cards[3]["after"]) == "bosses_down"
+		and str(game.story_cards[4]["after"]) == "bosses_down"
+		and str(game.story_cards[0]["after"]) == ""
+		and str(game.story_cards[1]["after"]) == "",
+		{"after": [str(game.story_cards[2]["after"]),
+				   str(game.story_cards[3]["after"]),
+				   str(game.story_cards[4]["after"])]})
+	# One clip across the first two, exactly as the opening pair does it, and
+	# the thank-you card carries no audio at all — the narration is finished by
+	# the time it comes up.
+	check("the-defeat-narration-is-pinned-across-the-two-of-them",
+		game.story_cards[2]["voice"] != null
+		and not bool(game.story_cards[2]["keep_audio"])
+		and bool(game.story_cards[3]["keep_audio"])
+		and game.story_cards[4]["voice"] == null
+		and float(game.story_cards[2]["hold"]) + float(game.story_cards[3]["hold"])
+			>= game.story_cards[2]["voice"].get_length() - 0.5,
+		{"clip": game.story_cards[2]["voice"].get_length() if game.story_cards[2]["voice"] != null else -1.0,
+		 "holds": [float(game.story_cards[2]["hold"]), float(game.story_cards[3]["hold"])]})
+	# Every card in the game is skippable, these three included. The thank-you
+	# card was the first one to be, on the grounds that holding a player who
+	# has just finished is a poor thank-you; the same argument turned out to
+	# apply to all of them on the second attempt at a boss, so it was taken
+	# everywhere rather than kept as this card's exception.
+	check("every-card-after-the-fight-can-be-skipped",
+		bool(game.story_cards[4]["skip"])
+		and bool(game.story_cards[2]["skip"])
+		and bool(game.story_cards[3]["skip"])
+		and str(game.story_cards[4]["line"]).to_lower().contains("thank"),
+		{"line": game.story_cards[4]["line"],
+		 "skip": [bool(game.story_cards[2]["skip"]), bool(game.story_cards[3]["skip"]),
+				  bool(game.story_cards[4]["skip"])]})
+	# And it is the one card in the game that is SET rather than subtitled. It
+	# used to be a third caption over a third look at the same panel, which
+	# read as one more line of the Lord's dialogue instead of as an ending.
+	# The flag is what separates the two layouts — see _set_end_card — and no
+	# other card in the game carries it.
+	var ending: Array = []
+	for id in shipped_ids:
+		for entry in Array(Game.level_data(id).get("cutscene", [])):
+			if bool(entry.get("end_card", false)):
+				ending.append(id)
+	check("the-last-card-is-the-only-set-one",
+		bool(game.story_cards[4]["end_card"])
+		and not bool(game.story_cards[3]["end_card"])
+		and not bool(game.story_cards[0]["end_card"])
+		and ending == ["dragons_roost"],
+		{"levels_with_an_end_card": ending,
+		 "flags": [bool(game.story_cards[3]["end_card"]),
+				   bool(game.story_cards[4]["end_card"])]})
+	# The three lines it is built from. The title is the GAME's, not the
+	# level's — this level is called The Dragon's Roost and what is being
+	# thanked for is the whole thing — so it is named on the card and the
+	# level-title fallback in _set_end_card is not what runs here.
+	check("and-it-names-the-game-and-credits-the-pack",
+		str(game.story_cards[4]["end_title"]) == "THE FRACTURED ISLES"
+		and str(game.story_cards[4]["end_title"]) != str(game.level.title)
+		and str(game.story_cards[4]["end_credit"]).contains("xDeviruchi"),
+		{"title": game.story_cards[4]["end_title"],
+		 "level_title": game.level.title,
+		 "credit": game.story_cards[4]["end_credit"]})
 	# Both panels are spoken over, so both carry a subtitle. The isles' second
 	# card has none — it is a picture of the dragon leaving and there is nobody
 	# left to talk over it — but this beat is an exchange, and the lines are
@@ -1451,7 +1586,7 @@ func run() -> void:
 	# And the fight has its own battle track, cued the moment it starts and gone
 	# again once both bosses are down.
 	check("the-roost-fight-has-its-own-music",
-		str(game.level.get("boss_music", "")) == "dragon_lord_fight"
+		str(game.level.get("boss_music", "")) == "decisive_battle"
 		and str(game.level.get("music", "")) == "magic_cliffs",
 		{"boss_music": str(game.level.get("boss_music", "")),
 		 "music": str(game.level.get("music", ""))})
@@ -1624,6 +1759,9 @@ func run() -> void:
 	# track in cue() now, not once when the node is built.
 	Music.cue(self, "decisive_battle")
 	await steps(2)
+	# This one also fails while decisive_battle.wav is missing, and for the same
+	# reason as the fight check above: there is no node to put a trim on if the
+	# cue could not load anything. Restoring the file turns both green.
 	check("cueing-it-puts-the-trim-on-the-node",
 		music.track == "decisive_battle"
 		and absf(music.volume_db - Music._level_db("decisive_battle")) < 0.01,
@@ -1635,9 +1773,7 @@ func run() -> void:
 	check("and-going-back-to-the-bed-takes-it-off",
 		absf(music.volume_db - Music.LEVEL_DB) < 0.01,
 		{"volume": music.volume_db})
-	# Every track a boss fights to has to be one the mixer has an opinion about.
-	# The two levels named the same one until the Roost's had to be swapped for
-	# a clip that is actually in the repository — see TRIM in music.gd.
+	# Both levels with a boss name the same track, so one trim covers the game.
 	var fights: Array = []
 	for id in shipped_ids:
 		var named := str(Game.level_data(id).get("boss_music", ""))
@@ -1784,6 +1920,42 @@ func run() -> void:
 	await steps(2)
 	check("a-climb-says-so", game.climbing and not game.level.get("gates", []),
 		{"climbing": game.climbing, "gates": game.level.get("gates", []).size()})
+
+	# Its opening card. Every other story card in the game is a walk-in with a
+	# positive `at`, so this is the one that proves `at: 0` works: the cue is
+	# compared against x and a climb has no run of x to place one along, so
+	# the picture has to land on the first frame he is on his feet or never.
+	# test_mode collapses the card to its effect, so this checks the beat —
+	# capture_climb_card.gd is the one that shoots the picture.
+	check("the-climb-opens-on-its-card",
+		game.story_cards.size() == 1
+		and game.story_cards[0]["tex"] != null
+		and is_equal_approx(float(game.story_cards[0]["at"]), 0.0)
+		and float(game.story_cards[0]["at"]) <= float(game.level.spawn[0]),
+		{"cards": game.story_cards.size(), "at": game.story_cards[0]["at"],
+		 "spawn_x": game.level.spawn[0],
+		 "panel": game.story_cards[0]["tex"] != null})
+	check("and-it-is-seen-without-him-taking-a-step",
+		bool(game.story_cards[0]["seen"])
+		and is_equal_approx(game.player.position.x, float(game.level.spawn[0])),
+		{"seen": game.story_cards[0]["seen"], "x": game.player.position.x})
+	# Two clips on one card, which only this one and the isles' first card do:
+	# the narration plays over the picture and sets the hold, and the dragon
+	# REPLACES it as the card dissolves (_begin_story_out) so it carries out
+	# over the level. The tail deliberately outlasts the card — it is still
+	# going while he starts up the tower — so the hold must not be pinned to
+	# it, only to the narration.
+	check("the-climb-card-narrates-then-hands-over-to-the-dragon",
+		game.story_cards[0]["voice"] != null
+		and game.story_cards[0]["tail"] != null
+		and game.story_cards[0]["voice"] != game.story_cards[0]["tail"]
+		and is_equal_approx(float(game.story_cards[0]["hold"]),
+			maxf(2.6, float(game.story_cards[0]["voice"].get_length()) - 0.7))
+		and float(game.story_cards[0]["tail"].get_length())
+			> float(game.story_cards[0]["voice"].get_length()),
+		{"narration": snappedf(game.story_cards[0]["voice"].get_length(), 0.01),
+		 "tail": snappedf(game.story_cards[0]["tail"].get_length(), 0.01),
+		 "hold": game.story_cards[0]["hold"]})
 
 	# One screen wide, so the camera has nothing left to do horizontally. This
 	# is what the whole design rests on and it is a consequence of `width`

@@ -13,32 +13,44 @@ The art has one of these per folder; this is the one for the ears.
 
 The 96-second loop the pack ships. The title screen, First Steps, The Fractured
 Isles and The Dragon's Roost all name it, which is what makes NEW JOURNEY
-seamless — see `game/music.gd`. **The only piece of audio here with a settled
-licence.**
+seamless — see `game/music.gd`. **Settled licence**, as is the boss track
+below; the storyboard clips are the ones still outstanding.
 
 ## decisive_battle.wav
 
 | | |
 |---|---|
 | Script | `scripts/extract_boss_music.py` |
-| Source | `Assests/xDeviruchi - Decisive Battle.wav`, added by the author 2026-09-20 |
-| Origin | **Not established.** See Rights below. |
+| Source | `xDeviruchi - Decisive Battle.wav`, track 9 of *xDeviruchi — 8-Bit Fantasy & Adventure Music (2021)* |
+| Origin | **CC BY-SA 4.0** — Marllon Silva (xDeviruchi). Commercial use permitted. Attribution requested, not required. |
 
-The loop that takes over while the dragon is fighting — `boss_music` on The
-Fractured Isles, cued by `current_track()` in `game/session.gd`. 120 s,
-44.1 kHz stereo.
+The loop that takes over while the dragon is fighting — `boss_music` on both
+The Fractured Isles and The Dragon's Roost, cued by `current_track()` in
+`game/session.gd`. 120 s, 44.1 kHz stereo. One battle theme for the game: the
+Dragon Lord is the last boss on the same coast and he fights to the same track
+the dragon does.
 
-**It is not in this repository, and that is a bug in this table rather than a
-choice.** `.gitignore` ignores `*.wav` and grants no exception for
-`godot/audio/` the way it does one line earlier for `*.mp3`, so only the
-`.import` beside it was ever committed; `Assests/` is outside the clone, so
-`extract_boss_music.py` cannot put it back on a fresh machine either. What a
-clone gets is `music.gd` warning and leaving the coast loop playing under both
-boss fights. The Dragon's Roost has been moved onto `dragon_lord_fight.mp3`
-below as a stand-in; The Fractured Isles still names this and is still silent
-of a battle track without it. Producing the `.ogg` with the command below
-fixes both and needs no `.gitignore` change — `.ogg` is deliberately not
-ignored.
+**It went missing from the repository once and is now tracked.** `.gitignore`
+ignored `*.wav` and granted no exception for `godot/audio/` the way it does one
+line earlier for `*.mp3`, so only the `.import` beside it was ever committed.
+Every clone therefore reached **both** boss fights with no battle track at all
+— and not even the coast loop, because `ResourceLoader.exists()` is satisfied
+by the `.import` alone, so `cue()` got past its guard, `load()` returned null
+and that null was assigned: the fights ran in silence. `tests/diag_battle_music.gd`
+printed `stream=<none> playing=false` across the whole fight. The test suite
+missed it because `the-fight-brings-its-own-track-in` compared the track NAME
+and nothing else, and the name was set on a player with no stream.
+
+Three things changed as a result, and all three matter more than the file
+coming back: `!godot/audio/*.wav` now excepts it, `cue()` leaves the current
+track playing when a load fails instead of assigning null, and it clears the
+name so the test compares something real.
+
+**The loop turns at 116.033 s, not at the end of the file.** The pack is built
+Intro / Loop / End and ships the points in *READ THIS FIRST.pdf*, Tables 1 and
+2; Decisive Battle is "Loop, End", beginning 0, final 116.033. The last four
+seconds of the 120.18 s file are a closing tag meant to finish the piece, not
+to run back into the top of it. `LOOP_END` in `game/music.gd` holds the number.
 
 **It plays 8 dB above the other tracks**, and that is a mastering difference
 rather than a preference. Its file peaks at -2.0 dBFS and averages -14.9; the
@@ -58,49 +70,63 @@ it to something Python's stdlib `wave` can write would be worse than the file
 size. One command fixes it:
 
 ```
-ffmpeg -i "Assests/xDeviruchi - Decisive Battle.wav" -q:a 5 \
+ffmpeg -i "xDeviruchi - Decisive Battle.wav" -q:a 5 \
     godot/audio/decisive_battle.ogg
 ```
 
 and nothing else changes: `music.gd` looks for the `.ogg` first, and the
 extractor deletes the wav once the ogg is beside it. Godot's importer already
 compresses the wav to 4.1 MB of QOA for the build, so what ships is not as bad
-as what is checked in.
+as what is checked in. Doing this also lets `!godot/audio/*.wav` come back out
+of `.gitignore` — the exception exists only because the wav is currently the
+only copy there is.
 
 ### Rights
 
-xDeviruchi publishes chiptune packs for game use, and this track is from one of
-them. **The file arrived here on its own** — no readme, no licence, no pack
-around it. Several of those packs are free with attribution and at least one is
-CC0; which this one is has not been established, and "probably fine" is not a
-licence. It goes on the credits screen with the other unresolved items and it
-is on the release checklist beside the LF2 sprites and the dragon pack.
+**Settled.** This was an open release-blocker for as long as the file had
+arrived on its own — no readme, no licence, no pack around it — and "probably
+fine" is not a licence. The pack it came from has since been produced intact,
+and its manual (*READ THIS FIRST.pdf*, §2 Licensing and copyright) says so
+directly: every file in *8-Bit Fantasy & Adventure Music (2021)* is released
+under **Attribution-ShareAlike 4.0 International**, usable in commercial and
+non-commercial projects alike. The one prohibition is redistributing the music
+*as music* — hosting the files for download, or reselling them as an OST —
+which is not what shipping a game that plays them is.
 
-## dragon_lord_fight.mp3
+Credits are explicitly **not mandatory**; the author asks for one line and
+would like it. Take him up on it:
 
-A storyboard clip — see below — doing a second job. It is the audio under The
-Dragon's Roost's two walk-in panels, and since the wav above went missing it is
-also that level's `boss_music`. ~22 s, 128 kbps, and `music.gd` loops it
-(`AudioStreamMP3.loop`, set by the caller because the `.import` has
-`loop=false` for its one-shot use).
+> music by Marllon Silva (a.k.a) xDeviruchi
 
-**This is a stand-in and it should be replaced.** It is speech with a bed under
-it, not a battle theme; it is a fifth the length of the track it replaced; and
-the player hears it as dialogue in the cutscene immediately before the fight
-loops it. Its `TRIM` entry is `0.0` because nobody has measured it — the `+8`
-above belongs to the xDeviruchi master and not to this render. Point
-`boss_music` in `godot/levels/dragons_roost.json` back at `decisive_battle`
-once that file exists.
+Struck off the release checklist. The LF2 sprites and the dragon pack are
+still on it.
 
 ## The storyboard clips
 
 `storyboard_scene_1.mp3`, `dragon_fight_start.mp3`, `dragon_fight_end.mp3`,
-`dragon_lord_fight.mp3` and
-`dragon_roar.mp3` are all copied in by `scripts/extract_storyboard.py` from
+`dragon_lord_fight.mp3`, `climb_start.mp3`, `dragon_lord_defeated.mp3` and
+`dragon_roar.mp3` are all copied
+in by `scripts/extract_storyboard.py` from
 `Assests/Storyboard/`. They are the author's own renders — generated, the same
 provenance category as the title screen and the HUD plates, and not
 attributable the way the CC0 packs are. See `godot/ui/art/PROVENANCE.md`, which
 covers them alongside the pictures they play under.
+
+`climb_start.mp3` is the narration over The Climb's opening card (source
+`climb-background.mp3`, 4.83 s). That card is the one place in the game where
+two clips meet: the narration is its `audio` and `dragon_fight_end` is its
+`out_audio`, so the dragon's clip takes over as the picture dissolves and runs
+on over the level. See `cutscene_note` in `godot/levels/the_climb.json`.
+
+`dragon_lord_defeated.mp3` is the exchange after the final fight (source
+`final-fight-background.mp3`, 13.479 s) — the Dragon Lord swearing he will
+return and the Warden answering him. One clip pinned across two cards, cut at
+6.9 s. **That cut point is measured but not verified:** `tests/diag_speech.gd`
+finds seven runs of sound in the clip and the two candidate speaker changes,
+at 7.28 and 8.46, sit behind gaps of 0.80 s and 0.82 s — too close to tell
+apart on energy. See `cutscene_note` in `godot/levels/dragons_roost.json` for
+which one was chosen and why, and for the single number to change if it is
+wrong.
 
 One thing carries over from there: **where the opening voice-over's background
 bed came from is not recorded**, and that is a third thing to clear before
